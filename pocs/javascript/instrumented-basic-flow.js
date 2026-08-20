@@ -7,6 +7,11 @@ const {
   TraceRecorder,
 } = require("./trace-recorder");
 
+const {
+  reconstructAllStates,
+  reconstructState,
+} = require("./state-reconstructor");
+
 const SOURCE_FILE = "fixtures/basic-flow.js";
 
 const recorder = new TraceRecorder({
@@ -373,6 +378,13 @@ recorder.end({
 
 const trace = recorder.getTrace();
 
+const replayStates = reconstructAllStates(trace.events);
+const firstLoopConditionState = reconstructState(
+  trace.events,
+  7
+);
+const reconstructedFinalState = replayStates.at(-1);
+
 assert.deepEqual(numbers, [4, 8, 12]);
 assert.equal(total, 24);
 assert.equal(trace.eventCount, 50);
@@ -382,5 +394,36 @@ assert.equal(
   EVENT_TYPES.PROGRAM_END
 );
 
+assert.equal(replayStates.length, 50);
+assert.equal(firstLoopConditionState.step, 7);
+assert.equal(firstLoopConditionState.variables.total.value, 0);
+assert.deepEqual(
+  firstLoopConditionState.arrays.numbers.values,
+  [2, 4, 6]
+);
+
+assert.equal(reconstructedFinalState.step, 49);
+assert.equal(reconstructedFinalState.status, "completed");
+assert.equal(reconstructedFinalState.variables.total.value, 24);
+assert.equal(reconstructedFinalState.variables.index.value, 3);
+assert.deepEqual(
+  reconstructedFinalState.variables.numbers.value,
+  [4, 8, 12]
+);
+assert.deepEqual(
+  reconstructedFinalState.arrays.numbers.values,
+  [4, 8, 12]
+);
+assert.equal(reconstructedFinalState.callStack.length, 0);
+assert.equal(reconstructedFinalState.output.length, 2);
+
 console.log("Trace validation passed.");
 console.log(`Trace events: ${trace.eventCount}`);
+console.log("Full trace reconstruction passed.");
+console.log(`Replay states: ${replayStates.length}`);
+console.log(
+  `Step 7 total: ${firstLoopConditionState.variables.total.value}`
+);
+console.log(
+  `Step 49 total: ${reconstructedFinalState.variables.total.value}`
+);
