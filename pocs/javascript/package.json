@@ -1,0 +1,16 @@
+{
+  "name": "@codeflow/javascript-poc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CodeFlow Visualizer JavaScript tracing proof of concept",
+  "type": "commonjs",
+  "scripts": {
+    "test:automatic": "node automatic-tracer/tests/automatic-adapter.test.js"
+  },
+  "dependencies": {
+    "@babel/generator": "^7.28.0",
+    "@babel/parser": "^7.28.0",
+    "@babel/traverse": "^7.28.0",
+    "@babel/types": "^7.28.0"
+  }
+}
