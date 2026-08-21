@@ -1,0 +1,112 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="64"
+  height="64"
+  viewBox="0 0 64 64"
+  fill="none"
+>
+  <defs>
+    <linearGradient
+      id="backgroundGradient"
+      x1="6"
+      y1="5"
+      x2="59"
+      y2="60"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop stop-color="#172435" />
+
+      <stop
+        offset="1"
+        stop-color="#0A111A"
+      />
+    </linearGradient>
+
+    <linearGradient
+      id="codeGradient"
+      x1="13"
+      y1="17"
+      x2="51"
+      y2="47"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop stop-color="#86F3C7" />
+
+      <stop
+        offset="1"
+        stop-color="#55D5A0"
+      />
+    </linearGradient>
+
+    <filter
+      id="softGlow"
+      x="-25%"
+      y="-25%"
+      width="150%"
+      height="150%"
+    >
+      <feGaussianBlur
+        stdDeviation="1.5"
+        result="blur"
+      />
+
+      <feMerge>
+        <feMergeNode in="blur" />
+
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect
+    x="2"
+    y="2"
+    width="60"
+    height="60"
+    rx="18"
+    fill="url(#backgroundGradient)"
+  />
+
+  <rect
+    x="2.75"
+    y="2.75"
+    width="58.5"
+    height="58.5"
+    rx="17.25"
+    stroke="#70E6B2"
+    stroke-opacity="0.28"
+    stroke-width="1.5"
+  />
+
+  <path
+    d="M24 21L13 32L24 43"
+    stroke="url(#codeGradient)"
+    stroke-width="5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    filter="url(#softGlow)"
+  />
+
+  <path
+    d="M40 21L51 32L40 43"
+    stroke="url(#codeGradient)"
+    stroke-width="5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    filter="url(#softGlow)"
+  />
+
+  <path
+    d="M36 18L28 46"
+    stroke="#A991FF"
+    stroke-width="4"
+    stroke-linecap="round"
+  />
+
+  <circle
+    cx="50"
+    cy="14"
+    r="4"
+    fill="#70E6B2"
+  />
+</svg>

@@ -9,6 +9,9 @@
     "pnpm": ">=11.0.0"
   },
   "scripts": {
+    "dev": "pnpm --filter @codeflow/web dev",
+    "build": "pnpm --filter @codeflow/web build",
+    "preview": "pnpm --filter @codeflow/web preview",
     "test": "pnpm test:trace && pnpm test:core && pnpm test:pocs",
     "test:trace": "pnpm --filter @codeflow/execution-trace test",
     "test:core": "pnpm --filter @codeflow/visualizer-core test",
