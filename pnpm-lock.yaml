@@ -8,6 +8,8 @@ importers:
 
   .: {}
 
+  packages/execution-trace: {}
+
   pocs/javascript:
     dependencies:
       '@babel/generator':
