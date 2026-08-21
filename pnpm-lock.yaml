@@ -10,6 +10,12 @@ importers:
 
   packages/execution-trace: {}
 
+  packages/visualizer-core:
+    dependencies:
+      '@codeflow/execution-trace':
+        specifier: workspace:*
+        version: link:../execution-trace
+
   pocs/javascript:
     dependencies:
       '@babel/generator':

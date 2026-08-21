@@ -9,8 +9,9 @@
     "pnpm": ">=11.0.0"
   },
   "scripts": {
-    "test": "pnpm test:trace && pnpm test:pocs",
+    "test": "pnpm test:trace && pnpm test:core && pnpm test:pocs",
     "test:trace": "pnpm --filter @codeflow/execution-trace test",
+    "test:core": "pnpm --filter @codeflow/visualizer-core test",
     "test:pocs": "node pocs/conformance/multilanguage-conformance.test.js",
     "test:javascript-poc": "pnpm --filter @codeflow/javascript-poc test:automatic"
   }

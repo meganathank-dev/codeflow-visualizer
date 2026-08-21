@@ -1,0 +1,20 @@
+{
+  "name": "@codeflow/visualizer-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Language-independent state reconstruction and timeline playback for CodeFlow Visualizer",
+  "type": "commonjs",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node tests/visualizer-core.test.js"
+  },
+  "dependencies": {
+    "@codeflow/execution-trace": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
