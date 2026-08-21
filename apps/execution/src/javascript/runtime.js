@@ -798,6 +798,25 @@ function createJavaScriptRuntime(options = {}) {
         }
       );
 
+      if (
+        isQueueName(arrayName) &&
+        Number(index) === 0
+      ) {
+        record(
+          EVENT_TYPES.QUEUE_PEEK,
+
+          line,
+
+          {
+            name: arrayName,
+
+            value: toSerializable(value),
+
+            values: toSerializable(array)
+          }
+        );
+      }
+
       return value;
     },
 

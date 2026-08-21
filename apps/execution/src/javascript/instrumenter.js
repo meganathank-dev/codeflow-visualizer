@@ -283,7 +283,13 @@ function instrumentSource(sourceCode) {
 
         if (
           t.isCallExpression(path.node.init) &&
-          isRuntimeCall(path.node.init)
+          isRuntimeCall(path.node.init) &&
+          t.isIdentifier(
+            path.node.init.callee.property,
+            {
+              name: "declare"
+            }
+          )
         ) {
           return;
         }

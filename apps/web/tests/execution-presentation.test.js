@@ -312,6 +312,65 @@ function createSqlResult() {
   };
 }
 
+function createQueueResult(language = "javascript") {
+  const queueStates = [
+    [],
+    [],
+    ["A"],
+    ["A", "B"],
+    ["A", "B"],
+    ["B"],
+    ["B"]
+  ];
+
+  const eventTypes = [
+    "PROGRAM_START",
+    "QUEUE_CREATE",
+    "QUEUE_ENQUEUE",
+    "QUEUE_ENQUEUE",
+    "QUEUE_PEEK",
+    "QUEUE_DEQUEUE",
+    "PROGRAM_END"
+  ];
+
+  const events = eventTypes.map((type, step) => ({
+    id: `queue-event-${step}`,
+    step,
+    type,
+    source: { line: Math.max(1, step) },
+    payload: {
+      name: "taskQueue",
+      value: step === 2 ? "A" : step === 3 ? "B" : step >= 4 ? "A" : undefined,
+      values: queueStates[step]
+    }
+  }));
+
+  const states = queueStates.map((values, step) => createState(step, {
+    status: step === queueStates.length - 1 ? "completed" : "running",
+    variables: step > 0 ? { taskQueue: values } : {},
+    arrays: step > 0
+      ? {
+        ...(language === "java" ? { args: [] } : {}),
+        taskQueue: values
+      }
+      : {},
+    queues: step > 0 ? { taskQueue: values } : {}
+  }));
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: {
+      traceId: "queue-presentation-test",
+      status: "completed",
+      events
+    },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
 function runTests() {
   const presentation = createExecutionPresentation(createResult());
 
@@ -362,6 +421,19 @@ function runTests() {
     javaPresentation.steps.at(-1).variables.stack,
     [4, 8, 12]
   );
+
+  for (const language of ["javascript", "python", "java"]) {
+    const queuePresentation = createExecutionPresentation(
+      createQueueResult(language)
+    );
+
+    assert.equal(queuePresentation.steps[1].queue.name, "taskQueue");
+    assert.deepEqual(queuePresentation.steps[3].queue.values, ["A", "B"]);
+    assert.equal(queuePresentation.steps[4].queue.operation, "QUEUE_PEEK");
+    assert.deepEqual(queuePresentation.steps[5].queue.values, ["B"]);
+    assert.equal(queuePresentation.steps[5].array, null);
+    assert.deepEqual(queuePresentation.steps[5].variables.taskQueue, ["B"]);
+  }
 
   const sqlPresentation = createExecutionPresentation(createSqlResult());
   assert.equal(sqlPresentation.language, "sql");
@@ -421,6 +493,9 @@ function runTests() {
   console.log("Python presentation compatibility: passed");
   console.log("Java presentation compatibility: passed");
   console.log("Java collection presentation: passed");
+  console.log("Empty Java argument-array suppression: passed");
+  console.log("Cross-language queue presentation: passed");
+  console.log("Queue FIFO animation state: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");

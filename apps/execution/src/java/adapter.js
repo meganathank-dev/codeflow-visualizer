@@ -429,6 +429,15 @@ function emitVariableDeclare(recorder, name, variable, line, scopeId) {
         : []
     }, scopeId);
   }
+
+  if (name.toLowerCase().includes("queue")) {
+    record(recorder, EVENT_TYPES.QUEUE_CREATE, line, {
+      name,
+      values: variable.valueType === "array"
+        ? structuredClone(variable.value)
+        : []
+    }, scopeId);
+  }
 }
 
 function emitVariableUpdate(
@@ -530,9 +539,16 @@ function evaluateSimpleExpression(expression, locals) {
   return { $type: "expression", display: value };
 }
 
-function processCollectionStatement(recorder, sourceLine, line, locals, scopeId) {
+function processCollectionStatement(
+  recorder,
+  sourceLine,
+  line,
+  locals,
+  scopeId,
+  logicalQueues
+) {
   const match = sourceLine.match(
-    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|offer|pop|poll|remove)\s*\((.*?)\)\s*;/
+    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|offer|addLast|pop|poll|remove|removeFirst|peek|element)\s*\((.*?)\)\s*;/
   );
 
   if (!match) {
@@ -543,24 +559,44 @@ function processCollectionStatement(recorder, sourceLine, line, locals, scopeId)
   const lowerName = name.toLowerCase();
 
   if (lowerName.includes("stack")) {
-    if (["push", "add", "offer"].includes(method)) {
+    if (["push", "add", "offer", "addLast"].includes(method)) {
       record(recorder, EVENT_TYPES.STACK_PUSH, line, {
         name,
         value: evaluateSimpleExpression(expression, locals)
       }, scopeId);
-    } else {
+    } else if (["pop", "poll", "remove", "removeFirst"].includes(method)) {
       record(recorder, EVENT_TYPES.STACK_POP, line, { name }, scopeId);
     }
   }
 
   if (lowerName.includes("queue")) {
-    if (["add", "offer", "push"].includes(method)) {
+    const values = logicalQueues.get(name) || [];
+
+    if (["add", "offer", "addLast"].includes(method)) {
+      const value = evaluateSimpleExpression(expression, locals);
+      values.push(structuredClone(value));
+      logicalQueues.set(name, values);
+
       record(recorder, EVENT_TYPES.QUEUE_ENQUEUE, line, {
         name,
-        value: evaluateSimpleExpression(expression, locals)
+        value,
+        values: structuredClone(values)
       }, scopeId);
-    } else {
-      record(recorder, EVENT_TYPES.QUEUE_DEQUEUE, line, { name }, scopeId);
+    } else if (["poll", "remove", "removeFirst"].includes(method)) {
+      const value = values.shift();
+      logicalQueues.set(name, values);
+
+      record(recorder, EVENT_TYPES.QUEUE_DEQUEUE, line, {
+        name,
+        value,
+        values: structuredClone(values)
+      }, scopeId);
+    } else if (["peek", "element"].includes(method)) {
+      record(recorder, EVENT_TYPES.QUEUE_PEEK, line, {
+        name,
+        value: structuredClone(values[0]),
+        values: structuredClone(values)
+      }, scopeId);
     }
   }
 }
@@ -785,6 +821,7 @@ function buildJavaTrace(rawObservations, options) {
   );
 
   const frameStates = new Map();
+  const logicalQueues = new Map();
   const controlFlow = createControlFlowTracker(options.sourceLines);
   const observations = rawObservations.trim().split(/\r?\n/).filter(Boolean);
 
@@ -871,7 +908,8 @@ function buildJavaTrace(rawObservations, options) {
         options.sourceLines[frameState.lastLine - 1] || "",
         frameState.lastLine,
         frameState.locals,
-        frameState.scopeId
+        frameState.scopeId,
+        logicalQueues
       );
 
       controlFlow.observeLine(
@@ -917,7 +955,8 @@ function buildJavaTrace(rawObservations, options) {
           options.sourceLines[frameState.lastLine - 1] || "",
           frameState.lastLine,
           frameState.locals,
-          frameState.scopeId
+          frameState.scopeId,
+          logicalQueues
         );
 
         controlFlow.close(recorder, frameState.lastLine, frameState.scopeId);

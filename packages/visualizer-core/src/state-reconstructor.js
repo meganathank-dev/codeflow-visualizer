@@ -632,6 +632,9 @@ function handleQueueEvent(state, event) {
   if (event.type === EVENT_TYPES.QUEUE_DEQUEUE) {
     state.queues[name].shift();
   }
+
+  // QUEUE_PEEK is intentionally non-mutating. Keeping it in this handler
+  // ensures the queue exists while replay remains deterministic.
 }
 
 function handleFunctionEnter(state, event) {
@@ -1198,7 +1201,8 @@ function reduceExecutionEvent(previousState, event) {
 
     case EVENT_TYPES.QUEUE_CREATE:
     case EVENT_TYPES.QUEUE_ENQUEUE:
-    case EVENT_TYPES.QUEUE_DEQUEUE: {
+    case EVENT_TYPES.QUEUE_DEQUEUE:
+    case EVENT_TYPES.QUEUE_PEEK: {
       handleQueueEvent(
         state,
         event

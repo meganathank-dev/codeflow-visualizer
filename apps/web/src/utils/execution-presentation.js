@@ -216,6 +216,12 @@ function describeEvent(event, state, language) {
         description: `The first element is removed from ${name || "the queue"}.`
       };
 
+    case "QUEUE_PEEK":
+      return {
+        title: `Peek at ${name || "the queue"}`,
+        description: `${formatValue(value)} is currently at the front; the queue is not changed.`
+      };
+
     case "LOOP_START":
       return {
         title: "Enter the loop",
@@ -297,7 +303,15 @@ function selectArray(state, event) {
   const eventArray = event.payload?.arrayName || event.payload?.name;
 
   const visibleNames = Object.keys(arrays).filter(
-    (name) => !stackNames.has(name) && !queueNames.has(name)
+    (name) => (
+      !stackNames.has(name) &&
+      !queueNames.has(name) &&
+      !(
+        ["args", "argv"].includes(name.toLowerCase()) &&
+        Array.isArray(arrays[name]) &&
+        arrays[name].length === 0
+      )
+    )
   );
 
   const selectedName = visibleNames.includes(eventArray)
@@ -357,6 +371,29 @@ function selectStack(state, event) {
   return {
     name: selectedName,
     values: stacks[selectedName]
+  };
+}
+
+function selectQueue(state, event) {
+  const queues = state.queues || {};
+  const eventQueue = event.payload?.name;
+  const selectedName = Object.hasOwn(queues, eventQueue)
+    ? eventQueue
+    : Object.keys(queues)[0];
+
+  if (!selectedName || !Array.isArray(queues[selectedName])) {
+    return null;
+  }
+
+  return {
+    name: selectedName,
+    values: queues[selectedName],
+    operation: eventQueue === selectedName && event.type.startsWith("QUEUE_")
+      ? event.type
+      : null,
+    activeValue: eventQueue === selectedName
+      ? event.payload?.value
+      : undefined
   };
 }
 
@@ -486,6 +523,7 @@ export function createExecutionPresentation(result) {
       variables: selectVariables(state),
       array: selectArray(state, event),
       stack: selectStack(state, event),
+      queue: selectQueue(state, event),
       callStack: (state.callStack || []).map((frame) => ({
         name: frame.name || frame.functionName || "anonymous",
         line: frame.source?.line || line
@@ -525,6 +563,7 @@ export function createIdleExecutionStep(language = "javascript") {
     variables: {},
     array: null,
     stack: null,
+    queue: null,
     callStack: [],
     console: [],
     iteration: null,

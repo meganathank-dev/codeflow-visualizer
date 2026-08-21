@@ -401,6 +401,14 @@ function createDataStructureTrace() {
   );
 
   recorder.record(
+    EVENT_TYPES.QUEUE_PEEK,
+    {
+      name: "tasks",
+      value: "first"
+    }
+  );
+
+  recorder.record(
     EVENT_TYPES.QUEUE_DEQUEUE,
     {
       name: "tasks",
@@ -776,7 +784,17 @@ function testDataStructureReconstruction(trace) {
     ]
   );
 
-  const dequeuedQueueState = reconstructor.getStateAt(8);
+  const peekedQueueState = reconstructor.getStateAt(8);
+
+  assert.deepEqual(
+    peekedQueueState.queues.tasks,
+    [
+      "first",
+      "second"
+    ]
+  );
+
+  const dequeuedQueueState = reconstructor.getStateAt(9);
 
   assert.deepEqual(
     dequeuedQueueState.queues.tasks,

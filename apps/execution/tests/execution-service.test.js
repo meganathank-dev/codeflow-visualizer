@@ -333,6 +333,81 @@ async function testRealJavaExecution(baseUrl) {
   return execution;
 }
 
+async function testCrossLanguageQueues(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "const taskQueue = [];",
+      'taskQueue.push("A");',
+      'taskQueue.push("B");',
+      "const front = taskQueue[0];",
+      "const removed = taskQueue.shift();",
+      'console.log("Front:", front, "Removed:", removed);'
+    ].join("\n"),
+    python: [
+      "task_queue = []",
+      'task_queue.append("A")',
+      'task_queue.append("B")',
+      "front = task_queue[0]",
+      "removed = task_queue.pop(0)",
+      'print("Front:", front, "Removed:", removed)'
+    ].join("\n"),
+    java: [
+      "import java.util.ArrayDeque;",
+      "import java.util.Queue;",
+      "",
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        Queue<Integer> taskQueue = new ArrayDeque<>();",
+      "        taskQueue.offer(10);",
+      "        taskQueue.offer(20);",
+      "        int front = taskQueue.peek();",
+      "        int removed = taskQueue.poll();",
+      "        System.out.println(\"Front: \" + front + \" Removed: \" + removed);",
+      "    }",
+      "}"
+    ].join("\n")
+  };
+
+  const expectedValues = {
+    javascript: ["B"],
+    python: ["B"],
+    java: [20]
+  };
+
+  const expectedFrontValues = {
+    javascript: "A",
+    python: "A",
+    java: 10
+  };
+
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "QUEUE_CREATE",
+      "QUEUE_ENQUEUE",
+      "QUEUE_DEQUEUE",
+      "QUEUE_PEEK"
+    ]);
+
+    const queueName = language === "python" ? "task_queue" : "taskQueue";
+    const finalState = execution.states.at(-1);
+
+    assert.deepEqual(finalState.queues[queueName], expectedValues[language]);
+    assert.equal(finalState.variables.front, expectedFrontValues[language]);
+    assert.equal(finalState.variables.removed, expectedFrontValues[language]);
+
+    executions[language] = execution;
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -506,6 +581,7 @@ async function runTests() {
     const python = await testRealPythonExecution(baseUrl);
     const java = await testRealJavaExecution(baseUrl);
     const sql = await testRealSqlExecution(baseUrl);
+    const queues = await testCrossLanguageQueues(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -541,6 +617,11 @@ async function runTests() {
     console.log("SQL JOIN visualization: passed");
     console.log("SQL GROUP BY and aggregation: passed");
     console.log("SQL DISTINCT visualization: passed");
+    console.log("Cross-language queue execution: passed");
+    console.log("Queue front and removed variables: passed");
+    console.log(`JavaScript queue events: ${queues.javascript.trace.events.filter((event) => event.type.startsWith("QUEUE_")).length}`);
+    console.log(`Python queue events: ${queues.python.trace.events.filter((event) => event.type.startsWith("QUEUE_")).length}`);
+    console.log(`Java queue events: ${queues.java.trace.events.filter((event) => event.type.startsWith("QUEUE_")).length}`);
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");

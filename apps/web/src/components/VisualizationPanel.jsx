@@ -524,6 +524,145 @@ function StackVisualization({
   );
 }
 
+function QueueVisualization({
+  queue
+}) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (!queue) {
+    return null;
+  }
+
+  const occurrences = new Map();
+  const entries = queue.values.map((value, index) => {
+    const serializedValue = formatVariableValue(value);
+    const occurrence = occurrences.get(serializedValue) || 0;
+    occurrences.set(serializedValue, occurrence + 1);
+
+    return {
+      value,
+      index,
+      key: `${queue.name}-${serializedValue}-${occurrence}`
+    };
+  });
+
+  return (
+    <motion.div
+      className="visualization-card queue-card"
+      layout
+      transition={
+        shouldReduceMotion
+          ? { duration: 0 }
+          : SOFT_SPRING_TRANSITION
+      }
+    >
+      <div className="visualization-card-heading">
+        <div className="visualization-card-title">
+          <ArrowRight size={16} />
+
+          <span>Queue</span>
+        </div>
+
+        <span className="structure-name">
+          {queue.name}
+        </span>
+      </div>
+
+      <div className="queue-stage">
+        <span className="queue-edge-label queue-front-label">
+          FRONT
+        </span>
+
+        <motion.div
+          className="queue-track"
+          layout
+        >
+          <AnimatePresence
+            initial={false}
+            mode="popLayout"
+          >
+            {
+              entries.length === 0
+                ? (
+                  <motion.div
+                    className="empty-queue"
+                    key="empty-queue"
+                    initial={shouldReduceMotion ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={shouldReduceMotion ? undefined : { opacity: 0 }}
+                  >
+                    Empty queue
+                  </motion.div>
+                )
+                : entries.map(({ value, index, key }) => (
+                  <motion.div
+                    className={
+                      index === 0
+                        ? "queue-item is-front"
+                        : index === entries.length - 1
+                          ? "queue-item is-back"
+                          : "queue-item"
+                    }
+                    key={key}
+                    layout
+                    initial={
+                      shouldReduceMotion
+                        ? false
+                        : {
+                          opacity: 0,
+                          x: 24,
+                          scale: 0.88
+                        }
+                    }
+                    animate={{
+                      opacity: 1,
+                      x: 0,
+                      scale: 1
+                    }}
+                    exit={
+                      shouldReduceMotion
+                        ? undefined
+                        : {
+                          opacity: 0,
+                          x: -28,
+                          scale: 0.86
+                        }
+                    }
+                    transition={
+                      shouldReduceMotion
+                        ? { duration: 0 }
+                        : SPRING_TRANSITION
+                    }
+                  >
+                    <span className="queue-index">
+                      {index}
+                    </span>
+
+                    <span className="queue-value">
+                      {formatVariableValue(value)}
+                    </span>
+                  </motion.div>
+                ))
+            }
+          </AnimatePresence>
+        </motion.div>
+
+        <span className="queue-edge-label queue-back-label">
+          BACK
+        </span>
+      </div>
+
+      <div className="queue-flow-line">
+        <span>dequeue</span>
+        <ArrowRight size={13} />
+        <span>FIFO flow</span>
+        <ArrowRight size={13} />
+        <span>enqueue</span>
+      </div>
+    </motion.div>
+  );
+}
+
 function EventStory({
   step,
   isSql = false
@@ -754,6 +893,10 @@ function ProgramVisualization({
 
         <StackVisualization
           stack={step.stack}
+        />
+
+        <QueueVisualization
+          queue={step.queue}
         />
       </motion.div>
     </>
