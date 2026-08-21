@@ -118,6 +118,16 @@ function createJavaFixture() {
   ].join("\n");
 }
 
+function createSqlFixture() {
+  return [
+    "SELECT name, marks",
+    "FROM students",
+    "WHERE marks > 80",
+    "ORDER BY marks DESC",
+    "LIMIT 3;"
+  ].join("\n");
+}
+
 async function testHealth(baseUrl) {
   const health = await requestJson(baseUrl, "/health");
 
@@ -128,12 +138,15 @@ async function testHealth(baseUrl) {
   assert.equal(health.body.security.dedicatedJavaScriptChildProcess, true);
   assert.equal(health.body.security.dedicatedPythonChildProcess, true);
   assert.equal(health.body.security.dedicatedJavaChildProcess, true);
+  assert.equal(health.body.security.dedicatedSqlChildProcess, true);
+  assert.equal(health.body.security.privateSqlDatabase, true);
   assert.equal(health.body.security.acceptsUntrustedCode, false);
 
   assert.deepEqual(health.body.executionEnabledLanguages, [
     "javascript",
     "python",
-    "java"
+    "java",
+    "sql"
   ]);
 }
 
@@ -150,7 +163,7 @@ async function testLanguageCapabilities(baseUrl) {
   assert.equal(getLanguage("javascript").executionEnabled, true);
   assert.equal(getLanguage("python").executionEnabled, true);
   assert.equal(getLanguage("java").executionEnabled, true);
-  assert.equal(getLanguage("sql").executionEnabled, false);
+  assert.equal(getLanguage("sql").executionEnabled, true);
   assert.equal(getLanguage("sql").domain, "query");
 }
 
@@ -320,11 +333,126 @@ async function testRealJavaExecution(baseUrl) {
   return execution;
 }
 
+function assertCompletedQuery(response) {
+  assert.equal(response.status, 200);
+  assert.equal(response.body.status, "ok");
+  assert.equal(response.body.language, "sql");
+  assert.equal(response.body.executionStatus, "completed");
+
+  const trace = response.body.trace;
+  assertValidTrace(trace);
+
+  assert.equal(trace.schemaVersion, "1.0.0");
+  assert.equal(trace.domain, "query");
+  assert.equal(trace.language, "sql");
+  assert.equal(trace.events[0].type, "SQL_QUERY_START");
+  assert.equal(trace.events.at(-1).type, "SQL_QUERY_END");
+  assert.equal(response.body.states.length, trace.eventCount);
+  assert.equal(response.body.summary.eventCount, trace.eventCount);
+  assert.equal(response.body.security.dedicatedChildProcess, true);
+  assert.equal(response.body.security.privateInMemoryDatabase, true);
+  assert.equal(response.body.security.readOnlyQueries, true);
+
+  return response.body;
+}
+
+async function testRealSqlExecution(baseUrl) {
+  const response = await execute(baseUrl, "sql", createSqlFixture());
+  const execution = assertCompletedQuery(response);
+
+  assertRequiredEvents(execution.trace, [
+    "SQL_SCAN",
+    "SQL_FILTER",
+    "SQL_PROJECT",
+    "SQL_SORT",
+    "SQL_LIMIT",
+    "SQL_RESULT",
+    "OUTPUT"
+  ]);
+
+  assert.equal(
+    execution.trace.events.filter((event) => event.type === "SQL_FILTER").length,
+    5
+  );
+
+  const finalState = execution.states.at(-1);
+
+  assert.deepEqual(finalState.query.resultRows, [
+    { name: "Divya", marks: 92 },
+    { name: "Nila", marks: 88 },
+    { name: "Kavin", marks: 84 }
+  ]);
+
+  assert.equal(finalState.query.scannedRowCount, 5);
+  assert.equal(finalState.query.matchingRowCount, 3);
+  assert.equal(finalState.query.rejectedRowCount, 2);
+  assert.equal(finalState.console[0].text, "3 rows returned");
+  assert.equal(execution.summary.rowCount, 3);
+
+  return execution;
+}
+
+async function testSqlJoin(baseUrl) {
+  const query = [
+    "SELECT students.name, departments.department",
+    "FROM students",
+    "JOIN departments ON students.id = departments.student_id",
+    "WHERE students.marks > 80",
+    "ORDER BY students.marks DESC;"
+  ].join("\n");
+
+  const execution = assertCompletedQuery(await execute(baseUrl, "sql", query));
+
+  assertRequiredEvents(execution.trace, ["SQL_SCAN", "SQL_JOIN", "SQL_FILTER"]);
+
+  assert.deepEqual(execution.states.at(-1).query.resultRows, [
+    { name: "Divya", department: "CSE" },
+    { name: "Nila", department: "ECE" },
+    { name: "Kavin", department: "CSE" }
+  ]);
+}
+
+async function testSqlGroupingAndAggregation(baseUrl) {
+  const query = [
+    "SELECT department, COUNT(*) AS student_count",
+    "FROM departments",
+    "GROUP BY department",
+    "ORDER BY student_count DESC;"
+  ].join("\n");
+
+  const execution = assertCompletedQuery(await execute(baseUrl, "sql", query));
+
+  assertRequiredEvents(execution.trace, [
+    "SQL_GROUP",
+    "SQL_AGGREGATE",
+    "SQL_PROJECT",
+    "SQL_SORT"
+  ]);
+
+  assert.deepEqual(execution.states.at(-1).query.resultRows, [
+    { department: "CSE", student_count: 3 },
+    { department: "ECE", student_count: 2 }
+  ]);
+}
+
+async function testSqlDistinct(baseUrl) {
+  const query = "SELECT DISTINCT department FROM departments ORDER BY department;";
+  const execution = assertCompletedQuery(await execute(baseUrl, "sql", query));
+
+  assertRequiredEvents(execution.trace, ["SQL_DISTINCT", "SQL_SORT"]);
+
+  assert.deepEqual(execution.states.at(-1).query.resultRows, [
+    { department: "CSE" },
+    { department: "ECE" }
+  ]);
+}
+
 async function testSyntaxErrors(baseUrl) {
   for (const [language, source] of [
     ["javascript", "const = ;"],
     ["python", "def broken(:"],
-    ["java", "public class Main { public static void main(String[] args) { int value = ; } }"]
+    ["java", "public class Main { public static void main(String[] args) { int value = ; } }"],
+    ["sql", "SELECT missing_column FROM students;"]
   ]) {
     const execution = await execute(baseUrl, language, source);
 
@@ -339,23 +467,14 @@ async function testPolicyRejection(baseUrl) {
   for (const [language, source] of [
     ["javascript", "process.exit(1);"],
     ["python", "import os\nprint(os.getcwd())"],
-    ["java", "public class Main { public static void main(String[] args) { new ProcessBuilder(\"cmd\"); } }"]
+    ["java", "public class Main { public static void main(String[] args) { new ProcessBuilder(\"cmd\"); } }"],
+    ["sql", "DROP TABLE students;"],
+    ["sql", "SELECT name FROM students; DELETE FROM students;"]
   ]) {
     const execution = await execute(baseUrl, language, source);
 
     assert.equal(execution.status, 400);
     assert.equal(execution.body.error.code, "SOURCE_POLICY_VIOLATION");
-  }
-}
-
-async function testPendingLanguages(baseUrl) {
-  for (const [language, source] of [
-    ["sql", "SELECT 1"]
-  ]) {
-    const execution = await execute(baseUrl, language, source);
-
-    assert.equal(execution.status, 501);
-    assert.equal(execution.body.error.code, "EXECUTION_NOT_IMPLEMENTED");
   }
 }
 
@@ -386,11 +505,14 @@ async function runTests() {
     const javascript = await testRealJavaScriptExecution(baseUrl);
     const python = await testRealPythonExecution(baseUrl);
     const java = await testRealJavaExecution(baseUrl);
+    const sql = await testRealSqlExecution(baseUrl);
 
     await testPythonEnumerate(baseUrl);
+    await testSqlJoin(baseUrl);
+    await testSqlGroupingAndAggregation(baseUrl);
+    await testSqlDistinct(baseUrl);
     await testSyntaxErrors(baseUrl);
     await testPolicyRejection(baseUrl);
-    await testPendingLanguages(baseUrl);
     await testRequestValidation(baseUrl);
 
     const finalPythonState = python.states.at(-1);
@@ -410,6 +532,15 @@ async function runTests() {
     console.log(`Java final numbers: ${JSON.stringify(java.states.at(-1).arrays.numbers)}`);
     console.log(`Java final stack: ${JSON.stringify(java.states.at(-1).stacks.stack)}`);
     console.log(`Java final total: ${java.states.at(-1).variables.total}`);
+    console.log("Real SQL SQLite execution: passed");
+    console.log(`SQL trace events: ${sql.trace.eventCount}`);
+    console.log(`SQL scanned rows: ${sql.summary.scannedRowCount}`);
+    console.log(`SQL matching rows: ${sql.summary.matchingRowCount}`);
+    console.log(`SQL rejected rows: ${sql.summary.rejectedRowCount}`);
+    console.log(`SQL final rows: ${JSON.stringify(sql.states.at(-1).query.resultRows)}`);
+    console.log("SQL JOIN visualization: passed");
+    console.log("SQL GROUP BY and aggregation: passed");
+    console.log("SQL DISTINCT visualization: passed");
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");

@@ -955,13 +955,18 @@ function SqlVisualization({
                         )
                       );
 
+                      const isActive = index === sql.activeRowIndex;
+
+                      const rowClassName = [
+                        "sql-row",
+                        isRejected ? "is-rejected" : "",
+                        isActive ? "is-active" : "",
+                        isActive && sql.activeRowResult === true ? "is-match" : ""
+                      ].filter(Boolean).join(" ");
+
                       return (
                         <motion.tr
-                          className={
-                            isRejected
-                              ? "sql-row is-rejected"
-                              : "sql-row"
-                          }
+                          className={rowClassName}
                           key={
                             row.id ||
                             `${row.name}-${index}`
@@ -982,9 +987,13 @@ function SqlVisualization({
 
                             y: 0,
 
-                            backgroundColor: isRejected
-                              ? "rgba(255, 123, 133, 0.08)"
-                              : "rgba(255, 123, 133, 0)"
+                            backgroundColor: isActive
+                              ? sql.activeRowResult
+                                ? "rgba(112, 230, 178, 0.10)"
+                                : "rgba(255, 123, 133, 0.10)"
+                              : isRejected
+                                ? "rgba(255, 123, 133, 0.08)"
+                                : "rgba(255, 123, 133, 0)"
                           }}
                           exit={
                             shouldReduceMotion
@@ -1028,6 +1037,16 @@ function SqlVisualization({
                         </motion.tr>
                       );
                     }
+                  )
+                }
+
+                {
+                  sql.displayRows.length === 0 && (
+                    <tr className="sql-empty-row">
+                      <td colSpan={Math.max(1, sql.columns.length)}>
+                        No relational rows are available at this step.
+                      </td>
+                    </tr>
                   )
                 }
               </AnimatePresence>

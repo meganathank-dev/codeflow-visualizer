@@ -24,17 +24,23 @@ const {
   executeJava
 } = require("./java/adapter");
 
+const {
+  SqlExecutionError,
+  executeSql
+} = require("./sql/adapter");
+
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4100;
 const DEFAULT_MAX_SOURCE_BYTES = 32 * 1024;
 const DEFAULT_MAX_REQUEST_BYTES = 64 * 1024;
 const SERVICE_NAME = "codeflow-execution";
-const SERVICE_VERSION = "0.4.0";
+const SERVICE_VERSION = "0.5.0";
 
 const EXECUTION_ENABLED_LANGUAGES = Object.freeze([
   LANGUAGES.JAVASCRIPT,
   LANGUAGES.PYTHON,
-  LANGUAGES.JAVA
+  LANGUAGES.JAVA,
+  LANGUAGES.SQL
 ]);
 
 class ExecutionRequestError extends Error {
@@ -92,6 +98,8 @@ function createHealthResponse() {
       dedicatedJavaScriptChildProcess: true,
       dedicatedPythonChildProcess: true,
       dedicatedJavaChildProcess: true,
+      dedicatedSqlChildProcess: true,
+      privateSqlDatabase: true,
       productionSandboxAvailable: false,
       acceptsUntrustedCode: false,
       networkIsolationEnforced: false,
@@ -221,10 +229,15 @@ async function handleExecution(request, response, options) {
       executionRequest.source,
       options.python
     );
-  } else {
+  } else if (executionRequest.language === LANGUAGES.JAVA) {
     executionResult = await executeJava(
       executionRequest.source,
       options.java
+    );
+  } else {
+    executionResult = await executeSql(
+      executionRequest.source,
+      options.sql
     );
   }
 
@@ -280,7 +293,8 @@ function createExecutionServer(options = {}) {
       maximumRequestBytes,
       javascript: options.javascript || {},
       python: options.python || {},
-      java: options.java || {}
+      java: options.java || {},
+      sql: options.sql || {}
     }).catch((error) => {
       if (response.headersSent) {
         response.end();
@@ -291,7 +305,8 @@ function createExecutionServer(options = {}) {
         error instanceof ExecutionRequestError ||
         error instanceof JavaScriptExecutionError ||
         error instanceof PythonExecutionError ||
-        error instanceof JavaExecutionError
+        error instanceof JavaExecutionError ||
+        error instanceof SqlExecutionError
       ) {
         writeJson(response, error.statusCode, {
           status: "error",
@@ -327,8 +342,8 @@ function startExecutionServer(options = {}) {
   server.listen(port, host, () => {
     console.log(`CodeFlow execution service running at http://${host}:${port}`);
     console.log("Security mode: local trusted development only");
-    console.log("Real execution enabled: JavaScript, Python, Java");
-    console.log("Pending execution integration: SQL");
+    console.log("Real execution enabled: JavaScript, Python, Java, SQL");
+    console.log("SQL database: isolated in-memory SQLite teaching dataset");
   });
 
   return server;

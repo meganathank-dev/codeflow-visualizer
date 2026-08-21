@@ -53,7 +53,7 @@ function createMockExecutionServer() {
       writeJson(response, 200, {
         status: "ok",
         service: "codeflow-execution",
-        executionEnabledLanguages: ["javascript", "python", "java"],
+        executionEnabledLanguages: ["javascript", "python", "java", "sql"],
         security: {
           dedicatedExecutionProcess: true,
           acceptsUntrustedCode: false,
@@ -71,7 +71,7 @@ function createMockExecutionServer() {
           { id: "javascript", domain: "program", executionEnabled: true },
           { id: "python", domain: "program", executionEnabled: true },
           { id: "java", domain: "program", executionEnabled: true },
-          { id: "sql", domain: "query", executionEnabled: false }
+          { id: "sql", domain: "query", executionEnabled: true }
         ]
       });
 
@@ -81,7 +81,7 @@ function createMockExecutionServer() {
     if (request.method === "POST" && request.url === "/execute") {
       const body = await readRequestBody(request);
 
-      if (!["javascript", "python", "java"].includes(body.language)) {
+      if (!["javascript", "python", "java", "sql"].includes(body.language)) {
         writeJson(response, 501, {
           status: "error",
           error: {
@@ -92,6 +92,8 @@ function createMockExecutionServer() {
 
         return;
       }
+
+      const isSql = body.language === "sql";
 
       writeJson(response, 200, {
         status: "ok",
@@ -104,9 +106,11 @@ function createMockExecutionServer() {
             {
               id: "mock-event-0",
               step: 0,
-              type: "OUTPUT",
+              type: isSql ? "SQL_RESULT" : "OUTPUT",
               source: { line: 1 },
-              payload: { text: "Hello" }
+              payload: isSql
+                ? { columns: ["name"], rows: [{ name: "Divya" }], rowCount: 1 }
+                : { text: "Hello" }
             }
           ]
         },
@@ -114,7 +118,14 @@ function createMockExecutionServer() {
           {
             step: 0,
             variables: {},
-            console: [{ channel: "stdout", text: "Hello" }]
+            console: isSql ? [] : [{ channel: "stdout", text: "Hello" }],
+            query: isSql
+              ? {
+                currentRows: [{ name: "Divya" }],
+                resultRows: [{ name: "Divya" }],
+                columns: ["name"]
+              }
+              : undefined
           }
         ],
         summary: { eventCount: 1 }
@@ -162,7 +173,7 @@ async function runTests() {
     assert.equal(health.body.executionService.connected, true);
     assert.deepEqual(
       health.body.executionService.enabledLanguages,
-      ["javascript", "python", "java"]
+      ["javascript", "python", "java", "sql"]
     );
     assert.equal(health.body.executionService.security.acceptsUntrustedCode, false);
 
@@ -240,8 +251,14 @@ async function runTests() {
       })
     });
 
-    assert.equal(sqlExecution.status, 501);
-    assert.equal(sqlExecution.body.error.code, "EXECUTION_NOT_IMPLEMENTED");
+    assert.equal(sqlExecution.status, 200);
+    assert.equal(sqlExecution.body.status, "ok");
+    assert.equal(sqlExecution.body.language, "sql");
+    assert.equal(sqlExecution.body.trace.language, "sql");
+    assert.equal(sqlExecution.body.trace.events[0].type, "SQL_RESULT");
+    assert.deepEqual(sqlExecution.body.states[0].query.resultRows, [
+      { name: "Divya" }
+    ]);
 
     const missingRoute = await requestJson(apiBaseUrl, "/api/not-found");
     assert.equal(missingRoute.status, 404);
@@ -253,8 +270,9 @@ async function runTests() {
     console.log("Real JavaScript trace forwarding: passed");
     console.log("Real Python trace forwarding: passed");
     console.log("Real Java trace forwarding: passed");
+    console.log("Real SQL trace forwarding: passed");
     console.log("Execution-state forwarding: passed");
-    console.log("Unavailable language boundaries: passed");
+    console.log("All four language boundaries: passed");
     console.log("Request validation: passed");
     console.log("Execution boundary separation: passed");
   } finally {

@@ -2344,3 +2344,26 @@ input:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+.sql-row.is-active td {
+  color: var(--text-primary);
+}
+
+.sql-row.is-active {
+  box-shadow: inset 3px 0 0 rgba(255, 123, 133, 0.72);
+}
+
+.sql-row.is-active.is-match {
+  box-shadow: inset 3px 0 0 rgba(112, 230, 178, 0.78);
+}
+
+.sql-empty-row td {
+  height: 76px;
+
+  color: var(--text-muted);
+
+  text-align: center;
+
+  font-family: inherit;
+  font-size: 10px;
+}

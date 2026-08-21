@@ -49,6 +49,82 @@ function describeEvent(event, state, language) {
         description: `Execution finished after ${event.step + 1} recorded events.`
       };
 
+    case "SQL_QUERY_START":
+      return {
+        title: "Start logical query execution",
+        description: "SQLite begins the verified query while CodeFlow prepares its educational relational flow."
+      };
+
+    case "SQL_QUERY_END":
+      return {
+        title: "Query execution completed",
+        description: `The logical query flow finished after ${event.step + 1} recorded events.`
+      };
+
+    case "SQL_SCAN":
+      return {
+        title: `Scan ${payload.table || "the source table"}`,
+        description: `${payload.scannedRows ?? payload.rowCount ?? 0} rows are read from ${payload.table || "the source table"}.`
+      };
+
+    case "SQL_FILTER":
+      return {
+        title: payload.row
+          ? `Evaluate row ${(payload.rowIndex ?? 0) + 1}: ${payload.result ? "match" : "reject"}`
+          : "Apply the relational filter",
+        description: payload.row
+          ? `${payload.condition || payload.predicate || "The filter"} evaluates to ${String(Boolean(payload.result)).toUpperCase()} for this row.`
+          : `${payload.condition || payload.predicate || "The filter"} keeps ${payload.matchingRows ?? 0} rows.`
+      };
+
+    case "SQL_JOIN":
+      return {
+        title: "Join related table rows",
+        description: `${payload.join || "The join condition"} combines matching rows from ${(payload.tables || []).join(" and ") || "the selected tables"}.`
+      };
+
+    case "SQL_GROUP":
+      return {
+        title: "Group related rows",
+        description: `${payload.expression || "The GROUP BY expression"} creates ${payload.groupCount ?? payload.rows?.length ?? 0} logical groups.`
+      };
+
+    case "SQL_AGGREGATE":
+      return {
+        title: "Calculate aggregate values",
+        description: `${payload.expressions || "The aggregate expressions"} produces values for the grouped or selected rows.`
+      };
+
+    case "SQL_PROJECT":
+      return {
+        title: "Project the selected columns",
+        description: `The result keeps ${Array.isArray(payload.columns) ? payload.columns.join(", ") : "the selected expressions"}.`
+      };
+
+    case "SQL_DISTINCT":
+      return {
+        title: "Remove duplicate rows",
+        description: `${payload.removedRows ?? 0} duplicate rows are removed from the logical result.`
+      };
+
+    case "SQL_SORT":
+      return {
+        title: "Sort the result rows",
+        description: `${payload.expression || payload.column || "The ORDER BY expression"} arranges the current rows in ${payload.direction || "the requested"} order.`
+      };
+
+    case "SQL_LIMIT":
+      return {
+        title: "Limit the result set",
+        description: `LIMIT ${payload.limit ?? ""} keeps ${payload.rowCount ?? payload.rows?.length ?? 0} result rows.`
+      };
+
+    case "SQL_RESULT":
+      return {
+        title: "Generate the verified result",
+        description: `SQLite returns ${payload.rowCount ?? payload.rows?.length ?? 0} rows after the logical transformations.`
+      };
+
     case "STATEMENT_EXECUTE":
       return {
         title: "Execute the current statement",
@@ -301,6 +377,71 @@ function selectControlFlow(state, event) {
   };
 }
 
+function selectSql(state, event, context) {
+  const payload = event.payload || {};
+  const query = state.query || {};
+  const payloadRows = Array.isArray(payload.rows) ? payload.rows : null;
+  const currentRows = Array.isArray(query.currentRows) ? query.currentRows : [];
+
+  if (typeof payload.table === "string" && payload.table) {
+    context.table = payload.table;
+  }
+
+  if (Array.isArray(payload.columns) && payload.columns.length > 0) {
+    context.columns = [...payload.columns];
+  } else if (Array.isArray(query.columns) && query.columns.length > 0) {
+    context.columns = [...query.columns];
+  }
+
+  if (event.type === "SQL_SCAN") {
+    context.displayRows = payloadRows || currentRows;
+    context.rejectedIds = [];
+  } else if (event.type === "SQL_FILTER") {
+    context.displayRows = Array.isArray(payload.displayRows)
+      ? payload.displayRows
+      : context.displayRows.length > 0
+        ? context.displayRows
+        : payloadRows || currentRows;
+
+    if (Array.isArray(payload.rejectedIds)) {
+      context.rejectedIds = [...payload.rejectedIds];
+    }
+  } else if (
+    event.type.startsWith("SQL_") &&
+    !["SQL_QUERY_START", "SQL_QUERY_END"].includes(event.type) &&
+    payloadRows
+  ) {
+    context.displayRows = payloadRows;
+    context.rejectedIds = [];
+  }
+
+  const rows = payloadRows || currentRows;
+  const displayRows = context.displayRows.length > 0
+    ? context.displayRows
+    : rows;
+
+  if (context.columns.length === 0) {
+    const firstRow = displayRows[0] || rows[0];
+    context.columns = firstRow && typeof firstRow === "object"
+      ? Object.keys(firstRow)
+      : [];
+  }
+
+  return {
+    table: context.table || "Query workspace",
+    rows,
+    displayRows,
+    columns: [...context.columns],
+    rejectedIds: [...context.rejectedIds],
+    activeRowIndex: Number.isInteger(payload.rowIndex) ? payload.rowIndex : null,
+    activeRowResult: typeof payload.result === "boolean" ? payload.result : null,
+    operation: payload.operation || readableEventName(event.type),
+    scannedCount: query.scannedRowCount ?? payload.scannedRows ?? 0,
+    matchingCount: query.matchingRowCount ?? payload.matchingRows ?? 0,
+    rejectedCount: query.rejectedRowCount ?? payload.rejectedRows ?? 0
+  };
+}
+
 export function createExecutionPresentation(result) {
   if (!result || typeof result !== "object") {
     throw new TypeError("Execution response must be an object.");
@@ -317,6 +458,13 @@ export function createExecutionPresentation(result) {
   if (!Array.isArray(result.states) || result.states.length !== result.trace.events.length) {
     throw new TypeError("Execution states do not match the trace-event count.");
   }
+
+  const sqlContext = {
+    table: null,
+    columns: [],
+    displayRows: [],
+    rejectedIds: []
+  };
 
   const steps = result.trace.events.map((event, index) => {
     const state = result.states[index];
@@ -345,7 +493,9 @@ export function createExecutionPresentation(result) {
       console: Array.isArray(state.console) ? state.console : [],
       iteration: controlFlow.iteration,
       condition: controlFlow.condition,
-      sql: null,
+      sql: result.language === "sql"
+        ? selectSql(state, event, sqlContext)
+        : null,
       status: state.status,
       error: state.errors?.at(-1) || null,
       payload: event.payload || {}
@@ -362,12 +512,16 @@ export function createExecutionPresentation(result) {
 }
 
 export function createIdleExecutionStep(language = "javascript") {
+  const isSql = language === "sql";
+
   return {
     id: `${language}-idle`,
     line: null,
-    event: "PROGRAM_START",
-    title: "Run your code to begin",
-    description: "Execute the current editor contents to create a verified execution trace.",
+    event: isSql ? "SQL_QUERY_START" : "PROGRAM_START",
+    title: isSql ? "Run your query to begin" : "Run your code to begin",
+    description: isSql
+      ? "Execute the current SQL query to create a verified relational trace."
+      : "Execute the current editor contents to create a verified execution trace.",
     variables: {},
     array: null,
     stack: null,
@@ -375,7 +529,21 @@ export function createIdleExecutionStep(language = "javascript") {
     console: [],
     iteration: null,
     condition: null,
-    sql: null,
+    sql: isSql
+      ? {
+        table: "Query workspace",
+        rows: [],
+        displayRows: [],
+        columns: [],
+        rejectedIds: [],
+        activeRowIndex: null,
+        activeRowResult: null,
+        operation: "Waiting for query",
+        scannedCount: 0,
+        matchingCount: 0,
+        rejectedCount: 0
+      }
+      : null,
     status: "idle",
     error: null,
     payload: {}

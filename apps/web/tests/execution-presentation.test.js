@@ -21,6 +21,17 @@ function createState(step, overrides = {}) {
       lastCondition: null,
       loops: {}
     },
+    query: {
+      text: null,
+      tables: {},
+      currentRows: [],
+      resultRows: [],
+      columns: [],
+      operations: [],
+      scannedRowCount: 0,
+      matchingRowCount: 0,
+      rejectedRowCount: 0
+    },
     ...overrides
   };
 }
@@ -134,6 +145,173 @@ function createResult(language = "javascript") {
   };
 }
 
+function createSqlResult() {
+  const allRows = [
+    { id: 1, name: "Arun", marks: 72 },
+    { id: 2, name: "Divya", marks: 92 },
+    { id: 3, name: "Nila", marks: 88 },
+    { id: 4, name: "Kavin", marks: 84 },
+    { id: 5, name: "Manoj", marks: 65 }
+  ];
+  const matchingRows = allRows.filter((row) => row.marks > 80);
+  const projectedRows = matchingRows.map(({ name, marks }) => ({ name, marks }));
+  const queryText = "SELECT name, marks FROM students WHERE marks > 80 ORDER BY marks DESC LIMIT 3";
+
+  const event = (step, type, line, payload = {}) => ({
+    id: `sql-event-${step}`,
+    step,
+    type,
+    source: { line },
+    payload
+  });
+
+  const queryState = (step, overrides = {}) => createState(step, {
+    source: { line: overrides.line || 1 },
+    query: {
+      text: queryText,
+      tables: { students: allRows },
+      currentRows: overrides.currentRows || [],
+      resultRows: overrides.resultRows || [],
+      columns: overrides.columns || [],
+      operations: [],
+      scannedRowCount: overrides.scannedRowCount ?? 0,
+      matchingRowCount: overrides.matchingRowCount ?? 0,
+      rejectedRowCount: overrides.rejectedRowCount ?? 0
+    },
+    console: overrides.console || [],
+    status: overrides.status || "running"
+  });
+
+  const events = [
+    event(0, "SQL_QUERY_START", 1, { query: queryText }),
+    event(1, "SQL_SCAN", 2, {
+      table: "students",
+      columns: ["id", "name", "marks"],
+      rows: allRows,
+      scannedRows: 5,
+      operation: "Scan students"
+    }),
+    event(2, "SQL_FILTER", 3, {
+      table: "students",
+      condition: "marks > 80",
+      row: allRows[1],
+      rowIndex: 1,
+      result: true,
+      rows: [allRows[1]],
+      displayRows: allRows,
+      rejectedIds: [1],
+      matchingRows: 1,
+      rejectedRows: 1,
+      columns: ["id", "name", "marks"],
+      operation: "WHERE marks > 80"
+    }),
+    event(3, "SQL_PROJECT", 1, {
+      table: "students",
+      columns: ["name", "marks"],
+      rows: projectedRows,
+      operation: "SELECT name, marks"
+    }),
+    event(4, "SQL_SORT", 4, {
+      table: "students",
+      columns: ["name", "marks"],
+      rows: projectedRows,
+      expression: "marks DESC",
+      direction: "DESC",
+      operation: "ORDER BY marks DESC"
+    }),
+    event(5, "SQL_LIMIT", 5, {
+      table: "students",
+      columns: ["name", "marks"],
+      rows: projectedRows,
+      limit: "3",
+      rowCount: 3,
+      operation: "LIMIT 3"
+    }),
+    event(6, "SQL_RESULT", 1, {
+      table: "students",
+      columns: ["name", "marks"],
+      rows: projectedRows,
+      rowCount: 3,
+      operation: "Final query result"
+    }),
+    event(7, "OUTPUT", 1, { channel: "result", text: "3 rows returned" }),
+    event(8, "SQL_QUERY_END", 1, { rowCount: 3 })
+  ];
+
+  const states = [
+    queryState(0),
+    queryState(1, { currentRows: allRows, columns: ["id", "name", "marks"], scannedRowCount: 5 }),
+    queryState(2, {
+      currentRows: [allRows[1]],
+      columns: ["id", "name", "marks"],
+      scannedRowCount: 5,
+      matchingRowCount: 1,
+      rejectedRowCount: 1
+    }),
+    queryState(3, {
+      currentRows: projectedRows,
+      columns: ["name", "marks"],
+      scannedRowCount: 5,
+      matchingRowCount: 3,
+      rejectedRowCount: 2
+    }),
+    queryState(4, {
+      currentRows: projectedRows,
+      columns: ["name", "marks"],
+      scannedRowCount: 5,
+      matchingRowCount: 3,
+      rejectedRowCount: 2
+    }),
+    queryState(5, {
+      currentRows: projectedRows,
+      columns: ["name", "marks"],
+      scannedRowCount: 5,
+      matchingRowCount: 3,
+      rejectedRowCount: 2
+    }),
+    queryState(6, {
+      currentRows: projectedRows,
+      resultRows: projectedRows,
+      columns: ["name", "marks"],
+      scannedRowCount: 5,
+      matchingRowCount: 3,
+      rejectedRowCount: 2
+    }),
+    queryState(7, {
+      currentRows: projectedRows,
+      resultRows: projectedRows,
+      columns: ["name", "marks"],
+      scannedRowCount: 5,
+      matchingRowCount: 3,
+      rejectedRowCount: 2,
+      console: [{ channel: "result", text: "3 rows returned" }]
+    }),
+    queryState(8, {
+      currentRows: projectedRows,
+      resultRows: projectedRows,
+      columns: ["name", "marks"],
+      scannedRowCount: 5,
+      matchingRowCount: 3,
+      rejectedRowCount: 2,
+      console: [{ channel: "result", text: "3 rows returned" }],
+      status: "completed"
+    })
+  ];
+
+  return {
+    status: "ok",
+    language: "sql",
+    executionStatus: "completed",
+    trace: {
+      traceId: "sql-presentation-test",
+      status: "completed",
+      events
+    },
+    states,
+    summary: { eventCount: events.length, rowCount: 3 }
+  };
+}
+
 function runTests() {
   const presentation = createExecutionPresentation(createResult());
 
@@ -185,9 +363,32 @@ function runTests() {
     [4, 8, 12]
   );
 
+  const sqlPresentation = createExecutionPresentation(createSqlResult());
+  assert.equal(sqlPresentation.language, "sql");
+  assert.equal(sqlPresentation.steps.length, 9);
+  assert.equal(sqlPresentation.steps.every((step) => step.sql !== null), true);
+  assert.equal(sqlPresentation.steps[1].sql.table, "students");
+  assert.equal(sqlPresentation.steps[1].sql.scannedCount, 5);
+  assert.equal(sqlPresentation.steps[2].sql.activeRowIndex, 1);
+  assert.equal(sqlPresentation.steps[2].sql.activeRowResult, true);
+  assert.deepEqual(sqlPresentation.steps[2].sql.rejectedIds, [1]);
+  assert.equal(sqlPresentation.steps[2].sql.displayRows.length, 5);
+  assert.deepEqual(sqlPresentation.steps[3].sql.columns, ["name", "marks"]);
+  assert.deepEqual(sqlPresentation.steps[6].sql.rows, [
+    { name: "Divya", marks: 92 },
+    { name: "Nila", marks: 88 },
+    { name: "Kavin", marks: 84 }
+  ]);
+  assert.equal(sqlPresentation.steps[7].console[0].text, "3 rows returned");
+  assert.match(sqlPresentation.steps[0].description, /SQLite/);
+
   const idle = createIdleExecutionStep();
   assert.equal(idle.status, "idle");
   assert.deepEqual(idle.variables, {});
+
+  const idleSql = createIdleExecutionStep("sql");
+  assert.equal(idleSql.event, "SQL_QUERY_START");
+  assert.equal(idleSql.sql.table, "Query workspace");
 
   assert.throws(
     () => createExecutionPresentation(null),
@@ -220,6 +421,9 @@ function runTests() {
   console.log("Python presentation compatibility: passed");
   console.log("Java presentation compatibility: passed");
   console.log("Java collection presentation: passed");
+  console.log("SQL relational presentation: passed");
+  console.log("SQL row-filter highlighting: passed");
+  console.log("SQL result synchronization: passed");
 }
 
 runTests();

@@ -25,7 +25,8 @@ const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
 const LIVE_EXECUTION_LANGUAGES = Object.freeze([
   "javascript",
   "python",
-  "java"
+  "java",
+  "sql"
 ]);
 
 function createInitialSources() {
