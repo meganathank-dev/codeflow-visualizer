@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState
 } from "react";
 
@@ -26,11 +27,19 @@ import {
   getLanguageOption
 } from "./data/demo-executions";
 
-const INITIAL_LANGUAGE = "javascript";
+import {
+  createExecutionPresentation,
+  createIdleExecutionStep
+} from "./utils/execution-presentation";
 
-const BASE_PLAYBACK_INTERVAL = 700;
+const INITIAL_LANGUAGE =
+  "javascript";
 
-const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
+const BASE_PLAYBACK_INTERVAL =
+  430;
+
+const BACKEND_STATUS_REFRESH_INTERVAL =
+  5_000;
 
 function createInitialSources() {
   return Object.fromEntries(
@@ -64,6 +73,12 @@ export default function App() {
   );
 
   const [
+    executions,
+
+    setExecutions
+  ] = useState({});
+
+  const [
     currentStep,
 
     setCurrentStep
@@ -73,6 +88,12 @@ export default function App() {
     isPlaying,
 
     setIsPlaying
+  ] = useState(false);
+
+  const [
+    isExecuting,
+
+    setIsExecuting
   ] = useState(false);
 
   const [
@@ -95,6 +116,9 @@ export default function App() {
     "checking"
   );
 
+  const activeRequestRef =
+    useRef(null);
+
   const language = useMemo(
     () => getLanguageOption(
       selectedLanguage
@@ -105,287 +129,658 @@ export default function App() {
     ]
   );
 
-  const execution = DEMO_EXECUTIONS[
-    selectedLanguage
-  ];
+  const demoExecution =
+    DEMO_EXECUTIONS[
+      selectedLanguage
+    ];
 
-  const source = sources[
-    selectedLanguage
-   ];
+  const source =
+    sources[
+      selectedLanguage
+    ];
 
-  const steps = execution.steps;
+  const isEdited =
+    source !== demoExecution.source;
 
-  const activeStep = steps[
-    currentStep
-  ];
+  const canExecuteLive =
+    selectedLanguage === "javascript";
 
-  const totalSteps = steps.length;
+  const liveExecution =
+    executions[
+      selectedLanguage
+    ];
 
-  const isEdited = (
-    source !== execution.source
+  const hasLiveExecution =
+    Boolean(
+      liveExecution &&
+      liveExecution.source === source
+    );
+
+  const steps =
+    hasLiveExecution
+      ? liveExecution.presentation.steps
+      : canExecuteLive && isEdited
+        ? [
+            createIdleExecutionStep(
+              selectedLanguage
+            )
+          ]
+        : demoExecution.steps;
+
+  const totalSteps =
+    steps.length;
+
+  const boundedCurrentStep =
+    Math.min(
+      currentStep,
+
+      totalSteps - 1
+    );
+
+  const activeStep =
+    steps[
+      boundedCurrentStep
+    ];
+
+  useEffect(
+    () => {
+      let isMounted =
+        true;
+
+      let requestInProgress =
+        false;
+
+      async function checkBackendHealth() {
+        if (
+          requestInProgress
+        ) {
+          return;
+        }
+
+        requestInProgress =
+          true;
+
+        try {
+          const response =
+            await fetch(
+              "/api/health",
+
+              {
+                headers: {
+                  accept:
+                    "application/json"
+                }
+              }
+            );
+
+          const result =
+            await response.json();
+
+          if (
+            !isMounted
+          ) {
+            return;
+          }
+
+          setBackendStatus(
+            response.ok &&
+            result.executionService?.connected === true
+              ? "connected"
+              : "offline"
+          );
+        } catch {
+          if (
+            isMounted
+          ) {
+            setBackendStatus(
+              "offline"
+            );
+          }
+        } finally {
+          requestInProgress =
+            false;
+        }
+      }
+
+      checkBackendHealth();
+
+      const intervalId =
+        window.setInterval(
+          checkBackendHealth,
+
+          BACKEND_STATUS_REFRESH_INTERVAL
+        );
+
+      return () => {
+        isMounted =
+          false;
+
+        window.clearInterval(
+          intervalId
+        );
+      };
+    },
+
+    []
   );
 
-  useEffect(() => {
-    let isMounted = true;
+  useEffect(
+    () => {
+      return () => {
+        activeRequestRef.current?.abort();
+      };
+    },
 
-    let requestInProgress = false;
+    []
+  );
 
-    async function checkBackendHealth() {
-      if (requestInProgress) {
-        return;
+  useEffect(
+    () => {
+      if (
+        !isPlaying ||
+        isExecuting
+      ) {
+        return undefined;
       }
 
-      requestInProgress = true;
+      if (
+        boundedCurrentStep >= totalSteps - 1
+      ) {
+        setIsPlaying(
+          false
+        );
 
-      try {
-        const response = await fetch(
-          "/api/health",
+        return undefined;
+      }
 
-          {
-            headers: {
-              accept: "application/json"
+      const timer =
+        window.setTimeout(
+          () => {
+            const nextStep =
+              boundedCurrentStep + 1;
+
+            setCurrentStep(
+              nextStep
+            );
+
+            if (
+              nextStep >= totalSteps - 1
+            ) {
+              setIsPlaying(
+                false
+              );
             }
+          },
+
+          BASE_PLAYBACK_INTERVAL / speed
+        );
+
+      return () => {
+        window.clearTimeout(
+          timer
+        );
+      };
+    },
+
+    [
+      boundedCurrentStep,
+      isExecuting,
+      isPlaying,
+      speed,
+      totalSteps
+    ]
+  );
+
+  useEffect(
+    () => {
+      function handleKeyboardShortcut(event) {
+        const target =
+          event.target;
+
+        const tagName =
+          target?.tagName;
+
+        if (
+          tagName === "INPUT" ||
+          tagName === "TEXTAREA" ||
+          tagName === "SELECT" ||
+          target?.isContentEditable ||
+          Boolean(
+            target?.closest?.(
+              ".monaco-editor"
+            )
+          )
+        ) {
+          return;
+        }
+
+        if (
+          event.code === "Space"
+        ) {
+          event.preventDefault();
+
+          if (
+            isPlaying
+          ) {
+            handlePause();
+          } else {
+            handlePrimaryAction();
           }
-        );
 
-        const result = await response.json();
-
-        if (!isMounted) {
           return;
         }
 
-        const isConnected = (
-          response.ok &&
-          result.executionService?.connected === true
-        );
+        if (
+          event.key === "ArrowRight"
+        ) {
+          event.preventDefault();
 
-        setBackendStatus(
-          isConnected
-            ? "connected"
-            : "offline"
-        );
-      } catch {
-        if (isMounted) {
-          setBackendStatus(
-            "offline"
-          );
-        }
-      } finally {
-        requestInProgress = false;
-      }
-    }
-
-    checkBackendHealth();
-
-    const intervalId = window.setInterval(
-      checkBackendHealth,
-
-      BACKEND_STATUS_REFRESH_INTERVAL
-    );
-
-    return () => {
-      isMounted = false;
-
-      window.clearInterval(
-        intervalId
-      );
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isPlaying) {
-      return undefined;
-    }
-
-    if (currentStep >= totalSteps - 1) {
-      setIsPlaying(false);
-
-      return undefined;
-    }
-
-    const timer = window.setTimeout(
-      () => {
-        const nextStep = currentStep + 1;
-
-        if (nextStep >= totalSteps - 1) {
-          setCurrentStep(
-            totalSteps - 1
+          handleSeek(
+            boundedCurrentStep + 1
           );
 
-          setIsPlaying(false);
-
           return;
         }
 
-        setCurrentStep(
-          nextStep
-        );
-      },
+        if (
+          event.key === "ArrowLeft"
+        ) {
+          event.preventDefault();
 
-      BASE_PLAYBACK_INTERVAL / speed
-    );
-
-    return () => {
-      window.clearTimeout(
-        timer
-      );
-    };
-  }, [
-    currentStep,
-    isPlaying,
-    speed,
-    totalSteps
-  ]);
-
-  useEffect(() => {
-    function handleKeyboardShortcut(event) {
-      const target = event.target;
-
-      const tagName = target?.tagName;
-
-      const isTypingElement = (
-        tagName === "INPUT" ||
-        tagName === "TEXTAREA" ||
-        tagName === "SELECT" ||
-        target?.isContentEditable ||
-        Boolean(
-          target?.closest?.(
-            ".monaco-editor"
-          )
-        )
-      );
-
-      if (isTypingElement) {
-        return;
-      }
-
-      if (event.code === "Space") {
-        event.preventDefault();
-
-        if (isPlaying) {
-          setIsPlaying(false);
-
-          return;
+          handleSeek(
+            boundedCurrentStep - 1
+          );
         }
-
-        handlePreview();
-
-        return;
       }
 
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-
-        handleSeek(
-          Math.min(
-            currentStep + 1,
-
-            totalSteps - 1
-          )
-        );
-
-        return;
-      }
-
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-
-        handleSeek(
-          Math.max(
-            currentStep - 1,
-
-            0
-          )
-        );
-      }
-    }
-
-    window.addEventListener(
-      "keydown",
-
-      handleKeyboardShortcut
-    );
-
-    return () => {
-      window.removeEventListener(
+      window.addEventListener(
         "keydown",
 
         handleKeyboardShortcut
       );
-    };
-  }, [
-    currentStep,
-    isEdited,
-    isPlaying,
-    totalSteps
-  ]);
+
+      return () => {
+        window.removeEventListener(
+          "keydown",
+
+          handleKeyboardShortcut
+        );
+      };
+    },
+
+    [
+      backendStatus,
+      boundedCurrentStep,
+      hasLiveExecution,
+      isEdited,
+      isExecuting,
+      isPlaying,
+      selectedLanguage,
+      source,
+      totalSteps
+    ]
+  );
+
+  function cancelActiveExecution() {
+    activeRequestRef.current?.abort();
+
+    activeRequestRef.current =
+      null;
+  }
+
+  function clearExecution(languageId) {
+    setExecutions(
+      (
+        previousExecutions
+      ) => {
+        if (
+          !Object.hasOwn(
+            previousExecutions,
+
+            languageId
+          )
+        ) {
+          return previousExecutions;
+        }
+
+        const nextExecutions = {
+          ...previousExecutions
+        };
+
+        delete nextExecutions[
+          languageId
+        ];
+
+        return nextExecutions;
+      }
+    );
+  }
 
   function handleLanguageChange(languageId) {
-    setIsPlaying(false);
+    cancelActiveExecution();
+
+    setIsExecuting(
+      false
+    );
+
+    setIsPlaying(
+      false
+    );
 
     setSelectedLanguage(
       languageId
     );
 
-    setCurrentStep(0);
+    setCurrentStep(
+      0
+    );
 
-    setNotification("");
+    setNotification(
+      ""
+    );
   }
 
   function handleSourceChange(value) {
-    setSources(
-      (previousSources) => ({
-        ...previousSources,
+    if (
+      value === source
+    ) {
+      return;
+    }
 
-        [selectedLanguage]: value
-      })
+    cancelActiveExecution();
+
+    clearExecution(
+      selectedLanguage
     );
 
-    setIsPlaying(false);
+    setIsExecuting(
+      false
+    );
 
-    setNotification("");
+    setIsPlaying(
+      false
+    );
+
+    setCurrentStep(
+      0
+    );
+
+    setNotification(
+      ""
+    );
+
+    setSources(
+      (
+        previousSources
+      ) => ({
+        ...previousSources,
+
+        [selectedLanguage]:
+          value
+      })
+    );
   }
 
   function handleRestoreSource() {
-    setSources(
-      (previousSources) => ({
-        ...previousSources,
+    cancelActiveExecution();
 
-        [selectedLanguage]: execution.source
-      })
+    clearExecution(
+      selectedLanguage
     );
 
-    setCurrentStep(0);
+    setIsExecuting(
+      false
+    );
 
-    setIsPlaying(false);
+    setIsPlaying(
+      false
+    );
 
-    setNotification("");
+    setCurrentStep(
+      0
+    );
+
+    setNotification(
+      ""
+    );
+
+    setSources(
+      (
+        previousSources
+      ) => ({
+        ...previousSources,
+
+        [selectedLanguage]:
+          demoExecution.source
+      })
+    );
   }
 
-  function handlePreview() {
-    if (isEdited) {
+  async function runJavaScript() {
+    if (
+      isExecuting
+    ) {
+      return;
+    }
+
+    if (
+      !source.trim()
+    ) {
       setNotification(
-        "Custom source execution will be enabled in the next phase. Restore the sample to replay the verified demo."
+        "Add JavaScript code before starting an execution."
       );
 
       return;
     }
 
-    setNotification("");
+    if (
+      backendStatus !== "connected"
+    ) {
+      setNotification(
+        "Execution services are unavailable. Start the workspace with pnpm dev."
+      );
 
-    if (currentStep >= totalSteps - 1) {
-      setCurrentStep(0);
+      return;
     }
 
-    setIsPlaying(true);
+    cancelActiveExecution();
+
+    const controller =
+      new AbortController();
+
+    activeRequestRef.current =
+      controller;
+
+    setIsExecuting(
+      true
+    );
+
+    setIsPlaying(
+      false
+    );
+
+    setNotification(
+      ""
+    );
+
+    try {
+      const response =
+        await fetch(
+          "/api/execute",
+
+          {
+            method:
+              "POST",
+
+            headers: {
+              "content-type":
+                "application/json",
+
+              accept:
+                "application/json"
+            },
+
+            body:
+              JSON.stringify({
+                language:
+                  "javascript",
+
+                source
+              }),
+
+            signal:
+              controller.signal
+          }
+        );
+
+      const result =
+        await response.json();
+
+      if (
+        !response.ok ||
+        result.status !== "ok"
+      ) {
+        throw new Error(
+          result.error?.message ||
+          "JavaScript execution failed."
+        );
+      }
+
+      const presentation =
+        createExecutionPresentation(
+          result
+        );
+
+      setExecutions(
+        (
+          previousExecutions
+        ) => ({
+          ...previousExecutions,
+
+          javascript: {
+            source,
+
+            presentation
+          }
+        })
+      );
+
+      setCurrentStep(
+        0
+      );
+
+      if (
+        presentation.executionStatus === "failed"
+      ) {
+        const finalStep =
+          presentation.steps.at(-1);
+
+        setNotification(
+          `Execution stopped: ${
+            finalStep?.error?.message ||
+            finalStep?.description ||
+            "Unknown runtime error."
+          }`
+        );
+      }
+
+      setIsPlaying(
+        presentation.steps.length > 1
+      );
+    } catch (error) {
+      if (
+        error.name !== "AbortError"
+      ) {
+        setNotification(
+          error.message ||
+          "JavaScript execution failed."
+        );
+      }
+    } finally {
+      if (
+        activeRequestRef.current === controller
+      ) {
+        activeRequestRef.current =
+          null;
+
+        setIsExecuting(
+          false
+        );
+      }
+    }
+  }
+
+  function playExistingTimeline() {
+    if (
+      boundedCurrentStep >= totalSteps - 1
+    ) {
+      setCurrentStep(
+        0
+      );
+    }
+
+    setIsPlaying(
+      totalSteps > 1
+    );
+  }
+
+  function handlePrimaryAction() {
+    if (
+      isExecuting
+    ) {
+      return;
+    }
+
+    if (
+      canExecuteLive
+    ) {
+      if (
+        hasLiveExecution &&
+        boundedCurrentStep < totalSteps - 1
+      ) {
+        playExistingTimeline();
+
+        return;
+      }
+
+      runJavaScript();
+
+      return;
+    }
+
+    if (
+      isEdited
+    ) {
+      setNotification(
+        `${language.label} live execution will be enabled in its upcoming development phase. Restore the example to preview its visualization.`
+      );
+
+      return;
+    }
+
+    setNotification(
+      ""
+    );
+
+    playExistingTimeline();
   }
 
   function handlePause() {
-    setIsPlaying(false);
+    setIsPlaying(
+      false
+    );
   }
 
   function handleSeek(step) {
-    setIsPlaying(false);
+    if (
+      isExecuting
+    ) {
+      return;
+    }
+
+    setIsPlaying(
+      false
+    );
 
     setCurrentStep(
       Math.max(
@@ -401,24 +796,59 @@ export default function App() {
   }
 
   function handleReset() {
-    setIsPlaying(false);
+    setIsPlaying(
+      false
+    );
 
-    setCurrentStep(0);
+    setCurrentStep(
+      0
+    );
 
-    setNotification("");
+    setNotification(
+      ""
+    );
   }
 
   function getBackendStatusLabel() {
-    if (backendStatus === "connected") {
-      return "Services connected · Curated preview";
-    }
-
-    if (backendStatus === "checking") {
+    if (
+      backendStatus === "checking"
+    ) {
       return "Checking local services...";
     }
 
-    return "Services offline · Curated preview";
+    if (
+      backendStatus !== "connected"
+    ) {
+      return "Services offline";
+    }
+
+    if (
+      !canExecuteLive
+    ) {
+      return `${language.label} · Curated preview`;
+    }
+
+    if (
+      isExecuting
+    ) {
+      return "JavaScript · Generating execution trace";
+    }
+
+    if (
+      hasLiveExecution
+    ) {
+      return `JavaScript · ${totalSteps} verified execution events`;
+    }
+
+    return "JavaScript · Ready for real execution";
   }
+
+  const executionMode =
+    hasLiveExecution
+      ? "live"
+      : canExecuteLive
+        ? "ready"
+        : "preview";
 
   return (
     <div
@@ -445,11 +875,30 @@ export default function App() {
 
       <div className="workspace-shell">
         <AppHeader
-          language={selectedLanguage}
-          onLanguageChange={handleLanguageChange}
-          isPlaying={isPlaying}
-          onPreview={handlePreview}
-          onPause={handlePause}
+          language={
+            selectedLanguage
+          }
+          onLanguageChange={
+            handleLanguageChange
+          }
+          isPlaying={
+            isPlaying
+          }
+          isExecuting={
+            isExecuting
+          }
+          hasLiveExecution={
+            hasLiveExecution
+          }
+          isAtFinalStep={
+            boundedCurrentStep >= totalSteps - 1
+          }
+          onRun={
+            handlePrimaryAction
+          }
+          onPause={
+            handlePause
+          }
         />
 
         <div className="workspace-context-bar">
@@ -494,18 +943,27 @@ export default function App() {
 
         {
           notification && (
-            <div className="workspace-notification">
+            <div
+              className="workspace-notification"
+              role="status"
+            >
               <AlertCircle size={17} />
 
               <span>
-                {notification}
+                {
+                  notification
+                }
               </span>
 
               <button
                 type="button"
-                onClick={() => {
-                  setNotification("");
-                }}
+                onClick={
+                  () => {
+                    setNotification(
+                      ""
+                    );
+                  }
+                }
                 aria-label="Dismiss notification"
               >
                 <X size={16} />
@@ -517,59 +975,111 @@ export default function App() {
         <main className="workspace-content">
           <div className="primary-workspace">
             <EditorPanel
-              language={language}
-              source={source}
+              language={
+                language
+              }
+              source={
+                source
+              }
               currentLine={
                 activeStep.line
               }
-              isEdited={isEdited}
-              onChange={handleSourceChange}
-              onRestore={handleRestoreSource}
+              isEdited={
+                isEdited
+              }
+              executionMode={
+                executionMode
+              }
+              onChange={
+                handleSourceChange
+              }
+              onRestore={
+                handleRestoreSource
+              }
             />
 
             <VisualizationPanel
-              step={activeStep}
-              currentStep={currentStep}
-              totalSteps={totalSteps}
+              step={
+                activeStep
+              }
+              currentStep={
+                boundedCurrentStep
+              }
+              totalSteps={
+                totalSteps
+              }
             />
           </div>
 
           <InspectorPanel
-            step={activeStep}
+            step={
+              activeStep
+            }
           />
         </main>
 
         <TimelineControls
-          currentStep={currentStep}
-          totalSteps={totalSteps}
+          currentStep={
+            boundedCurrentStep
+          }
+          totalSteps={
+            totalSteps
+          }
           currentEvent={
             activeStep.event
           }
-          isPlaying={isPlaying}
-          speed={speed}
-          onFirst={() => {
-            handleSeek(0);
-          }}
-          onPrevious={() => {
-            handleSeek(
-              currentStep - 1
-            );
-          }}
-          onPlay={handlePreview}
-          onPause={handlePause}
-          onNext={() => {
-            handleSeek(
-              currentStep + 1
-            );
-          }}
-          onLast={() => {
-            handleSeek(
-              totalSteps - 1
-            );
-          }}
-          onReset={handleReset}
-          onSeek={handleSeek}
-          onSpeedChange={setSpeed}
+          isPlaying={
+            isPlaying
+          }
+          isExecuting={
+            isExecuting
+          }
+          speed={
+            speed
+          }
+          onFirst={
+            () => {
+              handleSeek(
+                0
+              );
+            }
+          }
+          onPrevious={
+            () => {
+              handleSeek(
+                boundedCurrentStep - 1
+              );
+            }
+          }
+          onPlay={
+            handlePrimaryAction
+          }
+          onPause={
+            handlePause
+          }
+          onNext={
+            () => {
+              handleSeek(
+                boundedCurrentStep + 1
+              );
+            }
+          }
+          onLast={
+            () => {
+              handleSeek(
+                totalSteps - 1
+              );
+            }
+          }
+          onReset={
+            handleReset
+          }
+          onSeek={
+            handleSeek
+          }
+          onSpeedChange={
+            setSpeed
+          }
         />
 
         <div className="workspace-footer">

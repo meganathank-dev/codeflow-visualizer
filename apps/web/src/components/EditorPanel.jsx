@@ -13,22 +13,21 @@ import {
 
 export default function EditorPanel({
   language,
-
   source,
-
   currentLine,
-
   isEdited,
-
+  executionMode,
   onChange,
-
   onRestore
 }) {
-  const editorRef = useRef(null);
+  const editorRef =
+    useRef(null);
 
-  const monacoRef = useRef(null);
+  const monacoRef =
+    useRef(null);
 
-  const decorationsRef = useRef(null);
+  const decorationsRef =
+    useRef(null);
 
   function updateLineHighlight(lineNumber) {
     if (
@@ -38,7 +37,8 @@ export default function EditorPanel({
       return;
     }
 
-    const model = editorRef.current.getModel();
+    const model =
+      editorRef.current.getModel();
 
     if (!model) {
       return;
@@ -55,34 +55,39 @@ export default function EditorPanel({
     }
 
     const decoration = {
-      range: new monacoRef.current.Range(
-        lineNumber,
-        1,
-        lineNumber,
-        1
-      ),
+      range:
+        new monacoRef.current.Range(
+          lineNumber,
+          1,
+          lineNumber,
+          1
+        ),
 
       options: {
-        isWholeLine: true,
+        isWholeLine:
+          true,
 
-        className: "codeflow-current-line",
+        className:
+          "codeflow-current-line",
 
-        glyphMarginClassName: "codeflow-current-line-glyph",
+        glyphMarginClassName:
+          "codeflow-current-line-glyph",
 
         overviewRuler: {
-          color: "#66e2b3",
+          color:
+            "#66e2b3",
 
-          position: (
+          position:
             monacoRef.current.editor.OverviewRulerLane.Full
-          )
         }
       }
     };
 
-    if (!decorationsRef.current) {
-      decorationsRef.current = (
-        editorRef.current.createDecorationsCollection()
-      );
+    if (
+      !decorationsRef.current
+    ) {
+      decorationsRef.current =
+        editorRef.current.createDecorationsCollection();
     }
 
     decorationsRef.current.set([
@@ -94,69 +99,104 @@ export default function EditorPanel({
     );
   }
 
-  function handleEditorMount(editor, monaco) {
-    editorRef.current = editor;
+  function handleEditorMount(
+    editor,
+    monaco
+  ) {
+    editorRef.current =
+      editor;
 
-    monacoRef.current = monaco;
+    monacoRef.current =
+      monaco;
 
     monaco.editor.defineTheme(
       "codeflow-midnight",
 
       {
-        base: "vs-dark",
+        base:
+          "vs-dark",
 
-        inherit: true,
+        inherit:
+          true,
 
         rules: [
           {
-            token: "comment",
-            foreground: "66728d",
-            fontStyle: "italic"
+            token:
+              "comment",
+
+            foreground:
+              "66728d",
+
+            fontStyle:
+              "italic"
           },
 
           {
-            token: "keyword",
-            foreground: "a78bfa"
+            token:
+              "keyword",
+
+            foreground:
+              "a78bfa"
           },
 
           {
-            token: "string",
-            foreground: "7ee0b0"
+            token:
+              "string",
+
+            foreground:
+              "7ee0b0"
           },
 
           {
-            token: "number",
-            foreground: "f6c177"
+            token:
+              "number",
+
+            foreground:
+              "f6c177"
           },
 
           {
-            token: "type",
-            foreground: "79b8ff"
+            token:
+              "type",
+
+            foreground:
+              "79b8ff"
           }
         ],
 
         colors: {
-          "editor.background": "#0c1019",
+          "editor.background":
+            "#0c1019",
 
-          "editor.foreground": "#dce4f2",
+          "editor.foreground":
+            "#dce4f2",
 
-          "editorLineNumber.foreground": "#48536a",
+          "editorLineNumber.foreground":
+            "#48536a",
 
-          "editorLineNumber.activeForeground": "#aebbd1",
+          "editorLineNumber.activeForeground":
+            "#aebbd1",
 
-          "editorCursor.foreground": "#78e7bb",
+          "editorCursor.foreground":
+            "#78e7bb",
 
-          "editor.selectionBackground": "#243b53",
+          "editor.selectionBackground":
+            "#243b53",
 
-          "editor.inactiveSelectionBackground": "#1a2638",
+          "editor.inactiveSelectionBackground":
+            "#1a2638",
 
-          "editor.lineHighlightBackground": "#111927",
+          "editor.lineHighlightBackground":
+            "#111927",
 
-          "editorIndentGuide.background1": "#202b3a",
+          "editorIndentGuide.background1":
+            "#202b3a",
 
-          "editorIndentGuide.activeBackground1": "#35455c",
+          "editorIndentGuide.activeBackground1":
+            "#35455c",
 
-          "editorGutter.background": "#0c1019"
+          "editorGutter.background":
+            "#0c1019"
         }
       }
     );
@@ -170,14 +210,40 @@ export default function EditorPanel({
     );
   }
 
-  useEffect(() => {
-    updateLineHighlight(
-      currentLine
-    );
-  }, [
-    currentLine,
-    language.id
-  ]);
+  useEffect(
+    () => {
+      updateLineHighlight(
+        currentLine
+      );
+    },
+
+    [
+      currentLine,
+      language.id
+    ]
+  );
+
+  let filebarNote =
+    "Curated preview";
+
+  if (
+    executionMode === "live"
+  ) {
+    filebarNote =
+      "Verified execution";
+  } else if (
+    executionMode === "ready"
+  ) {
+    filebarNote =
+      isEdited
+        ? "Ready to run"
+        : "JavaScript ready";
+  } else if (
+    isEdited
+  ) {
+    filebarNote =
+      "Modified sample";
+  }
 
   return (
     <section className="workspace-panel editor-panel">
@@ -209,14 +275,16 @@ export default function EditorPanel({
                 <RotateCcw size={14} />
 
                 <span>
-                  Restore demo
+                  Restore example
                 </span>
               </button>
             )
           }
 
           <span className="editor-language-badge">
-            {language.shortLabel}
+            {
+              language.shortLabel
+            }
           </span>
         </div>
       </div>
@@ -226,7 +294,9 @@ export default function EditorPanel({
           <FileCode2 size={15} />
 
           <span>
-            {language.filename}
+            {
+              language.filename
+            }
           </span>
 
           {
@@ -241,9 +311,7 @@ export default function EditorPanel({
 
         <span className="filebar-note">
           {
-            isEdited
-              ? "Modified sample"
-              : "Curated preview"
+            filebarNote
           }
         </span>
       </div>
@@ -251,15 +319,21 @@ export default function EditorPanel({
       <div className="editor-container">
         <Editor
           height="100%"
-          language={language.editorLanguage}
+          language={
+            language.editorLanguage
+          }
           value={source}
           theme="codeflow-midnight"
-          onMount={handleEditorMount}
-          onChange={(value) => {
-            onChange(
-              value || ""
-            );
-          }}
+          onMount={
+            handleEditorMount
+          }
+          onChange={
+            (value) => {
+              onChange(
+                value || ""
+              );
+            }
+          }
           loading={
             <div className="editor-loading">
               <span className="loading-spinner" />
@@ -270,52 +344,73 @@ export default function EditorPanel({
             </div>
           }
           options={{
-            automaticLayout: true,
+            automaticLayout:
+              true,
 
-            fontFamily: (
-              '"Cascadia Code", "Fira Code", Consolas, monospace'
-            ),
+            fontFamily:
+              '"Cascadia Code", "Fira Code", Consolas, monospace',
 
-            fontSize: 14,
+            fontSize:
+              14,
 
-            fontLigatures: true,
+            fontLigatures:
+              true,
 
-            lineHeight: 25,
+            lineHeight:
+              25,
 
             padding: {
-              top: 18,
-              bottom: 18
+              top:
+                18,
+
+              bottom:
+                18
             },
 
             minimap: {
-              enabled: false
+              enabled:
+                false
             },
 
-            scrollBeyondLastLine: false,
+            scrollBeyondLastLine:
+              false,
 
-            smoothScrolling: true,
+            smoothScrolling:
+              true,
 
-            cursorBlinking: "smooth",
+            cursorBlinking:
+              "smooth",
 
-            cursorSmoothCaretAnimation: "on",
+            cursorSmoothCaretAnimation:
+              "on",
 
-            glyphMargin: true,
+            glyphMargin:
+              true,
 
-            lineNumbersMinChars: 3,
+            lineNumbersMinChars:
+              3,
 
-            renderLineHighlight: "none",
+            renderLineHighlight:
+              "none",
 
-            overviewRulerBorder: false,
+            overviewRulerBorder:
+              false,
 
-            hideCursorInOverviewRuler: true,
+            hideCursorInOverviewRuler:
+              true,
 
-            folding: true,
+            folding:
+              true,
 
-            wordWrap: "on",
+            wordWrap:
+              "on",
 
             scrollbar: {
-              verticalScrollbarSize: 8,
-              horizontalScrollbarSize: 8
+              verticalScrollbarSize:
+                8,
+
+              horizontalScrollbarSize:
+                8
             }
           }}
         />

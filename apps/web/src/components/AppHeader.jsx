@@ -2,6 +2,7 @@ import {
   Activity,
   ChevronDown,
   Code2,
+  LoaderCircle,
   Pause,
   Play,
   ShieldCheck,
@@ -14,18 +15,51 @@ import {
 
 export default function AppHeader({
   language,
-
   onLanguageChange,
-
   isPlaying,
-
-  onPreview,
-
+  isExecuting,
+  hasLiveExecution,
+  isAtFinalStep,
+  onRun,
   onPause
 }) {
-  const selectedLanguage = LANGUAGE_OPTIONS.find(
-    (item) => item.id === language
-  );
+  const selectedLanguage =
+    LANGUAGE_OPTIONS.find(
+      (item) => item.id === language
+    );
+
+  const supportsLiveExecution =
+    language === "javascript";
+
+  let actionLabel =
+    "Preview demo";
+
+  if (isExecuting) {
+    actionLabel =
+      "Running...";
+  } else if (isPlaying) {
+    actionLabel =
+      "Pause";
+  } else if (
+    supportsLiveExecution &&
+    hasLiveExecution &&
+    !isAtFinalStep
+  ) {
+    actionLabel =
+      "Resume";
+  } else if (
+    supportsLiveExecution &&
+    hasLiveExecution &&
+    isAtFinalStep
+  ) {
+    actionLabel =
+      "Run again";
+  } else if (
+    supportsLiveExecution
+  ) {
+    actionLabel =
+      "Run code";
+  }
 
   return (
     <header className="app-header">
@@ -65,7 +99,11 @@ export default function AppHeader({
           <ShieldCheck size={15} />
 
           <span>
-            Preview environment
+            {
+              supportsLiveExecution
+                ? "Local execution"
+                : "Preview environment"
+            }
           </span>
         </div>
 
@@ -73,27 +111,35 @@ export default function AppHeader({
           <span
             className="language-dot"
             style={{
-              "--language-color": selectedLanguage.color
+              "--language-color":
+                selectedLanguage.color
             }}
           />
 
           <select
             value={language}
-            onChange={(event) => {
-              onLanguageChange(
-                event.target.value
-              );
-            }}
+            onChange={
+              (event) => {
+                onLanguageChange(
+                  event.target.value
+                );
+              }
+            }
             aria-label="Programming language"
+            disabled={isExecuting}
           >
-            {LANGUAGE_OPTIONS.map((option) => (
-              <option
-                key={option.id}
-                value={option.id}
-              >
-                {option.label}
-              </option>
-            ))}
+            {
+              LANGUAGE_OPTIONS.map(
+                (option) => (
+                  <option
+                    key={option.id}
+                    value={option.id}
+                  >
+                    {option.label}
+                  </option>
+                )
+              )
+            }
           </select>
 
           <ChevronDown
@@ -112,25 +158,45 @@ export default function AppHeader({
           onClick={
             isPlaying
               ? onPause
-              : onPreview
+              : onRun
+          }
+          disabled={isExecuting}
+          aria-busy={isExecuting}
+          style={
+            isExecuting
+              ? {
+                  opacity: 0.8
+                }
+              : undefined
           }
         >
           {
-            isPlaying
-              ? <Pause size={16} />
-              : <Play size={16} />
+            isExecuting
+              ? (
+                  <LoaderCircle
+                    size={16}
+                    style={{
+                      animation:
+                        "spin 760ms linear infinite"
+                    }}
+                  />
+                )
+              : isPlaying
+                ? (
+                    <Pause size={16} />
+                  )
+                : (
+                    <Play size={16} />
+                  )
           }
 
           <span>
-            {
-              isPlaying
-                ? "Pause"
-                : "Preview demo"
-            }
+            {actionLabel}
           </span>
 
           {
-            !isPlaying && (
+            !isPlaying &&
+            !isExecuting && (
               <Sparkles
                 className="action-sparkle"
                 size={14}

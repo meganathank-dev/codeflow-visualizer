@@ -17,41 +17,85 @@ const PLAYBACK_SPEEDS = [
   2
 ];
 
+const MAX_VISIBLE_MARKERS =
+  45;
+
+function createMarkerSteps(
+  totalSteps
+) {
+  if (
+    totalSteps <= MAX_VISIBLE_MARKERS
+  ) {
+    return Array.from(
+      {
+        length: totalSteps
+      },
+
+      (
+        _,
+        index
+      ) => index
+    );
+  }
+
+  const markerSteps =
+    new Set();
+
+  for (
+    let index = 0;
+    index < MAX_VISIBLE_MARKERS;
+    index += 1
+  ) {
+    markerSteps.add(
+      Math.round(
+        (
+          index /
+          (
+            MAX_VISIBLE_MARKERS - 1
+          )
+        ) * (
+          totalSteps - 1
+        )
+      )
+    );
+  }
+
+  return [
+    ...markerSteps
+  ];
+}
+
 export default function TimelineControls({
   currentStep,
-
   totalSteps,
-
   currentEvent,
-
   isPlaying,
-
+  isExecuting = false,
   speed,
-
   onFirst,
-
   onPrevious,
-
   onPlay,
-
   onPause,
-
   onNext,
-
   onLast,
-
   onReset,
-
   onSeek,
-
   onSpeedChange
 }) {
-  const progress = totalSteps <= 1
-    ? 0
-    : (
-      currentStep /
-      (totalSteps - 1)
-    ) * 100;
+  const progress =
+    totalSteps <= 1
+      ? 0
+      : (
+          currentStep /
+          (
+            totalSteps - 1
+          )
+        ) * 100;
+
+  const markerSteps =
+    createMarkerSteps(
+      totalSteps
+    );
 
   return (
     <footer className="timeline-panel">
@@ -66,7 +110,10 @@ export default function TimelineControls({
 
         <div className="timeline-current-event">
           {
-            currentEvent.replaceAll(
+            String(
+              currentEvent ||
+              "PROGRAM_START"
+            ).replaceAll(
               "_",
               " "
             )
@@ -81,47 +128,60 @@ export default function TimelineControls({
       <div
         className="timeline-slider-wrap"
         style={{
-          "--timeline-progress": `${progress}%`
+          "--timeline-progress":
+            `${progress}%`
         }}
       >
         <input
           className="timeline-slider"
           type="range"
           min="0"
-          max={totalSteps - 1}
+          max={
+            Math.max(
+              totalSteps - 1,
+              0
+            )
+          }
           value={currentStep}
-          onChange={(event) => {
-            onSeek(
-              Number(
-                event.target.value
-              )
-            );
-          }}
+          onChange={
+            (event) => {
+              onSeek(
+                Number(
+                  event.target.value
+                )
+              );
+            }
+          }
+          disabled={
+            isExecuting ||
+            totalSteps <= 1
+          }
           aria-label="Execution timeline"
         />
 
         <div className="timeline-markers">
           {
-            Array.from(
-              {
-                length: totalSteps
-              },
-
-              (
-                _,
-                index
-              ) => (
+            markerSteps.map(
+              (step) => (
                 <span
                   className={
-                    index <= currentStep
+                    step <= currentStep
                       ? "timeline-marker is-complete"
                       : "timeline-marker"
                   }
-                  key={index}
+                  key={step}
                   style={{
-                    left: totalSteps <= 1
-                      ? "0%"
-                      : `${(index / (totalSteps - 1)) * 100}%`
+                    left:
+                      totalSteps <= 1
+                        ? "0%"
+                        : `${
+                            (
+                              step /
+                              (
+                                totalSteps - 1
+                              )
+                            ) * 100
+                          }%`
                   }}
                 />
               )
@@ -136,7 +196,10 @@ export default function TimelineControls({
             className="transport-button"
             type="button"
             onClick={onFirst}
-            disabled={currentStep === 0}
+            disabled={
+              isExecuting ||
+              currentStep === 0
+            }
             aria-label="First execution step"
             title="First step"
           >
@@ -147,7 +210,10 @@ export default function TimelineControls({
             className="transport-button"
             type="button"
             onClick={onPrevious}
-            disabled={currentStep === 0}
+            disabled={
+              isExecuting ||
+              currentStep === 0
+            }
             aria-label="Previous execution step"
             title="Previous step"
           >
@@ -162,16 +228,23 @@ export default function TimelineControls({
                 ? onPause
                 : onPlay
             }
+            disabled={
+              isExecuting
+            }
             aria-label={
               isPlaying
-                ? "Pause execution preview"
-                : "Play execution preview"
+                ? "Pause execution"
+                : "Play execution"
             }
           >
             {
               isPlaying
-                ? <Pause size={18} />
-                : <Play size={18} />
+                ? (
+                    <Pause size={18} />
+                  )
+                : (
+                    <Play size={18} />
+                  )
             }
           </button>
 
@@ -180,7 +253,8 @@ export default function TimelineControls({
             type="button"
             onClick={onNext}
             disabled={
-              currentStep === totalSteps - 1
+              isExecuting ||
+              currentStep >= totalSteps - 1
             }
             aria-label="Next execution step"
             title="Next step"
@@ -193,7 +267,8 @@ export default function TimelineControls({
             type="button"
             onClick={onLast}
             disabled={
-              currentStep === totalSteps - 1
+              isExecuting ||
+              currentStep >= totalSteps - 1
             }
             aria-label="Last execution step"
             title="Last step"
@@ -207,8 +282,11 @@ export default function TimelineControls({
             className="transport-button"
             type="button"
             onClick={onReset}
-            aria-label="Reset execution preview"
-            title="Reset preview"
+            disabled={
+              isExecuting
+            }
+            aria-label="Reset execution"
+            title="Reset execution"
           >
             <RotateCcw size={16} />
           </button>
@@ -221,13 +299,15 @@ export default function TimelineControls({
 
           <select
             value={speed}
-            onChange={(event) => {
-              onSpeedChange(
-                Number(
-                  event.target.value
-                )
-              );
-            }}
+            onChange={
+              (event) => {
+                onSpeedChange(
+                  Number(
+                    event.target.value
+                  )
+                );
+              }
+            }
             aria-label="Playback speed"
           >
             {

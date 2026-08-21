@@ -1,10 +1,15 @@
 "use strict";
 
-const assert = require("node:assert/strict");
+const assert = require(
+  "node:assert/strict"
+);
 
-const http = require("node:http");
+const http = require(
+  "node:http"
+);
 
 const {
+  DEFAULT_REQUEST_TIMEOUT_MS,
   createApiApp
 } = require("../src/app");
 
@@ -12,12 +17,10 @@ function listen(server) {
   return new Promise(
     (
       resolve,
-
       reject
     ) => {
       server.once(
         "error",
-
         reject
       );
 
@@ -29,7 +32,6 @@ function listen(server) {
         () => {
           server.removeListener(
             "error",
-
             reject
           );
 
@@ -46,34 +48,34 @@ function close(server) {
   return new Promise(
     (
       resolve,
-
       reject
     ) => {
-      server.close((error) => {
-        if (error) {
-          reject(error);
+      server.close(
+        (error) => {
+          if (error) {
+            reject(error);
 
-          return;
+            return;
+          }
+
+          resolve();
         }
-
-        resolve();
-      });
+      );
     }
   );
 }
 
 function writeJson(
   response,
-
   statusCode,
-
   payload
 ) {
   response.writeHead(
     statusCode,
 
     {
-      "content-type": "application/json; charset=utf-8"
+      "content-type":
+        "application/json; charset=utf-8"
     }
   );
 
@@ -82,11 +84,28 @@ function writeJson(
   );
 }
 
+async function readRequestBody(request) {
+  const chunks = [];
+
+  for await (
+    const chunk of request
+  ) {
+    chunks.push(chunk);
+  }
+
+  return JSON.parse(
+    Buffer.concat(
+      chunks
+    ).toString(
+      "utf8"
+    )
+  );
+}
+
 function createMockExecutionServer() {
   return http.createServer(
-    (
+    async (
       request,
-
       response
     ) => {
       if (
@@ -99,16 +118,25 @@ function createMockExecutionServer() {
           200,
 
           {
-            status: "ok",
+            status:
+              "ok",
 
-            service: "codeflow-execution",
+            service:
+              "codeflow-execution",
+
+            executionEnabledLanguages: [
+              "javascript"
+            ],
 
             security: {
-              dedicatedExecutionProcess: true,
+              dedicatedExecutionProcess:
+                true,
 
-              acceptsUntrustedCode: false,
+              acceptsUntrustedCode:
+                false,
 
-              productionSandboxAvailable: false
+              productionSandboxAvailable:
+                false
             }
           }
         );
@@ -126,27 +154,32 @@ function createMockExecutionServer() {
           200,
 
           {
-            status: "ok",
+            status:
+              "ok",
 
             languages: [
               {
                 id: "javascript",
-                domain: "program"
+                domain: "program",
+                executionEnabled: true
               },
 
               {
                 id: "python",
-                domain: "program"
+                domain: "program",
+                executionEnabled: false
               },
 
               {
                 id: "java",
-                domain: "program"
+                domain: "program",
+                executionEnabled: false
               },
 
               {
                 id: "sql",
-                domain: "query"
+                domain: "query",
+                executionEnabled: false
               }
             ]
           }
@@ -159,20 +192,105 @@ function createMockExecutionServer() {
         request.method === "POST" &&
         request.url === "/execute"
       ) {
+        const body =
+          await readRequestBody(
+            request
+          );
+
+        if (
+          body.language !== "javascript"
+        ) {
+          writeJson(
+            response,
+
+            501,
+
+            {
+              status:
+                "error",
+
+              error: {
+                code:
+                  "EXECUTION_NOT_IMPLEMENTED",
+
+                message:
+                  `${body.language} execution has not been integrated yet.`
+              }
+            }
+          );
+
+          return;
+        }
+
         writeJson(
           response,
 
-          501,
+          200,
 
           {
-            status: "error",
+            status:
+              "ok",
 
-            error: {
-              code: "EXECUTION_NOT_IMPLEMENTED",
+            language:
+              "javascript",
 
-              message: (
-                "Execution has not been enabled."
-              )
+            executionStatus:
+              "completed",
+
+            trace: {
+              schemaVersion:
+                "1.0.0",
+
+              language:
+                "javascript",
+
+              events: [
+                {
+                  id:
+                    "mock-event-0",
+
+                  step:
+                    0,
+
+                  type:
+                    "OUTPUT",
+
+                  source: {
+                    line:
+                      1
+                  },
+
+                  payload: {
+                    text:
+                      "Hello"
+                  }
+                }
+              ]
+            },
+
+            states: [
+              {
+                step:
+                  0,
+
+                variables:
+                  {},
+
+                console: [
+                  {
+                    channel:
+                      "stdout",
+
+                    text:
+                      "Hello"
+                  }
+                ]
+              }
+            ],
+
+            summary: {
+              eventCount:
+                1
             }
           }
         );
@@ -186,7 +304,8 @@ function createMockExecutionServer() {
         404,
 
         {
-          status: "error"
+          status:
+            "error"
         }
       );
     }
@@ -195,9 +314,7 @@ function createMockExecutionServer() {
 
 async function requestJson(
   baseUrl,
-
   pathname,
-
   options = {}
 ) {
   const response = await fetch(
@@ -207,7 +324,8 @@ async function requestJson(
       ...options,
 
       headers: {
-        "content-type": "application/json",
+        "content-type":
+          "application/json",
 
         ...options.headers
       }
@@ -215,45 +333,54 @@ async function requestJson(
   );
 
   return {
-    status: response.status,
+    status:
+      response.status,
 
-    body: await response.json()
+    body:
+      await response.json()
   };
 }
 
 async function runTests() {
-  const executionServer = createMockExecutionServer();
+  const executionServer =
+    createMockExecutionServer();
 
-  const executionAddress = await listen(
-    executionServer
-  );
-
-  const executionServiceUrl = (
-    `http://127.0.0.1:${executionAddress.port}`
-  );
+  const executionAddress =
+    await listen(
+      executionServer
+    );
 
   const app = createApiApp({
-    executionServiceUrl
+    executionServiceUrl:
+      `http://127.0.0.1:${executionAddress.port}`
   });
 
-  const apiServer = http.createServer(
-    app
-  );
+  const apiServer =
+    http.createServer(
+      app
+    );
 
-  const apiAddress = await listen(
-    apiServer
-  );
+  const apiAddress =
+    await listen(
+      apiServer
+    );
 
-  const apiBaseUrl = (
-    `http://127.0.0.1:${apiAddress.port}`
-  );
+  const apiBaseUrl =
+    `http://127.0.0.1:${apiAddress.port}`;
 
   try {
-    const health = await requestJson(
-      apiBaseUrl,
+    assert.equal(
+      DEFAULT_REQUEST_TIMEOUT_MS,
 
-      "/api/health"
+      10_000
     );
+
+    const health =
+      await requestJson(
+        apiBaseUrl,
+
+        "/api/health"
+      );
 
     assert.equal(
       health.status,
@@ -279,17 +406,24 @@ async function runTests() {
       true
     );
 
+    assert.deepEqual(
+      health.body.executionService.enabledLanguages,
+
+      ["javascript"]
+    );
+
     assert.equal(
       health.body.executionService.security.acceptsUntrustedCode,
 
       false
     );
 
-    const languages = await requestJson(
-      apiBaseUrl,
+    const languages =
+      await requestJson(
+        apiBaseUrl,
 
-      "/api/languages"
-    );
+        "/api/languages"
+      );
 
     assert.equal(
       languages.status,
@@ -303,31 +437,35 @@ async function runTests() {
       4
     );
 
-    const sqlLanguage = languages.body.languages.find(
-      (language) => language.id === "sql"
-    );
-
     assert.equal(
-      sqlLanguage.domain,
+      languages.body.languages.find(
+        (language) =>
+          language.id === "sql"
+      ).domain,
 
       "query"
     );
 
-    const unsupportedLanguage = await requestJson(
-      apiBaseUrl,
+    const unsupportedLanguage =
+      await requestJson(
+        apiBaseUrl,
 
-      "/api/execute",
+        "/api/execute",
 
-      {
-        method: "POST",
+        {
+          method:
+            "POST",
 
-        body: JSON.stringify({
-          language: "c",
+          body:
+            JSON.stringify({
+              language:
+                "c",
 
-          source: "int main() {}"
-        })
-      }
-    );
+              source:
+                "int main() {}"
+            })
+        }
+      );
 
     assert.equal(
       unsupportedLanguage.status,
@@ -341,21 +479,26 @@ async function runTests() {
       "UNSUPPORTED_LANGUAGE"
     );
 
-    const missingSource = await requestJson(
-      apiBaseUrl,
+    const missingSource =
+      await requestJson(
+        apiBaseUrl,
 
-      "/api/execute",
+        "/api/execute",
 
-      {
-        method: "POST",
+        {
+          method:
+            "POST",
 
-        body: JSON.stringify({
-          language: "javascript",
+          body:
+            JSON.stringify({
+              language:
+                "javascript",
 
-          source: ""
-        })
-      }
-    );
+              source:
+                ""
+            })
+        }
+      );
 
     assert.equal(
       missingSource.status,
@@ -369,39 +512,96 @@ async function runTests() {
       "INVALID_SOURCE"
     );
 
-    const executionAttempt = await requestJson(
-      apiBaseUrl,
+    const javascriptExecution =
+      await requestJson(
+        apiBaseUrl,
 
-      "/api/execute",
+        "/api/execute",
 
-      {
-        method: "POST",
+        {
+          method:
+            "POST",
 
-        body: JSON.stringify({
-          language: "javascript",
+          body:
+            JSON.stringify({
+              language:
+                "javascript",
 
-          source: "console.log('Hello');"
-        })
-      }
+              source:
+                'console.log("Hello");'
+            })
+        }
+      );
+
+    assert.equal(
+      javascriptExecution.status,
+
+      200
     );
 
     assert.equal(
-      executionAttempt.status,
+      javascriptExecution.body.status,
+
+      "ok"
+    );
+
+    assert.equal(
+      javascriptExecution.body.language,
+
+      "javascript"
+    );
+
+    assert.equal(
+      javascriptExecution.body.trace.events[0].type,
+
+      "OUTPUT"
+    );
+
+    assert.equal(
+      javascriptExecution.body.states[0].console[0].text,
+
+      "Hello"
+    );
+
+    const pythonExecution =
+      await requestJson(
+        apiBaseUrl,
+
+        "/api/execute",
+
+        {
+          method:
+            "POST",
+
+          body:
+            JSON.stringify({
+              language:
+                "python",
+
+              source:
+                'print("Hello")'
+            })
+        }
+      );
+
+    assert.equal(
+      pythonExecution.status,
 
       501
     );
 
     assert.equal(
-      executionAttempt.body.error.code,
+      pythonExecution.body.error.code,
 
       "EXECUTION_NOT_IMPLEMENTED"
     );
 
-    const missingRoute = await requestJson(
-      apiBaseUrl,
+    const missingRoute =
+      await requestJson(
+        apiBaseUrl,
 
-      "/api/not-found"
-    );
+        "/api/not-found"
+      );
 
     assert.equal(
       missingRoute.status,
@@ -426,6 +626,18 @@ async function runTests() {
     );
 
     console.log(
+      "Real JavaScript trace forwarding: passed"
+    );
+
+    console.log(
+      "Execution-state forwarding: passed"
+    );
+
+    console.log(
+      "Unavailable language boundaries: passed"
+    );
+
+    console.log(
       "Request validation: passed"
     );
 
@@ -443,14 +655,16 @@ async function runTests() {
   }
 }
 
-runTests().catch((error) => {
-  console.error(
-    "API tests failed."
-  );
+runTests().catch(
+  (error) => {
+    console.error(
+      "API tests failed."
+    );
 
-  console.error(
-    error
-  );
+    console.error(
+      error
+    );
 
-  process.exitCode = 1;
-});
+    process.exitCode = 1;
+  }
+);

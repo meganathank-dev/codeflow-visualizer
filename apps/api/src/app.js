@@ -6,23 +6,31 @@ const {
   SUPPORTED_LANGUAGES
 } = require("@codeflow/execution-trace");
 
-const DEFAULT_EXECUTION_SERVICE_URL = (
-  "http://127.0.0.1:4100"
-);
+const DEFAULT_EXECUTION_SERVICE_URL =
+  "http://127.0.0.1:4100";
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 2_500;
+const DEFAULT_REQUEST_TIMEOUT_MS =
+  10_000;
 
-const DEFAULT_MAX_SOURCE_BYTES = 32 * 1024;
+const DEFAULT_MAX_SOURCE_BYTES =
+  32 * 1024;
 
 class ApiRequestError extends Error {
-  constructor(message, statusCode, code) {
+  constructor(
+    message,
+    statusCode,
+    code
+  ) {
     super(message);
 
-    this.name = "ApiRequestError";
+    this.name =
+      "ApiRequestError";
 
-    this.statusCode = statusCode;
+    this.statusCode =
+      statusCode;
 
-    this.code = code;
+    this.code =
+      code;
   }
 }
 
@@ -38,21 +46,18 @@ function normalizeExecutionServiceUrl(value) {
 
   return value.replace(
     /\/+$/,
-
     ""
   );
 }
 
 function createExecutionClient(options) {
-  const executionServiceUrl = normalizeExecutionServiceUrl(
-    options.executionServiceUrl
-  );
-
-  const requestTimeoutMs = options.requestTimeoutMs;
+  const executionServiceUrl =
+    normalizeExecutionServiceUrl(
+      options.executionServiceUrl
+    );
 
   async function request(
     pathname,
-
     requestOptions = {}
   ) {
     let response;
@@ -65,17 +70,31 @@ function createExecutionClient(options) {
           ...requestOptions,
 
           headers: {
-            "content-type": "application/json",
+            "content-type":
+              "application/json",
 
             ...requestOptions.headers
           },
 
           signal: AbortSignal.timeout(
-            requestTimeoutMs
+            options.requestTimeoutMs
           )
         }
       );
-    } catch {
+    } catch (error) {
+      if (
+        error.name === "TimeoutError" ||
+        error.name === "AbortError"
+      ) {
+        throw new ApiRequestError(
+          "Execution service exceeded the request timeout",
+
+          504,
+
+          "EXECUTION_SERVICE_TIMEOUT"
+        );
+      }
+
       throw new ApiRequestError(
         "Execution service is unavailable",
 
@@ -100,7 +119,8 @@ function createExecutionClient(options) {
     }
 
     return {
-      status: response.status,
+      status:
+        response.status,
 
       body
     };
@@ -113,7 +133,6 @@ function createExecutionClient(options) {
 
 function validateExecutionRequest(
   body,
-
   maximumSourceBytes
 ) {
   if (
@@ -132,7 +151,6 @@ function validateExecutionRequest(
 
   const {
     language,
-
     source
   } = body;
 
@@ -165,7 +183,6 @@ function validateExecutionRequest(
   if (
     Buffer.byteLength(
       source,
-
       "utf8"
     ) > maximumSourceBytes
   ) {
@@ -180,27 +197,27 @@ function validateExecutionRequest(
 
   return {
     language,
-
     source
   };
 }
 
-function createApiApp(options = {}) {
-  const executionServiceUrl = normalizeExecutionServiceUrl(
-    options.executionServiceUrl ||
-    process.env.EXECUTION_SERVICE_URL ||
-    DEFAULT_EXECUTION_SERVICE_URL
-  );
+function createApiApp(
+  options = {}
+) {
+  const executionServiceUrl =
+    normalizeExecutionServiceUrl(
+      options.executionServiceUrl ||
+      process.env.EXECUTION_SERVICE_URL ||
+      DEFAULT_EXECUTION_SERVICE_URL
+    );
 
-  const requestTimeoutMs = (
+  const requestTimeoutMs =
     options.requestTimeoutMs ??
-    DEFAULT_REQUEST_TIMEOUT_MS
-  );
+    DEFAULT_REQUEST_TIMEOUT_MS;
 
-  const maximumSourceBytes = (
+  const maximumSourceBytes =
     options.maximumSourceBytes ??
-    DEFAULT_MAX_SOURCE_BYTES
-  );
+    DEFAULT_MAX_SOURCE_BYTES;
 
   if (
     !Number.isInteger(requestTimeoutMs) ||
@@ -235,20 +252,16 @@ function createApiApp(options = {}) {
   app.use(
     (
       request,
-
       response,
-
       next
     ) => {
       response.setHeader(
         "cache-control",
-
         "no-store"
       );
 
       response.setHeader(
         "x-content-type-options",
-
         "nosniff"
       );
 
@@ -259,7 +272,6 @@ function createApiApp(options = {}) {
   app.use(
     express.json({
       limit: "64kb",
-
       strict: true
     })
   );
@@ -269,59 +281,80 @@ function createApiApp(options = {}) {
 
     async (
       request,
-
       response,
-
       next
     ) => {
       try {
-        const executionHealth = await executionClient.request(
-          "/health"
-        );
+        const executionHealth =
+          await executionClient.request(
+            "/health"
+          );
+
+        const connected =
+          executionHealth.status === 200;
 
         response.status(
-          executionHealth.status === 200
+          connected
             ? 200
             : 503
         ).json({
-          status: executionHealth.status === 200
-            ? "ok"
-            : "degraded",
+          status:
+            connected
+              ? "ok"
+              : "degraded",
 
-          service: "codeflow-api",
+          service:
+            "codeflow-api",
 
           executionService: {
-            connected: executionHealth.status === 200,
+            connected,
 
-            status: executionHealth.body.status,
+            status:
+              executionHealth.body.status,
 
-            security: (
+            enabledLanguages:
+              executionHealth.body.executionEnabledLanguages ||
+              [],
+
+            security:
               executionHealth.body.security ||
               null
-            )
           },
 
-          languages: SUPPORTED_LANGUAGES
+          languages:
+            SUPPORTED_LANGUAGES
         });
       } catch (error) {
         if (
           error instanceof ApiRequestError &&
-          error.code === "EXECUTION_SERVICE_UNAVAILABLE"
+          [
+            "EXECUTION_SERVICE_UNAVAILABLE",
+            "EXECUTION_SERVICE_TIMEOUT"
+          ].includes(error.code)
         ) {
           response.status(503).json({
-            status: "degraded",
+            status:
+              "degraded",
 
-            service: "codeflow-api",
+            service:
+              "codeflow-api",
 
             executionService: {
-              connected: false,
+              connected:
+                false,
 
-              status: "offline",
+              status:
+                "offline",
 
-              security: null
+              enabledLanguages:
+                [],
+
+              security:
+                null
             },
 
-            languages: SUPPORTED_LANGUAGES
+            languages:
+              SUPPORTED_LANGUAGES
           });
 
           return;
@@ -337,15 +370,14 @@ function createApiApp(options = {}) {
 
     async (
       request,
-
       response,
-
       next
     ) => {
       try {
-        const languages = await executionClient.request(
-          "/languages"
-        );
+        const languages =
+          await executionClient.request(
+            "/languages"
+          );
 
         response.status(
           languages.status
@@ -363,29 +395,31 @@ function createApiApp(options = {}) {
 
     async (
       request,
-
       response,
-
       next
     ) => {
       try {
-        const executionRequest = validateExecutionRequest(
-          request.body,
+        const executionRequest =
+          validateExecutionRequest(
+            request.body,
 
-          maximumSourceBytes
-        );
+            maximumSourceBytes
+          );
 
-        const executionResult = await executionClient.request(
-          "/execute",
+        const executionResult =
+          await executionClient.request(
+            "/execute",
 
-          {
-            method: "POST",
+            {
+              method:
+                "POST",
 
-            body: JSON.stringify(
-              executionRequest
-            )
-          }
-        );
+              body:
+                JSON.stringify(
+                  executionRequest
+                )
+            }
+          );
 
         response.status(
           executionResult.status
@@ -401,16 +435,18 @@ function createApiApp(options = {}) {
   app.use(
     (
       request,
-
       response
     ) => {
       response.status(404).json({
-        status: "error",
+        status:
+          "error",
 
         error: {
-          code: "ROUTE_NOT_FOUND",
+          code:
+            "ROUTE_NOT_FOUND",
 
-          message: "API route was not found"
+          message:
+            "API route was not found"
         }
       });
     }
@@ -419,14 +455,13 @@ function createApiApp(options = {}) {
   app.use(
     (
       error,
-
       request,
-
       response,
-
       next
     ) => {
-      if (response.headersSent) {
+      if (
+        response.headersSent
+      ) {
         next(error);
 
         return;
@@ -436,12 +471,15 @@ function createApiApp(options = {}) {
         error.type === "entity.too.large"
       ) {
         response.status(413).json({
-          status: "error",
+          status:
+            "error",
 
           error: {
-            code: "REQUEST_TOO_LARGE",
+            code:
+              "REQUEST_TOO_LARGE",
 
-            message: "Request body exceeds the maximum permitted size"
+            message:
+              "Request body exceeds the maximum permitted size"
           }
         });
 
@@ -452,12 +490,15 @@ function createApiApp(options = {}) {
         error.type === "entity.parse.failed"
       ) {
         response.status(400).json({
-          status: "error",
+          status:
+            "error",
 
           error: {
-            code: "INVALID_JSON",
+            code:
+              "INVALID_JSON",
 
-            message: "Request body must contain valid JSON"
+            message:
+              "Request body must contain valid JSON"
           }
         });
 
@@ -470,12 +511,15 @@ function createApiApp(options = {}) {
         response.status(
           error.statusCode
         ).json({
-          status: "error",
+          status:
+            "error",
 
           error: {
-            code: error.code,
+            code:
+              error.code,
 
-            message: error.message
+            message:
+              error.message
           }
         });
 
@@ -483,12 +527,15 @@ function createApiApp(options = {}) {
       }
 
       response.status(500).json({
-        status: "error",
+        status:
+          "error",
 
         error: {
-          code: "INTERNAL_API_ERROR",
+          code:
+            "INTERNAL_API_ERROR",
 
-          message: "API could not process the request"
+          message:
+            "API could not process the request"
         }
       });
     }
