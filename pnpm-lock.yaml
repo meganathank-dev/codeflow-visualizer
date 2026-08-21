@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  pocs/javascript:
     dependencies:
       '@babel/generator':
         specifier: ^7.28.0

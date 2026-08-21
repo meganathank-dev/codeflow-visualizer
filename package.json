@@ -1,0 +1,15 @@
+{
+  "name": "codeflow-visualizer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interactive multi-language program execution visualization platform",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=11.0.0"
+  },
+  "scripts": {
+    "test:pocs": "node pocs/conformance/multilanguage-conformance.test.js",
+    "test:javascript-poc": "pnpm --filter @codeflow/javascript-poc test:automatic"
+  }
+}

@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Application builds
+dist/
+**/dist/
+build/
+**/build/
+
+# Test results
+coverage/
+**/coverage/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Java
+*.class
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+.cache/
