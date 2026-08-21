@@ -4,10 +4,19 @@ const http = require("node:http");
 
 const {
   LANGUAGES,
+
   SUPPORTED_LANGUAGES,
+
   TRACE_DOMAINS,
+
   getDomainForLanguage
 } = require("@codeflow/execution-trace");
+
+const {
+  JavaScriptExecutionError,
+
+  executeJavaScript
+} = require("./javascript/adapter");
 
 const DEFAULT_HOST = "127.0.0.1";
 
@@ -19,10 +28,16 @@ const DEFAULT_MAX_REQUEST_BYTES = 64 * 1024;
 
 const SERVICE_NAME = "codeflow-execution";
 
-const SERVICE_VERSION = "0.1.0";
+const SERVICE_VERSION = "0.2.0";
 
 class ExecutionRequestError extends Error {
-  constructor(message, statusCode, code) {
+  constructor(
+    message,
+
+    statusCode,
+
+    code
+  ) {
     super(message);
 
     this.name = "ExecutionRequestError";
@@ -33,8 +48,16 @@ class ExecutionRequestError extends Error {
   }
 }
 
-function writeJson(response, statusCode, payload) {
-  const body = JSON.stringify(payload);
+function writeJson(
+  response,
+
+  statusCode,
+
+  payload
+) {
+  const body = JSON.stringify(
+    payload
+  );
 
   response.writeHead(
     statusCode,
@@ -44,6 +67,7 @@ function writeJson(response, statusCode, payload) {
 
       "content-length": Buffer.byteLength(
         body,
+
         "utf8"
       ),
 
@@ -53,35 +77,41 @@ function writeJson(response, statusCode, payload) {
     }
   );
 
-  response.end(body);
+  response.end(
+    body
+  );
 }
 
 function createLanguageCapabilities() {
-  return SUPPORTED_LANGUAGES.map((language) => ({
-    id: language,
+  return SUPPORTED_LANGUAGES.map(
+    (language) => ({
+      id: language,
 
-    label: {
-      [LANGUAGES.JAVASCRIPT]: "JavaScript",
+      label: {
+        [LANGUAGES.JAVASCRIPT]: "JavaScript",
 
-      [LANGUAGES.PYTHON]: "Python",
+        [LANGUAGES.PYTHON]: "Python",
 
-      [LANGUAGES.JAVA]: "Java",
+        [LANGUAGES.JAVA]: "Java",
 
-      [LANGUAGES.SQL]: "SQL"
-    }[language],
+        [LANGUAGES.SQL]: "SQL"
+      }[language],
 
-    domain: getDomainForLanguage(
-      language
-    ),
+      domain: getDomainForLanguage(
+        language
+      ),
 
-    adapterValidated: true,
+      adapterValidated: true,
 
-    executionEnabled: false,
+      executionEnabled: (
+        language === LANGUAGES.JAVASCRIPT
+      ),
 
-    visualizationMode: language === LANGUAGES.SQL
-      ? "logical-query"
-      : "program-execution"
-  }));
+      visualizationMode: language === LANGUAGES.SQL
+        ? "logical-query"
+        : "program-execution"
+    })
+  );
 }
 
 function createHealthResponse() {
@@ -96,6 +126,10 @@ function createHealthResponse() {
 
     languages: SUPPORTED_LANGUAGES,
 
+    executionEnabledLanguages: [
+      LANGUAGES.JAVASCRIPT
+    ],
+
     domains: [
       TRACE_DOMAINS.PROGRAM,
 
@@ -106,6 +140,8 @@ function createHealthResponse() {
       mode: "local-trusted-development",
 
       dedicatedExecutionProcess: true,
+
+      dedicatedJavaScriptChildProcess: true,
 
       productionSandboxAvailable: false,
 
@@ -130,9 +166,11 @@ async function readJsonBody(
   for await (const chunk of request) {
     totalBytes += chunk.length;
 
-    if (totalBytes > maximumBytes) {
+    if (
+      totalBytes > maximumBytes
+    ) {
       throw new ExecutionRequestError(
-        "Request body exceeds the maximum permitted size",
+        "Request body exceeds the maximum permitted size.",
 
         413,
 
@@ -140,12 +178,14 @@ async function readJsonBody(
       );
     }
 
-    chunks.push(chunk);
+    chunks.push(
+      chunk
+    );
   }
 
   if (chunks.length === 0) {
     throw new ExecutionRequestError(
-      "Request body is required",
+      "Request body is required.",
 
       400,
 
@@ -165,7 +205,7 @@ async function readJsonBody(
     );
   } catch {
     throw new ExecutionRequestError(
-      "Request body must contain valid JSON",
+      "Request body must contain valid JSON.",
 
       400,
 
@@ -179,7 +219,7 @@ async function readJsonBody(
     Array.isArray(parsedBody)
   ) {
     throw new ExecutionRequestError(
-      "Request body must be a JSON object",
+      "Request body must be a JSON object.",
 
       400,
 
@@ -206,7 +246,7 @@ function validateExecutionRequest(
     !SUPPORTED_LANGUAGES.includes(language)
   ) {
     throw new ExecutionRequestError(
-      "A supported execution language is required",
+      "A supported execution language is required.",
 
       400,
 
@@ -219,7 +259,7 @@ function validateExecutionRequest(
     source.trim().length === 0
   ) {
     throw new ExecutionRequestError(
-      "Source code must be a non-empty string",
+      "Source code must be a non-empty string.",
 
       400,
 
@@ -233,9 +273,11 @@ function validateExecutionRequest(
     "utf8"
   );
 
-  if (sourceBytes > maximumSourceBytes) {
+  if (
+    sourceBytes > maximumSourceBytes
+  ) {
     throw new ExecutionRequestError(
-      "Source code exceeds the maximum permitted size",
+      "Source code exceeds the maximum permitted size.",
 
       413,
 
@@ -246,8 +288,80 @@ function validateExecutionRequest(
   return {
     language,
 
+    source,
+
     sourceBytes
   };
+}
+
+async function handleExecution(
+  request,
+
+  response,
+
+  options
+) {
+  const body = await readJsonBody(
+    request,
+
+    options.maximumRequestBytes
+  );
+
+  const executionRequest = validateExecutionRequest(
+    body,
+
+    options.maximumSourceBytes
+  );
+
+  if (
+    executionRequest.language !== LANGUAGES.JAVASCRIPT
+  ) {
+    writeJson(
+      response,
+
+      501,
+
+      {
+        status: "error",
+
+        error: {
+          code: "EXECUTION_NOT_IMPLEMENTED",
+
+          message: (
+            `${executionRequest.language} execution has not been integrated yet.`
+          )
+        },
+
+        request: {
+          language: executionRequest.language,
+
+          sourceBytes: executionRequest.sourceBytes
+        },
+
+        security: {
+          acceptsUntrustedCode: false,
+
+          productionSandboxAvailable: false
+        }
+      }
+    );
+
+    return;
+  }
+
+  const executionResult = await executeJavaScript(
+    executionRequest.source,
+
+    options.javascript
+  );
+
+  writeJson(
+    response,
+
+    200,
+
+    executionResult
+  );
 }
 
 async function handleRequest(
@@ -301,46 +415,12 @@ async function handleRequest(
     request.method === "POST" &&
     requestUrl.pathname === "/execute"
   ) {
-    const body = await readJsonBody(
+    await handleExecution(
       request,
 
-      options.maximumRequestBytes
-    );
-
-    const executionRequest = validateExecutionRequest(
-      body,
-
-      options.maximumSourceBytes
-    );
-
-    writeJson(
       response,
 
-      501,
-
-      {
-        status: "error",
-
-        error: {
-          code: "EXECUTION_NOT_IMPLEMENTED",
-
-          message: (
-            "Execution service foundation is available, but user-code execution has not been enabled."
-          )
-        },
-
-        request: {
-          language: executionRequest.language,
-
-          sourceBytes: executionRequest.sourceBytes
-        },
-
-        security: {
-          acceptsUntrustedCode: false,
-
-          productionSandboxAvailable: false
-        }
-      }
+      options
     );
 
     return;
@@ -357,7 +437,7 @@ async function handleRequest(
       error: {
         code: "ROUTE_NOT_FOUND",
 
-        message: "Execution service route was not found"
+        message: "Execution service route was not found."
       }
     }
   );
@@ -379,7 +459,7 @@ function createExecutionServer(options = {}) {
     maximumSourceBytes < 1
   ) {
     throw new TypeError(
-      "maximumSourceBytes must be a positive integer"
+      "maximumSourceBytes must be a positive integer."
     );
   }
 
@@ -388,7 +468,7 @@ function createExecutionServer(options = {}) {
     maximumRequestBytes < 1
   ) {
     throw new TypeError(
-      "maximumRequestBytes must be a positive integer"
+      "maximumRequestBytes must be a positive integer."
     );
   }
 
@@ -406,7 +486,12 @@ function createExecutionServer(options = {}) {
         {
           maximumSourceBytes,
 
-          maximumRequestBytes
+          maximumRequestBytes,
+
+          javascript: (
+            options.javascript ||
+            {}
+          )
         }
       ).catch((error) => {
         if (response.headersSent) {
@@ -416,7 +501,8 @@ function createExecutionServer(options = {}) {
         }
 
         if (
-          error instanceof ExecutionRequestError
+          error instanceof ExecutionRequestError ||
+          error instanceof JavaScriptExecutionError
         ) {
           writeJson(
             response,
@@ -449,7 +535,7 @@ function createExecutionServer(options = {}) {
               code: "INTERNAL_EXECUTION_ERROR",
 
               message: (
-                "Execution service could not process the request"
+                "Execution service could not process the request."
               )
             }
           }
@@ -491,7 +577,11 @@ function startExecutionServer(options = {}) {
       );
 
       console.log(
-        "User-code execution: disabled until the execution adapter is integrated"
+        "Real execution enabled: JavaScript"
+      );
+
+      console.log(
+        "Pending execution integration: Python, Java, SQL"
       );
     }
   );
@@ -499,7 +589,9 @@ function startExecutionServer(options = {}) {
   return server;
 }
 
-if (require.main === module) {
+if (
+  require.main === module
+) {
   startExecutionServer();
 }
 

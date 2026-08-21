@@ -19,9 +19,24 @@ importers:
 
   apps/execution:
     dependencies:
+      '@babel/generator':
+        specifier: ^7.29.8
+        version: 7.29.8
+      '@babel/parser':
+        specifier: ^7.29.8
+        version: 7.29.8
+      '@babel/traverse':
+        specifier: ^7.29.8
+        version: 7.29.8
+      '@babel/types':
+        specifier: ^7.29.8
+        version: 7.29.8
       '@codeflow/execution-trace':
         specifier: workspace:*
         version: link:../../packages/execution-trace
+      '@codeflow/visualizer-core':
+        specifier: workspace:*
+        version: link:../../packages/visualizer-core
 
   apps/web:
     dependencies:
