@@ -438,6 +438,17 @@ function emitVariableDeclare(recorder, name, variable, line, scopeId) {
         : []
     }, scopeId);
   }
+
+  if (/linked.?list/i.test(name)) {
+    record(recorder, EVENT_TYPES.LINKED_LIST_CREATE, line, {
+      name,
+      listName: name,
+      nodes: [],
+      headId: null,
+      tailId: null,
+      length: 0
+    }, scopeId);
+  }
 }
 
 function emitVariableUpdate(
@@ -545,10 +556,11 @@ function processCollectionStatement(
   line,
   locals,
   scopeId,
-  logicalQueues
+  logicalQueues,
+  logicalLinkedLists
 ) {
   const match = sourceLine.match(
-    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|offer|addLast|pop|poll|remove|removeFirst|peek|element)\s*\((.*?)\)\s*;/
+    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element)\s*\((.*?)\)\s*;/
   );
 
   if (!match) {
@@ -557,6 +569,110 @@ function processCollectionStatement(
 
   const [, name, method, expression] = match;
   const lowerName = name.toLowerCase();
+
+  if (/linked.?list/i.test(name)) {
+    const list = logicalLinkedLists.get(name) || { nodes: [], nextNodeNumber: 0 };
+    const before = structuredClone(list.nodes);
+    const argumentsList = expression.trim() === ""
+      ? []
+      : expression.split(",").map((item) => item.trim());
+    let inserted = null;
+    let removed = null;
+    let visited = null;
+    let index = null;
+
+    if (["add", "addFirst", "addLast", "offer", "push"].includes(method)) {
+      const indexedInsert = method === "add" && argumentsList.length === 2;
+      index = method === "addFirst" || method === "push"
+        ? 0
+        : indexedInsert
+          ? Number(evaluateSimpleExpression(argumentsList[0], locals))
+          : list.nodes.length;
+      const value = evaluateSimpleExpression(
+        indexedInsert ? argumentsList[1] : argumentsList[0],
+        locals
+      );
+
+      inserted = { id: `node:${++list.nextNodeNumber}`, value, nextId: null };
+      list.nodes.splice(index, 0, inserted);
+    } else if (["remove", "removeFirst", "removeLast", "poll", "pop"].includes(method)) {
+      index = method === "removeLast"
+        ? list.nodes.length - 1
+        : method === "remove" && argumentsList.length > 0
+          ? Number(evaluateSimpleExpression(argumentsList[0], locals))
+          : 0;
+      removed = list.nodes.splice(index, 1)[0] || null;
+    } else if (["get", "getFirst", "getLast", "peek", "element"].includes(method)) {
+      index = method === "getLast"
+        ? list.nodes.length - 1
+        : method === "get"
+          ? Number(evaluateSimpleExpression(argumentsList[0], locals))
+          : 0;
+      visited = list.nodes[index] || null;
+    }
+
+    list.nodes.forEach((node, position) => {
+      node.nextId = list.nodes[position + 1]?.id || null;
+    });
+    logicalLinkedLists.set(name, list);
+
+    const payload = {
+      name,
+      listName: name,
+      nodes: structuredClone(list.nodes),
+      headId: list.nodes[0]?.id || null,
+      tailId: list.nodes.at(-1)?.id || null,
+      length: list.nodes.length
+    };
+
+    if (inserted) {
+      record(recorder, EVENT_TYPES.NODE_CREATE, line, {
+        ...payload,
+        nodeId: inserted.id,
+        value: inserted.value,
+        nextId: inserted.nextId
+      }, scopeId);
+
+      record(recorder, EVENT_TYPES.REFERENCE_UPDATE, line, {
+        ...payload,
+        reference: index === 0 ? "head" : "next",
+        fromNodeId: index === 0 ? null : list.nodes[index - 1].id,
+        previousTargetId: index === 0 ? before[0]?.id || null : before[index - 1]?.nextId || null,
+        targetNodeId: inserted.id
+      }, scopeId);
+
+      record(recorder, EVENT_TYPES.NODE_INSERT, line, {
+        ...payload,
+        nodeId: inserted.id,
+        value: inserted.value,
+        index
+      }, scopeId);
+    } else if (removed) {
+      record(recorder, EVENT_TYPES.REFERENCE_UPDATE, line, {
+        ...payload,
+        reference: index === 0 ? "head" : "next",
+        fromNodeId: index === 0 ? null : before[index - 1].id,
+        previousTargetId: removed.id,
+        targetNodeId: list.nodes[index]?.id || null
+      }, scopeId);
+
+      record(recorder, EVENT_TYPES.NODE_DELETE, line, {
+        ...payload,
+        nodeId: removed.id,
+        value: removed.value,
+        index
+      }, scopeId);
+    } else if (visited) {
+      record(recorder, EVENT_TYPES.NODE_VISIT, line, {
+        ...payload,
+        nodeId: visited.id,
+        value: visited.value,
+        index
+      }, scopeId);
+    }
+
+    return;
+  }
 
   if (lowerName.includes("stack")) {
     if (["push", "add", "offer", "addLast"].includes(method)) {
@@ -822,6 +938,7 @@ function buildJavaTrace(rawObservations, options) {
 
   const frameStates = new Map();
   const logicalQueues = new Map();
+  const logicalLinkedLists = new Map();
   const controlFlow = createControlFlowTracker(options.sourceLines);
   const observations = rawObservations.trim().split(/\r?\n/).filter(Boolean);
 
@@ -909,7 +1026,8 @@ function buildJavaTrace(rawObservations, options) {
         frameState.lastLine,
         frameState.locals,
         frameState.scopeId,
-        logicalQueues
+        logicalQueues,
+        logicalLinkedLists
       );
 
       controlFlow.observeLine(
@@ -956,7 +1074,8 @@ function buildJavaTrace(rawObservations, options) {
           frameState.lastLine,
           frameState.locals,
           frameState.scopeId,
-          logicalQueues
+          logicalQueues,
+          logicalLinkedLists
         );
 
         controlFlow.close(recorder, frameState.lastLine, frameState.scopeId);

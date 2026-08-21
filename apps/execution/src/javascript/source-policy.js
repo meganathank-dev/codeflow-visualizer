@@ -280,6 +280,13 @@ function validateSourcePolicy(ast) {
       },
 
       NewExpression(path) {
+        if (
+          t.isIdentifier(path.node.callee, { name: "LinkedList" }) &&
+          path.node.arguments.length === 0
+        ) {
+          return;
+        }
+
         rejectNode(
           path,
 

@@ -177,6 +177,7 @@ function executeSource(payload) {
     const sandbox = Object.create(null);
 
     sandbox.__trace = runtime;
+    sandbox.LinkedList = runtime.createLinkedListConstructor();
 
     const context = vm.createContext(
       sandbox,

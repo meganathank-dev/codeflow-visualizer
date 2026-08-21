@@ -663,6 +663,91 @@ function QueueVisualization({
   );
 }
 
+function LinkedListVisualization({ linkedList }) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (!linkedList) {
+    return null;
+  }
+
+  return (
+    <motion.div
+      className="visualization-card linked-list-card"
+      layout
+      transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+    >
+      <div className="visualization-card-heading">
+        <div className="visualization-card-title">
+          <Workflow size={16} />
+          <span>Linked List</span>
+        </div>
+
+        <span className="structure-name">{linkedList.name}</span>
+      </div>
+
+      <div className="linked-list-stage">
+        <span className="linked-list-end-label is-head">HEAD</span>
+
+        <motion.div className="linked-list-track" layout>
+          <AnimatePresence initial={false} mode="popLayout">
+            {linkedList.nodes.length === 0 ? (
+              <motion.div
+                key="empty-linked-list"
+                className="empty-linked-list"
+                initial={shouldReduceMotion ? false : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0 }}
+              >
+                Empty linked list
+              </motion.div>
+            ) : linkedList.nodes.map((node, index) => (
+              <motion.div
+                key={node.id}
+                className="linked-node-group"
+                layout
+                initial={shouldReduceMotion ? false : { opacity: 0, y: -15, scale: 0.86 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0, y: 16, scale: 0.8 }}
+                transition={shouldReduceMotion ? { duration: 0 } : SPRING_TRANSITION}
+              >
+                <motion.div
+                  className={[
+                    "linked-node",
+                    node.id === linkedList.headId ? "is-head-node" : "",
+                    node.id === linkedList.tailId ? "is-tail-node" : "",
+                    node.id === linkedList.activeNodeId ? "is-active-node" : ""
+                  ].filter(Boolean).join(" ")}
+                  layout
+                >
+                  <span className="linked-node-index">{index}</span>
+                  <span className="linked-node-value">{formatVariableValue(node.value)}</span>
+                  <span className="linked-node-pointer">next</span>
+                </motion.div>
+
+                <motion.span className="linked-reference-arrow" layout>
+                  <ArrowRight size={16} />
+                </motion.span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+
+          {linkedList.nodes.length > 0 && (
+            <motion.span className="linked-null-reference" layout>NULL</motion.span>
+          )}
+        </motion.div>
+      </div>
+
+      <div className="linked-list-flow-line">
+        <span>head</span>
+        <ArrowRight size={13} />
+        <span>value + next reference</span>
+        <ArrowRight size={13} />
+        <span>null</span>
+      </div>
+    </motion.div>
+  );
+}
+
 function EventStory({
   step,
   isSql = false
@@ -897,6 +982,10 @@ function ProgramVisualization({
 
         <QueueVisualization
           queue={step.queue}
+        />
+
+        <LinkedListVisualization
+          linkedList={step.linkedList}
         />
       </motion.div>
     </>

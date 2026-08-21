@@ -44,6 +44,8 @@ function createInitialState(trace) {
 
     queues: {},
 
+    linkedLists: {},
+
     objects: {},
 
     callStack: [],
@@ -347,6 +349,15 @@ function applyStateDelta(state, stateDelta) {
   }
 
   if (
+    stateDelta.linkedLists &&
+    typeof stateDelta.linkedLists === "object"
+  ) {
+    for (const [name, linkedList] of Object.entries(stateDelta.linkedLists)) {
+      state.linkedLists[name] = cloneValue(linkedList);
+    }
+  }
+
+  if (
     stateDelta.query &&
     typeof stateDelta.query === "object"
   ) {
@@ -635,6 +646,82 @@ function handleQueueEvent(state, event) {
 
   // QUEUE_PEEK is intentionally non-mutating. Keeping it in this handler
   // ensures the queue exists while replay remains deterministic.
+}
+
+function handleLinkedListEvent(state, event) {
+  const payload = event.payload || {};
+  const name = payload.listName || payload.name || "linkedList";
+
+  if (!state.linkedLists[name]) {
+    state.linkedLists[name] = {
+      name,
+      nodes: [],
+      headId: null,
+      tailId: null,
+      activeNodeId: null,
+      pendingNode: null,
+      lastOperation: null
+    };
+  }
+
+  const linkedList = state.linkedLists[name];
+
+  if (event.type === EVENT_TYPES.LINKED_LIST_CREATE) {
+    linkedList.nodes = Array.isArray(payload.nodes) ? cloneValue(payload.nodes) : [];
+    linkedList.headId = payload.headId || linkedList.nodes[0]?.id || null;
+    linkedList.tailId = payload.tailId || linkedList.nodes.at(-1)?.id || null;
+    linkedList.activeNodeId = null;
+    linkedList.pendingNode = null;
+  } else if (event.type === EVENT_TYPES.NODE_CREATE) {
+    linkedList.pendingNode = {
+      id: payload.nodeId,
+      value: cloneValue(payload.value),
+      nextId: payload.nextId || null
+    };
+    linkedList.activeNodeId = payload.nodeId || null;
+  } else if (event.type === EVENT_TYPES.NODE_INSERT) {
+    if (Array.isArray(payload.nodes)) {
+      linkedList.nodes = cloneValue(payload.nodes);
+    } else {
+      const index = Number.isInteger(payload.index) ? payload.index : linkedList.nodes.length;
+      linkedList.nodes.splice(index, 0, {
+        id: payload.nodeId,
+        value: cloneValue(payload.value),
+        nextId: payload.nextId || null
+      });
+    }
+
+    linkedList.headId = payload.headId || linkedList.nodes[0]?.id || null;
+    linkedList.tailId = payload.tailId || linkedList.nodes.at(-1)?.id || null;
+    linkedList.activeNodeId = payload.nodeId || null;
+    linkedList.pendingNode = null;
+  } else if (event.type === EVENT_TYPES.NODE_DELETE) {
+    linkedList.nodes = Array.isArray(payload.nodes)
+      ? cloneValue(payload.nodes)
+      : linkedList.nodes.filter((node) => node.id !== payload.nodeId);
+    linkedList.headId = payload.headId || linkedList.nodes[0]?.id || null;
+    linkedList.tailId = payload.tailId || linkedList.nodes.at(-1)?.id || null;
+    linkedList.activeNodeId = payload.nodeId || null;
+    linkedList.pendingNode = null;
+  } else if (event.type === EVENT_TYPES.NODE_VISIT) {
+    linkedList.activeNodeId = payload.nodeId || null;
+  } else if (event.type === EVENT_TYPES.REFERENCE_UPDATE) {
+    if (payload.reference === "head") {
+      linkedList.headId = payload.targetNodeId || null;
+    } else if (payload.reference === "tail") {
+      linkedList.tailId = payload.targetNodeId || null;
+    } else if (payload.fromNodeId) {
+      const node = linkedList.nodes.find((item) => item.id === payload.fromNodeId);
+
+      if (node) {
+        node.nextId = payload.targetNodeId || null;
+      }
+    }
+
+    linkedList.activeNodeId = payload.fromNodeId || payload.targetNodeId || null;
+  }
+
+  linkedList.lastOperation = event.type;
 }
 
 function handleFunctionEnter(state, event) {
@@ -1207,6 +1294,17 @@ function reduceExecutionEvent(previousState, event) {
         state,
         event
       );
+
+      break;
+    }
+
+    case EVENT_TYPES.LINKED_LIST_CREATE:
+    case EVENT_TYPES.NODE_CREATE:
+    case EVENT_TYPES.NODE_INSERT:
+    case EVENT_TYPES.NODE_DELETE:
+    case EVENT_TYPES.NODE_VISIT:
+    case EVENT_TYPES.REFERENCE_UPDATE: {
+      handleLinkedListEvent(state, event);
 
       break;
     }

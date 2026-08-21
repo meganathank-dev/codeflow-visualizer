@@ -65,12 +65,126 @@ class OutputLimitError(Exception):
     pass
 
 
+class LinkedListNode:
+    def __init__(self, identifier, value):
+        self.id = identifier
+        self.value = value
+        self.next = None
+
+
+class CodeFlowLinkedList:
+    def __init__(self):
+        self.head = None
+        self.tail = None
+        self.length = 0
+        self.next_node_number = 0
+
+    def append(self, value):
+        return self.insert(self.length, value)
+
+    def prepend(self, value):
+        return self.insert(0, value)
+
+    def insert(self, index, value):
+        if not isinstance(index, int) or index < 0 or index > self.length:
+            raise IndexError("Linked-list insertion index is out of bounds.")
+
+        self.next_node_number += 1
+        node = LinkedListNode(f"node:{self.next_node_number}", value)
+
+        if index == 0:
+            node.next = self.head
+            self.head = node
+        else:
+            previous = self.head
+
+            for _ in range(index - 1):
+                previous = previous.next
+
+            node.next = previous.next
+            previous.next = node
+
+        if node.next is None:
+            self.tail = node
+
+        self.length += 1
+        return value
+
+    def remove_at(self, index):
+        if not isinstance(index, int) or index < 0 or index >= self.length:
+            raise IndexError("Linked-list removal index is out of bounds.")
+
+        if index == 0:
+            removed = self.head
+            self.head = removed.next
+        else:
+            previous = self.head
+
+            for _ in range(index - 1):
+                previous = previous.next
+
+            removed = previous.next
+            previous.next = removed.next
+
+        self.length -= 1
+
+        if self.length == 0:
+            self.tail = None
+        elif removed is self.tail:
+            current = self.head
+
+            while current.next is not None:
+                current = current.next
+
+            self.tail = current
+
+        return removed.value
+
+    def get(self, index):
+        if not isinstance(index, int) or index < 0 or index >= self.length:
+            raise IndexError("Linked-list access index is out of bounds.")
+
+        current = self.head
+
+        for _ in range(index):
+            current = current.next
+
+        return current.value
+
+    def to_list(self):
+        values = []
+        current = self.head
+
+        while current is not None:
+            values.append(current.value)
+            current = current.next
+
+        return values
+
+    def snapshot(self):
+        nodes = []
+        current = self.head
+
+        while current is not None:
+            nodes.append({
+                "id": current.id,
+                "value": json_safe(current.value),
+                "nextId": current.next.id if current.next is not None else None,
+            })
+            current = current.next
+
+        return nodes
+
+
 def json_safe(value, depth=0, ancestors=None):
     if depth > 12:
         return {"$type": type(value).__name__, "display": "<maximum depth reached>"}
 
     if value is None or isinstance(value, (bool, int, str)):
         return value
+
+    if isinstance(value, CodeFlowLinkedList):
+        return [json_safe(item, depth + 1, ancestors) for item in value.to_list()]
 
     if isinstance(value, float):
         if math.isfinite(value):
@@ -135,6 +249,9 @@ def get_value_type(value):
 
     if isinstance(value, list):
         return "array"
+
+    if isinstance(value, CodeFlowLinkedList):
+        return "linked-list"
 
     if isinstance(value, tuple):
         return "tuple"
@@ -312,7 +429,10 @@ class SourceInstrumenter(ast.NodeTransformer):
         if not isinstance(node.func.value, ast.Name):
             return node
 
-        if node.func.attr not in {"append", "pop", "insert", "remove", "extend", "clear"}:
+        if node.func.attr not in {
+            "append", "pop", "insert", "remove", "extend", "clear",
+            "prepend", "remove_at", "get", "to_list"
+        }:
             return node
 
         rewritten = ast.Call(
@@ -370,6 +490,21 @@ class PythonExecutionTracer:
 
     def declare_variable(self, name, variable, line, scope_id):
         value = variable["value"]
+
+        if variable["valueType"] == "linked-list":
+            self.record(
+                "LINKED_LIST_CREATE",
+                line,
+                {
+                    "name": name,
+                    "listName": name,
+                    "nodes": [],
+                    "headId": None,
+                    "tailId": None,
+                    "length": 0,
+                },
+                scope_id,
+            )
 
         if variable["valueType"] == "array":
             self.record(
@@ -660,6 +795,90 @@ class PythonExecutionTracer:
     def trace_method(self, line, name, collection, method_name, *args, **kwargs):
         method = getattr(collection, method_name)
 
+        if isinstance(collection, CodeFlowLinkedList):
+            before = collection.snapshot()
+            result = method(*args, **kwargs)
+            after = collection.snapshot()
+            scope_id = self.caller_scope()
+            payload = {
+                "name": name,
+                "listName": name,
+                "nodes": after,
+                "headId": after[0]["id"] if after else None,
+                "tailId": after[-1]["id"] if after else None,
+                "length": len(after),
+            }
+
+            inserted = next(
+                (node for node in after if not any(item["id"] == node["id"] for item in before)),
+                None,
+            )
+            removed = next(
+                (node for node in before if not any(item["id"] == node["id"] for item in after)),
+                None,
+            )
+
+            if inserted is not None:
+                index = next(position for position, node in enumerate(after) if node["id"] == inserted["id"])
+
+                self.record(
+                    "NODE_CREATE",
+                    line,
+                    {**payload, "nodeId": inserted["id"], "value": inserted["value"], "nextId": inserted["nextId"]},
+                    scope_id,
+                )
+                self.record(
+                    "REFERENCE_UPDATE",
+                    line,
+                    {
+                        **payload,
+                        "reference": "head" if index == 0 else "next",
+                        "fromNodeId": None if index == 0 else after[index - 1]["id"],
+                        "previousTargetId": (before[0]["id"] if before else None) if index == 0 else before[index - 1]["nextId"],
+                        "targetNodeId": inserted["id"],
+                    },
+                    scope_id,
+                )
+                self.record(
+                    "NODE_INSERT",
+                    line,
+                    {**payload, "nodeId": inserted["id"], "value": inserted["value"], "index": index},
+                    scope_id,
+                )
+            elif removed is not None:
+                index = next(position for position, node in enumerate(before) if node["id"] == removed["id"])
+
+                self.record(
+                    "REFERENCE_UPDATE",
+                    line,
+                    {
+                        **payload,
+                        "reference": "head" if index == 0 else "next",
+                        "fromNodeId": None if index == 0 else before[index - 1]["id"],
+                        "previousTargetId": removed["id"],
+                        "targetNodeId": after[index]["id"] if index < len(after) else None,
+                    },
+                    scope_id,
+                )
+                self.record(
+                    "NODE_DELETE",
+                    line,
+                    {**payload, "nodeId": removed["id"], "value": removed["value"], "index": index},
+                    scope_id,
+                )
+            elif method_name == "get":
+                index = int(args[0])
+                node = after[index]
+
+                self.record(
+                    "NODE_VISIT",
+                    line,
+                    {**payload, "nodeId": node["id"], "value": node["value"], "index": index},
+                    scope_id,
+                )
+
+            return result
+
         if not isinstance(collection, list):
             return method(*args, **kwargs)
 
@@ -752,6 +971,7 @@ class PythonExecutionTracer:
             "isinstance": isinstance,
             "len": len,
             "list": list,
+            "LinkedList": CodeFlowLinkedList,
             "max": max,
             "min": min,
             "print": self.traced_print,

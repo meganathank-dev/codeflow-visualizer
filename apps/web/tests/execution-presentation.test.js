@@ -14,6 +14,7 @@ function createState(step, overrides = {}) {
     arrays: {},
     stacks: {},
     queues: {},
+    linkedLists: {},
     callStack: [],
     console: [],
     errors: [],
@@ -371,6 +372,71 @@ function createQueueResult(language = "javascript") {
   };
 }
 
+function createLinkedListResult(language) {
+  const linkedListName = language === "python" ? "linked_list" : "linkedList";
+  const first = { id: "node:1", value: 10, nextId: "node:2" };
+  const second = { id: "node:2", value: 20, nextId: null };
+  const third = { id: "node:3", value: 30, nextId: null };
+  const nodeStates = [
+    [],
+    [],
+    [{ ...first, nextId: null }],
+    [first, second],
+    [first, { ...second, nextId: "node:3" }, third],
+    [first, { ...second, nextId: "node:3" }, third],
+    [{ ...second, nextId: "node:3" }, third],
+    [{ ...second, nextId: "node:3" }, third]
+  ];
+  const types = [
+    "PROGRAM_START",
+    "LINKED_LIST_CREATE",
+    "NODE_INSERT",
+    "NODE_INSERT",
+    "NODE_INSERT",
+    "NODE_VISIT",
+    "NODE_DELETE",
+    "PROGRAM_END"
+  ];
+  const events = types.map((type, step) => ({
+    id: `linked-list-event-${step}`,
+    step,
+    type,
+    source: { line: step + 1 },
+    payload: {
+      name: linkedListName,
+      listName: linkedListName,
+      nodeId: step === 5 ? "node:2" : step === 6 ? "node:1" : `node:${Math.max(1, step - 1)}`,
+      value: step === 5 ? 20 : step === 6 ? 10 : step * 10,
+      index: step === 6 ? 0 : Math.max(0, step - 2)
+    }
+  }));
+  const states = nodeStates.map((nodes, step) => createState(step, {
+    status: step === nodeStates.length - 1 ? "completed" : "running",
+    arrays: language === "java" ? { args: [] } : {},
+    variables: step > 0 ? { [linkedListName]: { $type: "object", display: "LinkedList" } } : {},
+    linkedLists: step > 0 ? {
+      [linkedListName]: {
+        name: linkedListName,
+        nodes,
+        headId: nodes[0]?.id || null,
+        tailId: nodes.at(-1)?.id || null,
+        activeNodeId: events[step].payload.nodeId,
+        pendingNode: null,
+        lastOperation: types[step]
+      }
+    } : {}
+  }));
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: { traceId: `${language}-linked-list-presentation-test`, status: "completed", events },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
 function runTests() {
   const presentation = createExecutionPresentation(createResult());
 
@@ -433,6 +499,25 @@ function runTests() {
     assert.deepEqual(queuePresentation.steps[5].queue.values, ["B"]);
     assert.equal(queuePresentation.steps[5].array, null);
     assert.deepEqual(queuePresentation.steps[5].variables.taskQueue, ["B"]);
+
+    const linkedListPresentation = createExecutionPresentation(
+      createLinkedListResult(language)
+    );
+    const linkedListName = language === "python" ? "linked_list" : "linkedList";
+
+    assert.equal(linkedListPresentation.steps[1].linkedList.name, linkedListName);
+    assert.deepEqual(
+      linkedListPresentation.steps[4].linkedList.nodes.map((node) => node.value),
+      [10, 20, 30]
+    );
+    assert.equal(linkedListPresentation.steps[5].linkedList.activeNodeId, "node:2");
+    assert.equal(linkedListPresentation.steps[5].linkedList.operation, "NODE_VISIT");
+    assert.deepEqual(
+      linkedListPresentation.steps[6].linkedList.nodes.map((node) => node.value),
+      [20, 30]
+    );
+    assert.equal(linkedListPresentation.steps[6].array, null);
+    assert.deepEqual(linkedListPresentation.steps[6].variables[linkedListName], [20, 30]);
   }
 
   const sqlPresentation = createExecutionPresentation(createSqlResult());
@@ -496,6 +581,8 @@ function runTests() {
   console.log("Empty Java argument-array suppression: passed");
   console.log("Cross-language queue presentation: passed");
   console.log("Queue FIFO animation state: passed");
+  console.log("Cross-language linked-list presentation: passed");
+  console.log("Linked-list node and reference animation state: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");

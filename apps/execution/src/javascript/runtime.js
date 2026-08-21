@@ -85,6 +85,10 @@ function toSerializable(
   if (
     typeof value === "object"
   ) {
+    if (value.__codeflowLinkedList === true) {
+      return value.toArray().map((item) => toSerializable(item, depth + 1, ancestors));
+    }
+
     if (
       ancestors.has(value)
     ) {
@@ -154,6 +158,10 @@ function getValueType(value) {
     Array.isArray(value)
   ) {
     return "array";
+  }
+
+  if (value && value.__codeflowLinkedList === true) {
+    return "linked-list";
   }
 
   return typeof value;
@@ -329,6 +337,201 @@ function createJavaScriptRuntime(options = {}) {
         explicitScopeId
       )
     );
+  }
+
+  class CodeFlowLinkedList {
+    constructor() {
+      this.__codeflowLinkedList = true;
+      this.head = null;
+      this.tail = null;
+      this.length = 0;
+      this.nextNodeNumber = 0;
+    }
+
+    append(value) {
+      return this.insert(this.length, value);
+    }
+
+    prepend(value) {
+      return this.insert(0, value);
+    }
+
+    insert(index, value) {
+      if (!Number.isInteger(index) || index < 0 || index > this.length) {
+        throw new RangeError("Linked-list insertion index is out of bounds.");
+      }
+
+      const node = { id: `node:${++this.nextNodeNumber}`, value, next: null };
+
+      if (index === 0) {
+        node.next = this.head;
+        this.head = node;
+      } else {
+        let previous = this.head;
+
+        for (let position = 1; position < index; position += 1) {
+          previous = previous.next;
+        }
+
+        node.next = previous.next;
+        previous.next = node;
+      }
+
+      if (node.next === null) {
+        this.tail = node;
+      }
+
+      this.length += 1;
+
+      return value;
+    }
+
+    removeAt(index) {
+      if (!Number.isInteger(index) || index < 0 || index >= this.length) {
+        throw new RangeError("Linked-list removal index is out of bounds.");
+      }
+
+      let removed;
+
+      if (index === 0) {
+        removed = this.head;
+        this.head = removed.next;
+      } else {
+        let previous = this.head;
+
+        for (let position = 1; position < index; position += 1) {
+          previous = previous.next;
+        }
+
+        removed = previous.next;
+        previous.next = removed.next;
+      }
+
+      this.length -= 1;
+
+      if (this.length === 0) {
+        this.tail = null;
+      } else if (removed === this.tail) {
+        let current = this.head;
+
+        while (current.next) {
+          current = current.next;
+        }
+
+        this.tail = current;
+      }
+
+      return removed.value;
+    }
+
+    get(index) {
+      if (!Number.isInteger(index) || index < 0 || index >= this.length) {
+        throw new RangeError("Linked-list access index is out of bounds.");
+      }
+
+      let current = this.head;
+
+      for (let position = 0; position < index; position += 1) {
+        current = current.next;
+      }
+
+      return current.value;
+    }
+
+    toArray() {
+      const values = [];
+      let current = this.head;
+
+      while (current) {
+        values.push(current.value);
+        current = current.next;
+      }
+
+      return values;
+    }
+
+    snapshot() {
+      const nodes = [];
+      let current = this.head;
+
+      while (current) {
+        nodes.push({
+          id: current.id,
+          value: toSerializable(current.value),
+          nextId: current.next?.id || null
+        });
+        current = current.next;
+      }
+
+      return nodes;
+    }
+  }
+
+  function recordLinkedListMethod(name, method, before, after, result, line) {
+    const inserted = after.find((node) => !before.some((previous) => previous.id === node.id));
+    const removed = before.find((node) => !after.some((next) => next.id === node.id));
+    const payload = {
+      name,
+      listName: name,
+      nodes: after,
+      headId: after[0]?.id || null,
+      tailId: after.at(-1)?.id || null,
+      length: after.length
+    };
+
+    if (inserted) {
+      const index = after.findIndex((node) => node.id === inserted.id);
+
+      record(EVENT_TYPES.NODE_CREATE, line, {
+        ...payload,
+        nodeId: inserted.id,
+        value: inserted.value,
+        nextId: inserted.nextId
+      });
+
+      record(EVENT_TYPES.REFERENCE_UPDATE, line, {
+        ...payload,
+        reference: index === 0 ? "head" : "next",
+        fromNodeId: index === 0 ? null : after[index - 1].id,
+        previousTargetId: index === 0 ? before[0]?.id || null : before[index - 1]?.nextId || null,
+        targetNodeId: inserted.id
+      });
+
+      record(EVENT_TYPES.NODE_INSERT, line, {
+        ...payload,
+        nodeId: inserted.id,
+        value: inserted.value,
+        index
+      });
+    } else if (removed) {
+      const index = before.findIndex((node) => node.id === removed.id);
+
+      record(EVENT_TYPES.REFERENCE_UPDATE, line, {
+        ...payload,
+        reference: index === 0 ? "head" : "next",
+        fromNodeId: index === 0 ? null : before[index - 1].id,
+        previousTargetId: removed.id,
+        targetNodeId: after[index]?.id || null
+      });
+
+      record(EVENT_TYPES.NODE_DELETE, line, {
+        ...payload,
+        nodeId: removed.id,
+        value: removed.value,
+        index
+      });
+    } else if (method === "get") {
+      const node = after.find((item) => JSON.stringify(item.value) === JSON.stringify(toSerializable(result)));
+
+      if (node) {
+        record(EVENT_TYPES.NODE_VISIT, line, {
+          ...payload,
+          nodeId: node.id,
+          value: node.value,
+          index: after.findIndex((item) => item.id === node.id)
+        });
+      }
+    }
   }
 
   function recordArrayMethod(
@@ -598,6 +801,19 @@ function createJavaScriptRuntime(options = {}) {
         value
       );
 
+      if (value && value.__codeflowLinkedList === true) {
+        references.set(name, value);
+
+        record(EVENT_TYPES.LINKED_LIST_CREATE, line, {
+          name,
+          listName: name,
+          nodes: value.snapshot(),
+          headId: null,
+          tailId: null,
+          length: 0
+        });
+      }
+
       if (
         Array.isArray(value)
       ) {
@@ -865,6 +1081,10 @@ function createJavaScriptRuntime(options = {}) {
         ? Array.from(reference)
         : null;
 
+      const beforeNodes = reference?.__codeflowLinkedList === true
+        ? reference.snapshot()
+        : null;
+
       const frameCountBeforeCall = callFrames.length;
 
       const result = invoke();
@@ -882,6 +1102,17 @@ function createJavaScriptRuntime(options = {}) {
 
           Array.from(reference),
 
+          line
+        );
+      }
+
+      if (beforeNodes !== null) {
+        recordLinkedListMethod(
+          objectName,
+          methodName,
+          beforeNodes,
+          reference.snapshot(),
+          result,
           line
         );
       }
@@ -1268,6 +1499,10 @@ function createJavaScriptRuntime(options = {}) {
           null
         )
       );
+    },
+
+    createLinkedListConstructor() {
+      return CodeFlowLinkedList;
     },
 
     getTrace() {

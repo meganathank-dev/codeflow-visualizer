@@ -222,6 +222,44 @@ function describeEvent(event, state, language) {
         description: `${formatValue(value)} is currently at the front; the queue is not changed.`
       };
 
+    case "LINKED_LIST_CREATE":
+      return {
+        title: `Create ${name || "a linked list"}`,
+        description: "An empty linked list begins with its head reference pointing to null."
+      };
+
+    case "NODE_CREATE":
+      return {
+        title: `Create node ${formatValue(value)}`,
+        description: "A new node stores its value and a reference to the next node."
+      };
+
+    case "NODE_INSERT":
+      return {
+        title: `Insert ${formatValue(value)} at position ${payload.index}`,
+        description: `The new node joins ${name || "the linked list"} and adjacent references are reconnected.`
+      };
+
+    case "NODE_DELETE":
+      return {
+        title: `Remove node ${formatValue(value)}`,
+        description: `The node at position ${payload.index} leaves ${name || "the linked list"}; its predecessor points to the next node.`
+      };
+
+    case "NODE_VISIT":
+      return {
+        title: `Visit node ${formatValue(value)}`,
+        description: `Traversal reaches node ${payload.index} by following the linked references.`
+      };
+
+    case "REFERENCE_UPDATE":
+      return {
+        title: payload.reference === "head" ? "Move the head reference" : "Reconnect the next reference",
+        description: payload.targetNodeId
+          ? `${payload.reference || "next"} now points to ${payload.targetNodeId}.`
+          : `${payload.reference || "next"} now points to null.`
+      };
+
     case "LOOP_START":
       return {
         title: "Enter the loop",
@@ -300,12 +338,14 @@ function selectArray(state, event) {
   const arrays = state.arrays || {};
   const stackNames = new Set(Object.keys(state.stacks || {}));
   const queueNames = new Set(Object.keys(state.queues || {}));
+  const linkedListNames = new Set(Object.keys(state.linkedLists || {}));
   const eventArray = event.payload?.arrayName || event.payload?.name;
 
   const visibleNames = Object.keys(arrays).filter(
     (name) => (
       !stackNames.has(name) &&
       !queueNames.has(name) &&
+      !linkedListNames.has(name) &&
       !(
         ["args", "argv"].includes(name.toLowerCase()) &&
         Array.isArray(arrays[name]) &&
@@ -354,6 +394,10 @@ function selectVariables(state) {
     variables[name] = values;
   }
 
+  for (const [name, linkedList] of Object.entries(state.linkedLists || {})) {
+    variables[name] = (linkedList.nodes || []).map((node) => node.value);
+  }
+
   return variables;
 }
 
@@ -394,6 +438,34 @@ function selectQueue(state, event) {
     activeValue: eventQueue === selectedName
       ? event.payload?.value
       : undefined
+  };
+}
+
+function selectLinkedList(state, event) {
+  const linkedLists = state.linkedLists || {};
+  const eventList = event.payload?.listName || event.payload?.name;
+  const selectedName = Object.hasOwn(linkedLists, eventList)
+    ? eventList
+    : Object.keys(linkedLists)[0];
+
+  if (!selectedName || !Array.isArray(linkedLists[selectedName]?.nodes)) {
+    return null;
+  }
+
+  const linkedList = linkedLists[selectedName];
+
+  return {
+    name: selectedName,
+    nodes: linkedList.nodes,
+    headId: linkedList.headId,
+    tailId: linkedList.tailId,
+    activeNodeId: eventList === selectedName ? linkedList.activeNodeId : null,
+    pendingNode: linkedList.pendingNode,
+    operation: eventList === selectedName && (
+      event.type.startsWith("NODE_") ||
+      event.type === "REFERENCE_UPDATE" ||
+      event.type === "LINKED_LIST_CREATE"
+    ) ? event.type : null
   };
 }
 
@@ -524,6 +596,7 @@ export function createExecutionPresentation(result) {
       array: selectArray(state, event),
       stack: selectStack(state, event),
       queue: selectQueue(state, event),
+      linkedList: selectLinkedList(state, event),
       callStack: (state.callStack || []).map((frame) => ({
         name: frame.name || frame.functionName || "anonymous",
         line: frame.source?.line || line
@@ -564,6 +637,7 @@ export function createIdleExecutionStep(language = "javascript") {
     array: null,
     stack: null,
     queue: null,
+    linkedList: null,
     callStack: [],
     console: [],
     iteration: null,

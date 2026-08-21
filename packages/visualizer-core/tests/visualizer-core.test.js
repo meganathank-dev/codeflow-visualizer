@@ -421,6 +421,92 @@ function createDataStructureTrace() {
   return recorder.toJSON();
 }
 
+function testLinkedListReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-linked-list-test"
+  });
+
+  const first = { id: "node:1", value: 10, nextId: null };
+  const second = { id: "node:2", value: 20, nextId: null };
+
+  recorder.start();
+  recorder.record(EVENT_TYPES.LINKED_LIST_CREATE, {
+    name: "linkedList",
+    listName: "linkedList",
+    nodes: [],
+    headId: null,
+    tailId: null
+  });
+  recorder.record(EVENT_TYPES.NODE_CREATE, {
+    name: "linkedList",
+    listName: "linkedList",
+    nodeId: first.id,
+    value: first.value
+  });
+  recorder.record(EVENT_TYPES.REFERENCE_UPDATE, {
+    name: "linkedList",
+    listName: "linkedList",
+    reference: "head",
+    targetNodeId: first.id
+  });
+  recorder.record(EVENT_TYPES.NODE_INSERT, {
+    name: "linkedList",
+    listName: "linkedList",
+    nodeId: first.id,
+    value: first.value,
+    index: 0,
+    nodes: [first],
+    headId: first.id,
+    tailId: first.id
+  });
+  recorder.record(EVENT_TYPES.NODE_INSERT, {
+    name: "linkedList",
+    listName: "linkedList",
+    nodeId: second.id,
+    value: second.value,
+    index: 1,
+    nodes: [{ ...first, nextId: second.id }, second],
+    headId: first.id,
+    tailId: second.id
+  });
+  recorder.record(EVENT_TYPES.NODE_VISIT, {
+    name: "linkedList",
+    listName: "linkedList",
+    nodeId: second.id,
+    value: second.value,
+    index: 1
+  });
+  recorder.record(EVENT_TYPES.NODE_DELETE, {
+    name: "linkedList",
+    listName: "linkedList",
+    nodeId: first.id,
+    value: first.value,
+    index: 0,
+    nodes: [second],
+    headId: second.id,
+    tailId: second.id
+  });
+  recorder.finish();
+
+  const reconstructor = new StateReconstructor(recorder.toJSON(), {
+    checkpointInterval: 2
+  });
+
+  assert.deepEqual(reconstructor.getStateAt(1).linkedLists.linkedList.nodes, []);
+  assert.equal(reconstructor.getStateAt(3).linkedLists.linkedList.headId, first.id);
+  assert.deepEqual(
+    reconstructor.getStateAt(5).linkedLists.linkedList.nodes.map((node) => node.value),
+    [10, 20]
+  );
+  assert.equal(reconstructor.getStateAt(6).linkedLists.linkedList.activeNodeId, second.id);
+  assert.deepEqual(
+    reconstructor.getStateAt(7).linkedLists.linkedList.nodes.map((node) => node.value),
+    [20]
+  );
+  assert.equal(reconstructor.getStateAt(7).linkedLists.linkedList.headId, second.id);
+}
+
 function testProgramStateReconstruction(trace) {
   const reconstructor = new StateReconstructor(
     trace,
@@ -1163,6 +1249,8 @@ async function runTests() {
     dataStructureTrace
   );
 
+  testLinkedListReconstruction();
+
   testTimelineNavigation(
     programTrace
   );
@@ -1215,6 +1303,10 @@ async function runTests() {
 
   console.log(
     "Stack and queue reconstruction: passed"
+  );
+
+  console.log(
+    "Linked-list node and reference reconstruction: passed"
   );
 }
 

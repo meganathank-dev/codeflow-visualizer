@@ -408,6 +408,77 @@ async function testCrossLanguageQueues(baseUrl) {
   return executions;
 }
 
+async function testCrossLanguageLinkedLists(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "const linkedList = new LinkedList();",
+      "linkedList.append(10);",
+      "linkedList.append(30);",
+      "linkedList.insert(1, 20);",
+      "const visited = linkedList.get(1);",
+      "const removed = linkedList.removeAt(0);",
+      'console.log("Visited:", visited, "Removed:", removed);'
+    ].join("\n"),
+    python: [
+      "linked_list = LinkedList()",
+      "linked_list.append(10)",
+      "linked_list.append(30)",
+      "linked_list.insert(1, 20)",
+      "visited = linked_list.get(1)",
+      "removed = linked_list.remove_at(0)",
+      'print("Visited:", visited, "Removed:", removed)'
+    ].join("\n"),
+    java: [
+      "import java.util.LinkedList;",
+      "",
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        LinkedList<Integer> linkedList = new LinkedList<>();",
+      "        linkedList.add(10);",
+      "        linkedList.add(30);",
+      "        linkedList.add(1, 20);",
+      "        int visited = linkedList.get(1);",
+      "        int removed = linkedList.remove(0);",
+      '        System.out.println("Visited: " + visited + " Removed: " + removed);',
+      "    }",
+      "}"
+    ].join("\n")
+  };
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "LINKED_LIST_CREATE",
+      "NODE_CREATE",
+      "NODE_INSERT",
+      "NODE_DELETE",
+      "NODE_VISIT",
+      "REFERENCE_UPDATE"
+    ]);
+
+    const name = language === "python" ? "linked_list" : "linkedList";
+    const finalState = execution.states.at(-1);
+    const nodes = finalState.linkedLists[name].nodes;
+
+    assert.deepEqual(nodes.map((node) => node.value), [20, 30]);
+    assert.equal(nodes[0].nextId, nodes[1].id);
+    assert.equal(nodes[1].nextId, null);
+    assert.equal(finalState.linkedLists[name].headId, nodes[0].id);
+    assert.equal(finalState.linkedLists[name].tailId, nodes[1].id);
+    assert.equal(finalState.variables.visited, 20);
+    assert.equal(finalState.variables.removed, 10);
+
+    executions[language] = execution;
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -582,6 +653,7 @@ async function runTests() {
     const java = await testRealJavaExecution(baseUrl);
     const sql = await testRealSqlExecution(baseUrl);
     const queues = await testCrossLanguageQueues(baseUrl);
+    const linkedLists = await testCrossLanguageLinkedLists(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -622,6 +694,11 @@ async function runTests() {
     console.log(`JavaScript queue events: ${queues.javascript.trace.events.filter((event) => event.type.startsWith("QUEUE_")).length}`);
     console.log(`Python queue events: ${queues.python.trace.events.filter((event) => event.type.startsWith("QUEUE_")).length}`);
     console.log(`Java queue events: ${queues.java.trace.events.filter((event) => event.type.startsWith("QUEUE_")).length}`);
+    console.log("Cross-language linked-list execution: passed");
+    console.log("Linked-list insertion, deletion, traversal, and references: passed");
+    console.log(`JavaScript linked-list events: ${linkedLists.javascript.trace.events.filter((event) => /LINKED_LIST|NODE_|REFERENCE_/.test(event.type)).length}`);
+    console.log(`Python linked-list events: ${linkedLists.python.trace.events.filter((event) => /LINKED_LIST|NODE_|REFERENCE_/.test(event.type)).length}`);
+    console.log(`Java linked-list events: ${linkedLists.java.trace.events.filter((event) => /LINKED_LIST|NODE_|REFERENCE_/.test(event.type)).length}`);
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");
