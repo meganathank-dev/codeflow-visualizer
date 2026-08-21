@@ -1,0 +1,510 @@
+"use strict";
+
+const express = require("express");
+
+const {
+  SUPPORTED_LANGUAGES
+} = require("@codeflow/execution-trace");
+
+const DEFAULT_EXECUTION_SERVICE_URL = (
+  "http://127.0.0.1:4100"
+);
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 2_500;
+
+const DEFAULT_MAX_SOURCE_BYTES = 32 * 1024;
+
+class ApiRequestError extends Error {
+  constructor(message, statusCode, code) {
+    super(message);
+
+    this.name = "ApiRequestError";
+
+    this.statusCode = statusCode;
+
+    this.code = code;
+  }
+}
+
+function normalizeExecutionServiceUrl(value) {
+  if (
+    typeof value !== "string" ||
+    value.trim().length === 0
+  ) {
+    throw new TypeError(
+      "executionServiceUrl must be a non-empty string"
+    );
+  }
+
+  return value.replace(
+    /\/+$/,
+
+    ""
+  );
+}
+
+function createExecutionClient(options) {
+  const executionServiceUrl = normalizeExecutionServiceUrl(
+    options.executionServiceUrl
+  );
+
+  const requestTimeoutMs = options.requestTimeoutMs;
+
+  async function request(
+    pathname,
+
+    requestOptions = {}
+  ) {
+    let response;
+
+    try {
+      response = await fetch(
+        `${executionServiceUrl}${pathname}`,
+
+        {
+          ...requestOptions,
+
+          headers: {
+            "content-type": "application/json",
+
+            ...requestOptions.headers
+          },
+
+          signal: AbortSignal.timeout(
+            requestTimeoutMs
+          )
+        }
+      );
+    } catch {
+      throw new ApiRequestError(
+        "Execution service is unavailable",
+
+        503,
+
+        "EXECUTION_SERVICE_UNAVAILABLE"
+      );
+    }
+
+    let body;
+
+    try {
+      body = await response.json();
+    } catch {
+      throw new ApiRequestError(
+        "Execution service returned an invalid response",
+
+        502,
+
+        "INVALID_EXECUTION_SERVICE_RESPONSE"
+      );
+    }
+
+    return {
+      status: response.status,
+
+      body
+    };
+  }
+
+  return {
+    request
+  };
+}
+
+function validateExecutionRequest(
+  body,
+
+  maximumSourceBytes
+) {
+  if (
+    body === null ||
+    typeof body !== "object" ||
+    Array.isArray(body)
+  ) {
+    throw new ApiRequestError(
+      "Request body must be a JSON object",
+
+      400,
+
+      "INVALID_REQUEST_BODY"
+    );
+  }
+
+  const {
+    language,
+
+    source
+  } = body;
+
+  if (
+    typeof language !== "string" ||
+    !SUPPORTED_LANGUAGES.includes(language)
+  ) {
+    throw new ApiRequestError(
+      "A supported execution language is required",
+
+      400,
+
+      "UNSUPPORTED_LANGUAGE"
+    );
+  }
+
+  if (
+    typeof source !== "string" ||
+    source.trim().length === 0
+  ) {
+    throw new ApiRequestError(
+      "Source code must be a non-empty string",
+
+      400,
+
+      "INVALID_SOURCE"
+    );
+  }
+
+  if (
+    Buffer.byteLength(
+      source,
+
+      "utf8"
+    ) > maximumSourceBytes
+  ) {
+    throw new ApiRequestError(
+      "Source code exceeds the maximum permitted size",
+
+      413,
+
+      "SOURCE_TOO_LARGE"
+    );
+  }
+
+  return {
+    language,
+
+    source
+  };
+}
+
+function createApiApp(options = {}) {
+  const executionServiceUrl = normalizeExecutionServiceUrl(
+    options.executionServiceUrl ||
+    process.env.EXECUTION_SERVICE_URL ||
+    DEFAULT_EXECUTION_SERVICE_URL
+  );
+
+  const requestTimeoutMs = (
+    options.requestTimeoutMs ??
+    DEFAULT_REQUEST_TIMEOUT_MS
+  );
+
+  const maximumSourceBytes = (
+    options.maximumSourceBytes ??
+    DEFAULT_MAX_SOURCE_BYTES
+  );
+
+  if (
+    !Number.isInteger(requestTimeoutMs) ||
+    requestTimeoutMs < 1
+  ) {
+    throw new TypeError(
+      "requestTimeoutMs must be a positive integer"
+    );
+  }
+
+  if (
+    !Number.isInteger(maximumSourceBytes) ||
+    maximumSourceBytes < 1
+  ) {
+    throw new TypeError(
+      "maximumSourceBytes must be a positive integer"
+    );
+  }
+
+  const executionClient = createExecutionClient({
+    executionServiceUrl,
+
+    requestTimeoutMs
+  });
+
+  const app = express();
+
+  app.disable(
+    "x-powered-by"
+  );
+
+  app.use(
+    (
+      request,
+
+      response,
+
+      next
+    ) => {
+      response.setHeader(
+        "cache-control",
+
+        "no-store"
+      );
+
+      response.setHeader(
+        "x-content-type-options",
+
+        "nosniff"
+      );
+
+      next();
+    }
+  );
+
+  app.use(
+    express.json({
+      limit: "64kb",
+
+      strict: true
+    })
+  );
+
+  app.get(
+    "/api/health",
+
+    async (
+      request,
+
+      response,
+
+      next
+    ) => {
+      try {
+        const executionHealth = await executionClient.request(
+          "/health"
+        );
+
+        response.status(
+          executionHealth.status === 200
+            ? 200
+            : 503
+        ).json({
+          status: executionHealth.status === 200
+            ? "ok"
+            : "degraded",
+
+          service: "codeflow-api",
+
+          executionService: {
+            connected: executionHealth.status === 200,
+
+            status: executionHealth.body.status,
+
+            security: (
+              executionHealth.body.security ||
+              null
+            )
+          },
+
+          languages: SUPPORTED_LANGUAGES
+        });
+      } catch (error) {
+        if (
+          error instanceof ApiRequestError &&
+          error.code === "EXECUTION_SERVICE_UNAVAILABLE"
+        ) {
+          response.status(503).json({
+            status: "degraded",
+
+            service: "codeflow-api",
+
+            executionService: {
+              connected: false,
+
+              status: "offline",
+
+              security: null
+            },
+
+            languages: SUPPORTED_LANGUAGES
+          });
+
+          return;
+        }
+
+        next(error);
+      }
+    }
+  );
+
+  app.get(
+    "/api/languages",
+
+    async (
+      request,
+
+      response,
+
+      next
+    ) => {
+      try {
+        const languages = await executionClient.request(
+          "/languages"
+        );
+
+        response.status(
+          languages.status
+        ).json(
+          languages.body
+        );
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.post(
+    "/api/execute",
+
+    async (
+      request,
+
+      response,
+
+      next
+    ) => {
+      try {
+        const executionRequest = validateExecutionRequest(
+          request.body,
+
+          maximumSourceBytes
+        );
+
+        const executionResult = await executionClient.request(
+          "/execute",
+
+          {
+            method: "POST",
+
+            body: JSON.stringify(
+              executionRequest
+            )
+          }
+        );
+
+        response.status(
+          executionResult.status
+        ).json(
+          executionResult.body
+        );
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.use(
+    (
+      request,
+
+      response
+    ) => {
+      response.status(404).json({
+        status: "error",
+
+        error: {
+          code: "ROUTE_NOT_FOUND",
+
+          message: "API route was not found"
+        }
+      });
+    }
+  );
+
+  app.use(
+    (
+      error,
+
+      request,
+
+      response,
+
+      next
+    ) => {
+      if (response.headersSent) {
+        next(error);
+
+        return;
+      }
+
+      if (
+        error.type === "entity.too.large"
+      ) {
+        response.status(413).json({
+          status: "error",
+
+          error: {
+            code: "REQUEST_TOO_LARGE",
+
+            message: "Request body exceeds the maximum permitted size"
+          }
+        });
+
+        return;
+      }
+
+      if (
+        error.type === "entity.parse.failed"
+      ) {
+        response.status(400).json({
+          status: "error",
+
+          error: {
+            code: "INVALID_JSON",
+
+            message: "Request body must contain valid JSON"
+          }
+        });
+
+        return;
+      }
+
+      if (
+        error instanceof ApiRequestError
+      ) {
+        response.status(
+          error.statusCode
+        ).json({
+          status: "error",
+
+          error: {
+            code: error.code,
+
+            message: error.message
+          }
+        });
+
+        return;
+      }
+
+      response.status(500).json({
+        status: "error",
+
+        error: {
+          code: "INTERNAL_API_ERROR",
+
+          message: "API could not process the request"
+        }
+      });
+    }
+  );
+
+  return app;
+}
+
+module.exports = {
+  DEFAULT_EXECUTION_SERVICE_URL,
+
+  DEFAULT_REQUEST_TIMEOUT_MS,
+
+  DEFAULT_MAX_SOURCE_BYTES,
+
+  ApiRequestError,
+
+  createApiApp
+};

@@ -30,6 +30,8 @@ const INITIAL_LANGUAGE = "javascript";
 
 const BASE_PLAYBACK_INTERVAL = 700;
 
+const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
+
 function createInitialSources() {
   return Object.fromEntries(
     LANGUAGE_OPTIONS.map(
@@ -47,6 +49,7 @@ function createInitialSources() {
 export default function App() {
   const [
     selectedLanguage,
+
     setSelectedLanguage
   ] = useState(
     INITIAL_LANGUAGE
@@ -54,6 +57,7 @@ export default function App() {
 
   const [
     sources,
+
     setSources
   ] = useState(
     createInitialSources
@@ -61,23 +65,35 @@ export default function App() {
 
   const [
     currentStep,
+
     setCurrentStep
   ] = useState(0);
 
   const [
     isPlaying,
+
     setIsPlaying
   ] = useState(false);
 
   const [
     speed,
+
     setSpeed
   ] = useState(1);
 
   const [
     notification,
+
     setNotification
   ] = useState("");
+
+  const [
+    backendStatus,
+
+    setBackendStatus
+  ] = useState(
+    "checking"
+  );
 
   const language = useMemo(
     () => getLanguageOption(
@@ -95,7 +111,7 @@ export default function App() {
 
   const source = sources[
     selectedLanguage
-  ];
+   ];
 
   const steps = execution.steps;
 
@@ -108,6 +124,73 @@ export default function App() {
   const isEdited = (
     source !== execution.source
   );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    let requestInProgress = false;
+
+    async function checkBackendHealth() {
+      if (requestInProgress) {
+        return;
+      }
+
+      requestInProgress = true;
+
+      try {
+        const response = await fetch(
+          "/api/health",
+
+          {
+            headers: {
+              accept: "application/json"
+            }
+          }
+        );
+
+        const result = await response.json();
+
+        if (!isMounted) {
+          return;
+        }
+
+        const isConnected = (
+          response.ok &&
+          result.executionService?.connected === true
+        );
+
+        setBackendStatus(
+          isConnected
+            ? "connected"
+            : "offline"
+        );
+      } catch {
+        if (isMounted) {
+          setBackendStatus(
+            "offline"
+          );
+        }
+      } finally {
+        requestInProgress = false;
+      }
+    }
+
+    checkBackendHealth();
+
+    const intervalId = window.setInterval(
+      checkBackendHealth,
+
+      BACKEND_STATUS_REFRESH_INTERVAL
+    );
+
+    return () => {
+      isMounted = false;
+
+      window.clearInterval(
+        intervalId
+      );
+    };
+  }, []);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -268,9 +351,7 @@ export default function App() {
       (previousSources) => ({
         ...previousSources,
 
-        [selectedLanguage]: (
-          execution.source
-        )
+        [selectedLanguage]: execution.source
       })
     );
 
@@ -284,7 +365,7 @@ export default function App() {
   function handlePreview() {
     if (isEdited) {
       setNotification(
-        "Edited code execution is not connected yet. Restore the sample to replay the verified demo."
+        "Custom source execution will be enabled in the next phase. Restore the sample to replay the verified demo."
       );
 
       return;
@@ -325,6 +406,18 @@ export default function App() {
     setCurrentStep(0);
 
     setNotification("");
+  }
+
+  function getBackendStatusLabel() {
+    if (backendStatus === "connected") {
+      return "Services connected · Curated preview";
+    }
+
+    if (backendStatus === "checking") {
+      return "Checking local services...";
+    }
+
+    return "Services offline · Curated preview";
   }
 
   return (
@@ -382,11 +475,19 @@ export default function App() {
             </span>
           </div>
 
-          <div className="preview-disclaimer">
+          <div
+            className={
+              backendStatus === "connected"
+                ? "preview-disclaimer backend-connected"
+                : "preview-disclaimer"
+            }
+          >
             <Radio size={14} />
 
             <span>
-              Fixture preview · Execution backend not connected
+              {
+                getBackendStatusLabel()
+              }
             </span>
           </div>
         </div>

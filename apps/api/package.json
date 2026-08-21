@@ -1,0 +1,20 @@
+{
+  "name": "@codeflow/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Express API for CodeFlow Visualizer",
+  "type": "commonjs",
+  "main": "./src/server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node tests/api.test.js"
+  },
+  "dependencies": {
+    "@codeflow/execution-trace": "workspace:*",
+    "express": "^5.2.1"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

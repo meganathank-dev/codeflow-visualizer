@@ -1,0 +1,19 @@
+{
+  "name": "@codeflow/execution",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dedicated local execution service foundation for CodeFlow Visualizer",
+  "type": "commonjs",
+  "main": "./src/server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node tests/execution-service.test.js"
+  },
+  "dependencies": {
+    "@codeflow/execution-trace": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
