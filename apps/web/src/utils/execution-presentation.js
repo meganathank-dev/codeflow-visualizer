@@ -226,7 +226,11 @@ function selectArray(state, event) {
 
   const selectedName = visibleNames.includes(eventArray)
     ? eventArray
-    : visibleNames[0];
+    : visibleNames.find(
+      (name) => Array.isArray(arrays[name]) && arrays[name].length > 0
+    ) || visibleNames.find(
+      (name) => !["args", "argv"].includes(name.toLowerCase())
+    ) || visibleNames[0];
 
   if (!selectedName || !Array.isArray(arrays[selectedName])) {
     return null;
@@ -242,6 +246,25 @@ function selectArray(state, event) {
     values: arrays[selectedName],
     activeIndex
   };
+}
+
+function selectVariables(state) {
+  const variables = {
+    ...(state.variables || {})
+  };
+
+  // A language runtime may expose a collection variable as an opaque object
+  // reference while the normalized trace separately contains its verified
+  // logical contents. Present the normalized contents to the learner.
+  for (const [name, values] of Object.entries(state.stacks || {})) {
+    variables[name] = values;
+  }
+
+  for (const [name, values] of Object.entries(state.queues || {})) {
+    variables[name] = values;
+  }
+
+  return variables;
 }
 
 function selectStack(state, event) {
@@ -312,7 +335,7 @@ export function createExecutionPresentation(result) {
       event: event.type,
       title: narrative.title,
       description: narrative.description,
-      variables: state.variables || {},
+      variables: selectVariables(state),
       array: selectArray(state, event),
       stack: selectStack(state, event),
       callStack: (state.callStack || []).map((frame) => ({

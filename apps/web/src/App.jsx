@@ -22,7 +22,11 @@ import {
 const INITIAL_LANGUAGE = "javascript";
 const BASE_PLAYBACK_INTERVAL = 430;
 const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
-const LIVE_EXECUTION_LANGUAGES = Object.freeze(["javascript", "python"]);
+const LIVE_EXECUTION_LANGUAGES = Object.freeze([
+  "javascript",
+  "python",
+  "java"
+]);
 
 function createInitialSources() {
   return Object.fromEntries(

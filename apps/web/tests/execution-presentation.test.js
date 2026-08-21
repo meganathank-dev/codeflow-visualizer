@@ -156,6 +156,35 @@ function runTests() {
   assert.deepEqual(pythonPresentation.steps[3].stack.values, [8]);
   assert.equal(pythonPresentation.steps[5].condition.result, true);
 
+  const javaResult = createResult("java");
+  const javaFinalState = javaResult.states.at(-1);
+
+  javaFinalState.variables = {
+    args: [],
+    numbers: [4, 8, 12],
+    stack: { $type: "object", display: "java.util.ArrayDeque" },
+    total: 24
+  };
+  javaFinalState.arrays = {
+    args: [],
+    numbers: [4, 8, 12]
+  };
+  javaFinalState.stacks = {
+    stack: [4, 8, 12]
+  };
+
+  const javaPresentation = createExecutionPresentation(javaResult);
+  assert.equal(javaPresentation.language, "java");
+  assert.match(javaPresentation.steps[0].description, /Java execution/);
+  assert.deepEqual(javaPresentation.steps[3].stack.values, [8]);
+  assert.equal(javaPresentation.steps[4].callStack[0].name, "double");
+  assert.equal(javaPresentation.steps[5].condition.result, true);
+  assert.equal(javaPresentation.steps.at(-1).array.name, "numbers");
+  assert.deepEqual(
+    javaPresentation.steps.at(-1).variables.stack,
+    [4, 8, 12]
+  );
+
   const idle = createIdleExecutionStep();
   assert.equal(idle.status, "idle");
   assert.deepEqual(idle.variables, {});
@@ -189,6 +218,8 @@ function runTests() {
   console.log("Loop and condition presentation: passed");
   console.log("Trace-state synchronization: passed");
   console.log("Python presentation compatibility: passed");
+  console.log("Java presentation compatibility: passed");
+  console.log("Java collection presentation: passed");
 }
 
 runTests();

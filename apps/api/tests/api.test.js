@@ -53,7 +53,7 @@ function createMockExecutionServer() {
       writeJson(response, 200, {
         status: "ok",
         service: "codeflow-execution",
-        executionEnabledLanguages: ["javascript", "python"],
+        executionEnabledLanguages: ["javascript", "python", "java"],
         security: {
           dedicatedExecutionProcess: true,
           acceptsUntrustedCode: false,
@@ -70,7 +70,7 @@ function createMockExecutionServer() {
         languages: [
           { id: "javascript", domain: "program", executionEnabled: true },
           { id: "python", domain: "program", executionEnabled: true },
-          { id: "java", domain: "program", executionEnabled: false },
+          { id: "java", domain: "program", executionEnabled: true },
           { id: "sql", domain: "query", executionEnabled: false }
         ]
       });
@@ -81,7 +81,7 @@ function createMockExecutionServer() {
     if (request.method === "POST" && request.url === "/execute") {
       const body = await readRequestBody(request);
 
-      if (!["javascript", "python"].includes(body.language)) {
+      if (!["javascript", "python", "java"].includes(body.language)) {
         writeJson(response, 501, {
           status: "error",
           error: {
@@ -152,7 +152,7 @@ async function runTests() {
   const apiBaseUrl = `http://127.0.0.1:${apiAddress.port}`;
 
   try {
-    assert.equal(DEFAULT_REQUEST_TIMEOUT_MS, 15_000);
+    assert.equal(DEFAULT_REQUEST_TIMEOUT_MS, 30_000);
 
     const health = await requestJson(apiBaseUrl, "/api/health");
 
@@ -162,7 +162,7 @@ async function runTests() {
     assert.equal(health.body.executionService.connected, true);
     assert.deepEqual(
       health.body.executionService.enabledLanguages,
-      ["javascript", "python"]
+      ["javascript", "python", "java"]
     );
     assert.equal(health.body.executionService.security.acceptsUntrustedCode, false);
 
@@ -219,11 +219,29 @@ async function runTests() {
 
     const javaExecution = await requestJson(apiBaseUrl, "/api/execute", {
       method: "POST",
-      body: JSON.stringify({ language: "java", source: "class Main {}" })
+      body: JSON.stringify({
+        language: "java",
+        source: "public class Main { public static void main(String[] args) { System.out.println(\"Hello\"); } }"
+      })
     });
 
-    assert.equal(javaExecution.status, 501);
-    assert.equal(javaExecution.body.error.code, "EXECUTION_NOT_IMPLEMENTED");
+    assert.equal(javaExecution.status, 200);
+    assert.equal(javaExecution.body.status, "ok");
+    assert.equal(javaExecution.body.language, "java");
+    assert.equal(javaExecution.body.trace.language, "java");
+    assert.equal(javaExecution.body.trace.events[0].type, "OUTPUT");
+    assert.equal(javaExecution.body.states[0].console[0].text, "Hello");
+
+    const sqlExecution = await requestJson(apiBaseUrl, "/api/execute", {
+      method: "POST",
+      body: JSON.stringify({
+        language: "sql",
+        source: "SELECT name FROM students;"
+      })
+    });
+
+    assert.equal(sqlExecution.status, 501);
+    assert.equal(sqlExecution.body.error.code, "EXECUTION_NOT_IMPLEMENTED");
 
     const missingRoute = await requestJson(apiBaseUrl, "/api/not-found");
     assert.equal(missingRoute.status, 404);
@@ -234,6 +252,7 @@ async function runTests() {
     console.log(`Supported languages: ${languages.body.languages.length}`);
     console.log("Real JavaScript trace forwarding: passed");
     console.log("Real Python trace forwarding: passed");
+    console.log("Real Java trace forwarding: passed");
     console.log("Execution-state forwarding: passed");
     console.log("Unavailable language boundaries: passed");
     console.log("Request validation: passed");

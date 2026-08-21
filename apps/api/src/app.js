@@ -5,7 +5,10 @@ const express = require("express");
 const { SUPPORTED_LANGUAGES } = require("@codeflow/execution-trace");
 
 const DEFAULT_EXECUTION_SERVICE_URL = "http://127.0.0.1:4100";
-const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+// Keep the API timeout above the execution-service process timeout. Java must
+// compile and start its JDI debugger before producing a trace, so its cold
+// execution path can legitimately take longer than JavaScript or Python.
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_SOURCE_BYTES = 32 * 1024;
 
 class ApiRequestError extends Error {
