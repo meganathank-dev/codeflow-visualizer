@@ -10,11 +10,12 @@ const {
   createExecutionServer
 } = require("../src/server");
 
-function listen(server) {
+function listen(
+  server
+) {
   return new Promise(
     (
       resolve,
-
       reject
     ) => {
       server.once(
@@ -44,31 +45,34 @@ function listen(server) {
   );
 }
 
-function close(server) {
+function close(
+  server
+) {
   return new Promise(
     (
       resolve,
-
       reject
     ) => {
-      server.close((error) => {
-        if (error) {
-          reject(error);
+      server.close(
+        (error) => {
+          if (error) {
+            reject(
+              error
+            );
 
-          return;
+            return;
+          }
+
+          resolve();
         }
-
-        resolve();
-      });
+      );
     }
   );
 }
 
 async function requestJson(
   baseUrl,
-
   pathname,
-
   options = {}
 ) {
   const response = await fetch(
@@ -90,6 +94,28 @@ async function requestJson(
 
     body: await response.json()
   };
+}
+
+function execute(
+  baseUrl,
+  language,
+  source
+) {
+  return requestJson(
+    baseUrl,
+
+    "/execute",
+
+    {
+      method: "POST",
+
+      body: JSON.stringify({
+        language,
+
+        source
+      })
+    }
+  );
 }
 
 function createJavaScriptFixture() {
@@ -123,6 +149,38 @@ function createJavaScriptFixture() {
     "",
 
     'console.log("Total:", summarize(total));'
+  ].join("\n");
+}
+
+function createPythonFixture() {
+  return [
+    "def double(value):",
+
+    "    return value * 2",
+
+    "",
+
+    "numbers = [2, 4, 6]",
+
+    "stack = []",
+
+    "total = 0",
+
+    "",
+
+    "for index in range(len(numbers)):",
+
+    "    numbers[index] = double(numbers[index])",
+
+    "    total += numbers[index]",
+
+    "    stack.append(numbers[index])",
+
+    "",
+
+    "if total > 20:",
+
+    '    print("Total:", total)'
   ].join("\n");
 }
 
@@ -166,6 +224,12 @@ async function testHealth(
   );
 
   assert.equal(
+    health.body.security.dedicatedPythonChildProcess,
+
+    true
+  );
+
+  assert.equal(
     health.body.security.acceptsUntrustedCode,
 
     false
@@ -175,7 +239,9 @@ async function testHealth(
     health.body.executionEnabledLanguages,
 
     [
-      "javascript"
+      "javascript",
+
+      "python"
     ]
   );
 }
@@ -201,87 +267,106 @@ async function testLanguageCapabilities(
     4
   );
 
-  const javascript = response.body.languages.find(
+  const getLanguage = (
+    languageId
+  ) => response.body.languages.find(
     (language) => (
-      language.id === "javascript"
-    )
-  );
-
-  const python = response.body.languages.find(
-    (language) => (
-      language.id === "python"
-    )
-  );
-
-  const sql = response.body.languages.find(
-    (language) => (
-      language.id === "sql"
+      language.id === languageId
     )
   );
 
   assert.equal(
-    javascript.executionEnabled,
+    getLanguage(
+      "javascript"
+    ).executionEnabled,
 
     true
   );
 
   assert.equal(
-    python.executionEnabled,
+    getLanguage(
+      "python"
+    ).executionEnabled,
+
+    true
+  );
+
+  assert.equal(
+    getLanguage(
+      "java"
+    ).executionEnabled,
 
     false
   );
 
   assert.equal(
-    sql.domain,
+    getLanguage(
+      "sql"
+    ).executionEnabled,
+
+    false
+  );
+
+  assert.equal(
+    getLanguage(
+      "sql"
+    ).domain,
 
     "query"
   );
 }
 
-async function testRealJavaScriptExecution(
-  baseUrl
+function assertRequiredEvents(
+  trace,
+  eventTypes
 ) {
-  const execution = await requestJson(
-    baseUrl,
+  for (const eventType of eventTypes) {
+    assert.equal(
+      trace.events.some(
+        (event) => (
+          event.type === eventType
+        )
+      ),
 
-    "/execute",
+      true,
 
-    {
-      method: "POST",
+      (
+        "Expected execution event was missing: "
+        + eventType
+      )
+    );
+  }
+}
 
-      body: JSON.stringify({
-        language: "javascript",
-
-        source: createJavaScriptFixture()
-      })
-    }
-  );
-
+function assertCompletedProgram(
+  response,
+  language
+) {
   assert.equal(
-    execution.status,
+    response.status,
 
     200
   );
 
   assert.equal(
-    execution.body.status,
+    response.body.status,
 
     "ok"
   );
 
   assert.equal(
-    execution.body.language,
+    response.body.language,
 
-    "javascript"
+    language
   );
 
   assert.equal(
-    execution.body.executionStatus,
+    response.body.executionStatus,
 
     "completed"
   );
 
-  const trace = execution.body.trace;
+  const trace = response.body.trace;
 
   assertValidTrace(
     trace
@@ -300,6 +385,12 @@ async function testRealJavaScriptExecution(
   );
 
   assert.equal(
+    trace.language,
+
+    language
+  );
+
+  assert.equal(
     trace.events[0].type,
 
     "PROGRAM_START"
@@ -311,69 +402,83 @@ async function testRealJavaScriptExecution(
     "PROGRAM_END"
   );
 
-  const requiredEvents = [
-    "VARIABLE_DECLARE",
-
-    "VARIABLE_UPDATE",
-
-    "ARRAY_CREATE",
-
-    "ARRAY_ACCESS",
-
-    "ARRAY_UPDATE",
-
-    "ARRAY_INSERT",
-
-    "STACK_CREATE",
-
-    "STACK_PUSH",
-
-    "LOOP_START",
-
-    "LOOP_CONDITION",
-
-    "LOOP_ITERATION",
-
-    "LOOP_END",
-
-    "FUNCTION_CALL",
-
-    "FUNCTION_ENTER",
-
-    "FUNCTION_RETURN",
-
-    "OUTPUT"
-  ];
-
-  for (const eventType of requiredEvents) {
-    assert.equal(
-      trace.events.some(
-        (event) => (
-          event.type === eventType
-        )
-      ),
-
-      true,
-
-      `Expected execution event was missing: ${eventType}`
-    );
-  }
-
   assert.equal(
-    Array.isArray(
-      execution.body.states
-    ),
-
-    true
-  );
-
-  assert.equal(
-    execution.body.states.length,
+    response.body.states.length,
 
     trace.eventCount
   );
 
-  const finalState = execution.body.states.at(-1);
+  assert.equal(
+    response.body.summary.eventCount,
+
+    trace.eventCount
+  );
+
+  assert.equal(
+    response.body.security.dedicatedChildProcess,
+
+    true
+  );
+
+  return response.body;
+}
+
+async function testRealJavaScriptExecution(
+  baseUrl
+) {
+  const response = await execute(
+    baseUrl,
+
+    "javascript",
+
+    createJavaScriptFixture()
+  );
+
+  const execution = assertCompletedProgram(
+    response,
+
+    "javascript"
+  );
+
+  assertRequiredEvents(
+    execution.trace,
+
+    [
+      "VARIABLE_DECLARE",
+
+      "VARIABLE_UPDATE",
+
+      "ARRAY_CREATE",
+
+      "ARRAY_ACCESS",
+
+      "ARRAY_UPDATE",
+
+      "ARRAY_INSERT",
+
+      "STACK_CREATE",
+
+      "STACK_PUSH",
+
+      "LOOP_START",
+
+      "LOOP_CONDITION",
+
+      "LOOP_ITERATION",
+
+      "LOOP_END",
+
+      "FUNCTION_CALL",
+
+      "FUNCTION_ENTER",
+
+      "FUNCTION_RETURN",
+
+      "OUTPUT"
+    ]
+  );
+
+  const finalState = execution.states.at(-1);
 
   assert.deepEqual(
     finalState.arrays.numbers,
@@ -429,142 +534,363 @@ async function testRealJavaScriptExecution(
     0
   );
 
-  assert.equal(
-    execution.body.summary.eventCount,
-
-    trace.eventCount
-  );
-
-  return execution.body;
+  return execution;
 }
 
-async function testSyntaxError(
+async function testRealPythonExecution(
   baseUrl
 ) {
-  const execution = await requestJson(
+  const response = await execute(
     baseUrl,
 
-    "/execute",
+    "python",
 
-    {
-      method: "POST",
+    createPythonFixture()
+  );
 
-      body: JSON.stringify({
-        language: "javascript",
+  const execution = assertCompletedProgram(
+    response,
 
-        source: "const = ;"
-      })
-    }
+    "python"
+  );
+
+  assertRequiredEvents(
+    execution.trace,
+
+    [
+      "STATEMENT_EXECUTE",
+
+      "VARIABLE_DECLARE",
+
+      "VARIABLE_UPDATE",
+
+      "ARRAY_CREATE",
+
+      "ARRAY_ACCESS",
+
+      "ARRAY_UPDATE",
+
+      "ARRAY_INSERT",
+
+      "STACK_CREATE",
+
+      "STACK_PUSH",
+
+      "LOOP_START",
+
+      "LOOP_CONDITION",
+
+      "LOOP_ITERATION",
+
+      "LOOP_END",
+
+      "CONDITION_EVALUATE",
+
+      "BRANCH_ENTER",
+
+      "FUNCTION_CALL",
+
+      "FUNCTION_ENTER",
+
+      "FUNCTION_RETURN",
+
+      "OUTPUT"
+    ]
+  );
+
+  const finalState = execution.states.at(-1);
+
+  assert.deepEqual(
+    finalState.arrays.numbers,
+
+    [
+      4,
+
+      8,
+
+      12
+    ]
+  );
+
+  assert.deepEqual(
+    finalState.stacks.stack,
+
+    [
+      4,
+
+      8,
+
+      12
+    ]
   );
 
   assert.equal(
-    execution.status,
+    finalState.variables.total,
 
-    200
+    24
   );
 
   assert.equal(
-    execution.body.executionStatus,
+    finalState.variables.index,
 
-    "failed"
+    2
   );
 
   assert.equal(
-    execution.body.trace.status,
-
-    "failed"
-  );
-
-  const finalState = execution.body.states.at(-1);
-
-  assert.equal(
-    finalState.errors.length,
+    finalState.console.length,
 
     1
   );
+
+  assert.equal(
+    finalState.console[0].text,
+
+    "Total: 24"
+  );
+
+  assert.equal(
+    finalState.callStack.length,
+
+    0
+  );
+
+  return execution;
+}
+
+async function testPythonEnumerate(
+  baseUrl
+) {
+  const source = [
+    "numbers = [4, 8, 12]",
+
+    "stack = []",
+
+    "total = 0",
+
+    "",
+
+    "for index, number in enumerate(numbers):",
+
+    "    total += number",
+
+    "    stack.append(number)",
+
+    "",
+
+    'print("Total:", total)'
+  ].join("\n");
+
+  const response = await execute(
+    baseUrl,
+
+    "python",
+
+    source
+  );
+
+  const execution = assertCompletedProgram(
+    response,
+
+    "python"
+  );
+
+  const finalState = execution.states.at(-1);
+
+  assert.deepEqual(
+    finalState.arrays.numbers,
+
+    [
+      4,
+
+      8,
+
+      12
+    ]
+  );
+
+  assert.deepEqual(
+    finalState.stacks.stack,
+
+    [
+      4,
+
+      8,
+
+      12
+    ]
+  );
+
+  assert.equal(
+    finalState.variables.index,
+
+    2
+  );
+
+  assert.equal(
+    finalState.variables.number,
+
+    12
+  );
+
+  assert.equal(
+    finalState.variables.total,
+
+    24
+  );
+}
+
+async function testSyntaxErrors(
+  baseUrl
+) {
+  for (const [
+    language,
+
+    source
+  ] of [
+    [
+      "javascript",
+
+      "const = ;"
+    ],
+
+    [
+      "python",
+
+      "def broken(:"
+    ]
+  ]) {
+    const execution = await execute(
+      baseUrl,
+
+      language,
+
+      source
+    );
+
+    assert.equal(
+      execution.status,
+
+      200
+    );
+
+    assert.equal(
+      execution.body.executionStatus,
+
+      "failed"
+    );
+
+    assert.equal(
+      execution.body.trace.status,
+
+      "failed"
+    );
+
+    assert.equal(
+      (
+        execution.body.states
+          .at(-1)
+          .errors
+          .length
+      ),
+
+      1
+    );
+  }
 }
 
 async function testPolicyRejection(
   baseUrl
 ) {
-  const execution = await requestJson(
-    baseUrl,
+  for (const [
+    language,
 
-    "/execute",
+    source
+  ] of [
+    [
+      "javascript",
 
-    {
-      method: "POST",
+      "process.exit(1);"
+    ],
 
-      body: JSON.stringify({
-        language: "javascript",
+    [
+      "python",
 
-        source: "process.exit(1);"
-      })
-    }
-  );
+      "import os\nprint(os.getcwd())"
+    ]
+  ]) {
+    const execution = await execute(
+      baseUrl,
 
-  assert.equal(
-    execution.status,
+      language,
 
-    400
-  );
+      source
+    );
 
-  assert.equal(
-    execution.body.error.code,
+    assert.equal(
+      execution.status,
 
-    "SOURCE_POLICY_VIOLATION"
-  );
+      400
+    );
+
+    assert.equal(
+      execution.body.error.code,
+
+      "SOURCE_POLICY_VIOLATION"
+    );
+  }
 }
 
 async function testPendingLanguages(
   baseUrl
 ) {
-  const execution = await requestJson(
-    baseUrl,
+  for (const [
+    language,
 
-    "/execute",
+    source
+  ] of [
+    [
+      "java",
 
-    {
-      method: "POST",
+      "class Main {}"
+    ],
 
-      body: JSON.stringify({
-        language: "python",
+    [
+      "sql",
 
-        source: "print('Hello')"
-      })
-    }
-  );
+      "SELECT 1"
+    ]
+  ]) {
+    const execution = await execute(
+      baseUrl,
 
-  assert.equal(
-    execution.status,
+      language,
 
-    501
-  );
+      source
+    );
 
-  assert.equal(
-    execution.body.error.code,
+    assert.equal(
+      execution.status,
 
-    "EXECUTION_NOT_IMPLEMENTED"
-  );
+      501
+    );
+
+    assert.equal(
+      execution.body.error.code,
+
+      "EXECUTION_NOT_IMPLEMENTED"
+    );
+  }
 }
 
 async function testRequestValidation(
   baseUrl
 ) {
-  const unsupportedLanguage = await requestJson(
+  const unsupportedLanguage = await execute(
     baseUrl,
 
-    "/execute",
+    "c",
 
-    {
-      method: "POST",
-
-      body: JSON.stringify({
-        language: "c",
-
-        source: "int main() {}"
-      })
-    }
+    "int main() {}"
   );
 
   assert.equal(
@@ -579,20 +905,12 @@ async function testRequestValidation(
     "UNSUPPORTED_LANGUAGE"
   );
 
-  const missingSource = await requestJson(
+  const missingSource = await execute(
     baseUrl,
 
-    "/execute",
+    "javascript",
 
-    {
-      method: "POST",
-
-      body: JSON.stringify({
-        language: "javascript",
-
-        source: ""
-      })
-    }
+    ""
   );
 
   assert.equal(
@@ -640,11 +958,23 @@ async function runTests() {
       baseUrl
     );
 
-    const execution = await testRealJavaScriptExecution(
+    const javascript = (
+      await testRealJavaScriptExecution(
+        baseUrl
+      )
+    );
+
+    const python = (
+      await testRealPythonExecution(
+        baseUrl
+      )
+    );
+
+    await testPythonEnumerate(
       baseUrl
     );
 
-    await testSyntaxError(
+    await testSyntaxErrors(
       baseUrl
     );
 
@@ -660,7 +990,9 @@ async function runTests() {
       baseUrl
     );
 
-    const finalState = execution.states.at(-1);
+    const finalPythonState = (
+      python.states.at(-1)
+    );
 
     console.log(
       "Execution service tests passed."
@@ -671,23 +1003,61 @@ async function runTests() {
     );
 
     console.log(
-      `Production trace events: ${execution.trace.eventCount}`
+      (
+        "JavaScript trace events: "
+        + javascript.trace.eventCount
+      )
     );
 
     console.log(
-      `Final numbers: ${JSON.stringify(finalState.arrays.numbers)}`
+      "Real Python execution: passed"
     );
 
     console.log(
-      `Final stack: ${JSON.stringify(finalState.stacks.stack)}`
+      (
+        "Python trace events: "
+        + python.trace.eventCount
+      )
     );
 
     console.log(
-      `Final total: ${finalState.variables.total}`
+      (
+        "Python final numbers: "
+        + JSON.stringify(
+          finalPythonState.arrays.numbers
+        )
+      )
     );
 
     console.log(
-      `Final loop index: ${finalState.variables.i}`
+      (
+        "Python final stack: "
+        + JSON.stringify(
+          finalPythonState.stacks.stack
+        )
+      )
+    );
+
+    console.log(
+      (
+        "Python final total: "
+        + finalPythonState.variables.total
+      )
+    );
+
+    console.log(
+      (
+        "Python final loop index: "
+        + finalPythonState.variables.index
+      )
+    );
+
+    console.log(
+      "Python enumerate support: passed"
+    );
+
+    console.log(
+      "Shared execution trace compatibility: passed"
     );
 
     console.log(
@@ -708,14 +1078,16 @@ async function runTests() {
   }
 }
 
-runTests().catch((error) => {
-  console.error(
-    "Execution service tests failed."
-  );
+runTests().catch(
+  (error) => {
+    console.error(
+      "Execution service tests failed."
+    );
 
-  console.error(
-    error
-  );
+    console.error(
+      error
+    );
 
-  process.exitCode = 1;
-});
+    process.exitCode = 1;
+  }
+);

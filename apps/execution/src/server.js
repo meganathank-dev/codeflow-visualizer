@@ -4,19 +4,20 @@ const http = require("node:http");
 
 const {
   LANGUAGES,
-
   SUPPORTED_LANGUAGES,
-
   TRACE_DOMAINS,
-
   getDomainForLanguage
 } = require("@codeflow/execution-trace");
 
 const {
   JavaScriptExecutionError,
-
   executeJavaScript
 } = require("./javascript/adapter");
+
+const {
+  PythonExecutionError,
+  executePython
+} = require("./python/adapter");
 
 const DEFAULT_HOST = "127.0.0.1";
 
@@ -28,14 +29,17 @@ const DEFAULT_MAX_REQUEST_BYTES = 64 * 1024;
 
 const SERVICE_NAME = "codeflow-execution";
 
-const SERVICE_VERSION = "0.2.0";
+const SERVICE_VERSION = "0.3.0";
+
+const EXECUTION_ENABLED_LANGUAGES = Object.freeze([
+  LANGUAGES.JAVASCRIPT,
+  LANGUAGES.PYTHON
+]);
 
 class ExecutionRequestError extends Error {
   constructor(
     message,
-
     statusCode,
-
     code
   ) {
     super(message);
@@ -50,9 +54,7 @@ class ExecutionRequestError extends Error {
 
 function writeJson(
   response,
-
   statusCode,
-
   payload
 ) {
   const body = JSON.stringify(
@@ -63,11 +65,12 @@ function writeJson(
     statusCode,
 
     {
-      "content-type": "application/json; charset=utf-8",
+      "content-type": (
+        "application/json; charset=utf-8"
+      ),
 
       "content-length": Buffer.byteLength(
         body,
-
         "utf8"
       ),
 
@@ -104,12 +107,16 @@ function createLanguageCapabilities() {
       adapterValidated: true,
 
       executionEnabled: (
-        language === LANGUAGES.JAVASCRIPT
+        EXECUTION_ENABLED_LANGUAGES.includes(
+          language
+        )
       ),
 
-      visualizationMode: language === LANGUAGES.SQL
-        ? "logical-query"
-        : "program-execution"
+      visualizationMode: (
+        language === LANGUAGES.SQL
+          ? "logical-query"
+          : "program-execution"
+      )
     })
   );
 }
@@ -127,7 +134,7 @@ function createHealthResponse() {
     languages: SUPPORTED_LANGUAGES,
 
     executionEnabledLanguages: [
-      LANGUAGES.JAVASCRIPT
+      ...EXECUTION_ENABLED_LANGUAGES
     ],
 
     domains: [
@@ -143,6 +150,8 @@ function createHealthResponse() {
 
       dedicatedJavaScriptChildProcess: true,
 
+      dedicatedPythonChildProcess: true,
+
       productionSandboxAvailable: false,
 
       acceptsUntrustedCode: false,
@@ -156,7 +165,6 @@ function createHealthResponse() {
 
 async function readJsonBody(
   request,
-
   maximumBytes
 ) {
   const chunks = [];
@@ -170,7 +178,10 @@ async function readJsonBody(
       totalBytes > maximumBytes
     ) {
       throw new ExecutionRequestError(
-        "Request body exceeds the maximum permitted size.",
+        (
+          "Request body exceeds "
+          + "the maximum permitted size."
+        ),
 
         413,
 
@@ -183,7 +194,9 @@ async function readJsonBody(
     );
   }
 
-  if (chunks.length === 0) {
+  if (
+    chunks.length === 0
+  ) {
     throw new ExecutionRequestError(
       "Request body is required.",
 
@@ -193,19 +206,20 @@ async function readJsonBody(
     );
   }
 
-  const rawBody = Buffer.concat(
-    chunks
-  ).toString("utf8");
-
-  let parsedBody;
+  let body;
 
   try {
-    parsedBody = JSON.parse(
-      rawBody
+    body = JSON.parse(
+      Buffer.concat(
+        chunks
+      ).toString("utf8")
     );
   } catch {
     throw new ExecutionRequestError(
-      "Request body must contain valid JSON.",
+      (
+        "Request body must contain "
+        + "valid JSON."
+      ),
 
       400,
 
@@ -214,12 +228,15 @@ async function readJsonBody(
   }
 
   if (
-    parsedBody === null ||
-    typeof parsedBody !== "object" ||
-    Array.isArray(parsedBody)
+    body === null
+    || typeof body !== "object"
+    || Array.isArray(body)
   ) {
     throw new ExecutionRequestError(
-      "Request body must be a JSON object.",
+      (
+        "Request body must be "
+        + "a JSON object."
+      ),
 
       400,
 
@@ -227,26 +244,29 @@ async function readJsonBody(
     );
   }
 
-  return parsedBody;
+  return body;
 }
 
 function validateExecutionRequest(
   body,
-
   maximumSourceBytes
 ) {
   const {
     language,
-
     source
   } = body;
 
   if (
-    typeof language !== "string" ||
-    !SUPPORTED_LANGUAGES.includes(language)
+    typeof language !== "string"
+    || !SUPPORTED_LANGUAGES.includes(
+      language
+    )
   ) {
     throw new ExecutionRequestError(
-      "A supported execution language is required.",
+      (
+        "A supported execution language "
+        + "is required."
+      ),
 
       400,
 
@@ -255,11 +275,14 @@ function validateExecutionRequest(
   }
 
   if (
-    typeof source !== "string" ||
-    source.trim().length === 0
+    typeof source !== "string"
+    || source.trim().length === 0
   ) {
     throw new ExecutionRequestError(
-      "Source code must be a non-empty string.",
+      (
+        "Source code must be "
+        + "a non-empty string."
+      ),
 
       400,
 
@@ -269,7 +292,6 @@ function validateExecutionRequest(
 
   const sourceBytes = Buffer.byteLength(
     source,
-
     "utf8"
   );
 
@@ -277,7 +299,10 @@ function validateExecutionRequest(
     sourceBytes > maximumSourceBytes
   ) {
     throw new ExecutionRequestError(
-      "Source code exceeds the maximum permitted size.",
+      (
+        "Source code exceeds "
+        + "the maximum permitted size."
+      ),
 
       413,
 
@@ -296,9 +321,7 @@ function validateExecutionRequest(
 
 async function handleExecution(
   request,
-
   response,
-
   options
 ) {
   const body = await readJsonBody(
@@ -307,14 +330,18 @@ async function handleExecution(
     options.maximumRequestBytes
   );
 
-  const executionRequest = validateExecutionRequest(
-    body,
+  const executionRequest = (
+    validateExecutionRequest(
+      body,
 
-    options.maximumSourceBytes
+      options.maximumSourceBytes
+    )
   );
 
   if (
-    executionRequest.language !== LANGUAGES.JAVASCRIPT
+    !EXECUTION_ENABLED_LANGUAGES.includes(
+      executionRequest.language
+    )
   ) {
     writeJson(
       response,
@@ -328,14 +355,19 @@ async function handleExecution(
           code: "EXECUTION_NOT_IMPLEMENTED",
 
           message: (
-            `${executionRequest.language} execution has not been integrated yet.`
+            `${executionRequest.language} execution `
+            + "has not been integrated yet."
           )
         },
 
         request: {
-          language: executionRequest.language,
+          language: (
+            executionRequest.language
+          ),
 
-          sourceBytes: executionRequest.sourceBytes
+          sourceBytes: (
+            executionRequest.sourceBytes
+          )
         },
 
         security: {
@@ -349,10 +381,18 @@ async function handleExecution(
     return;
   }
 
-  const executionResult = await executeJavaScript(
-    executionRequest.source,
+  const executionResult = (
+    executionRequest.language === LANGUAGES.JAVASCRIPT
+      ? await executeJavaScript(
+        executionRequest.source,
 
-    options.javascript
+        options.javascript
+      )
+      : await executePython(
+        executionRequest.source,
+
+        options.python
+      )
   );
 
   writeJson(
@@ -366,9 +406,7 @@ async function handleExecution(
 
 async function handleRequest(
   request,
-
   response,
-
   options
 ) {
   const requestUrl = new URL(
@@ -378,8 +416,8 @@ async function handleRequest(
   );
 
   if (
-    request.method === "GET" &&
-    requestUrl.pathname === "/health"
+    request.method === "GET"
+    && requestUrl.pathname === "/health"
   ) {
     writeJson(
       response,
@@ -393,8 +431,8 @@ async function handleRequest(
   }
 
   if (
-    request.method === "GET" &&
-    requestUrl.pathname === "/languages"
+    request.method === "GET"
+    && requestUrl.pathname === "/languages"
   ) {
     writeJson(
       response,
@@ -404,7 +442,9 @@ async function handleRequest(
       {
         status: "ok",
 
-        languages: createLanguageCapabilities()
+        languages: (
+          createLanguageCapabilities()
+        )
       }
     );
 
@@ -412,8 +452,8 @@ async function handleRequest(
   }
 
   if (
-    request.method === "POST" &&
-    requestUrl.pathname === "/execute"
+    request.method === "POST"
+    && requestUrl.pathname === "/execute"
   ) {
     await handleExecution(
       request,
@@ -437,45 +477,58 @@ async function handleRequest(
       error: {
         code: "ROUTE_NOT_FOUND",
 
-        message: "Execution service route was not found."
+        message: (
+          "Execution service route was not found."
+        )
       }
     }
   );
 }
 
-function createExecutionServer(options = {}) {
+function createExecutionServer(
+  options = {}
+) {
   const maximumSourceBytes = (
-    options.maximumSourceBytes ??
-    DEFAULT_MAX_SOURCE_BYTES
+    options.maximumSourceBytes
+    ?? DEFAULT_MAX_SOURCE_BYTES
   );
 
   const maximumRequestBytes = (
-    options.maximumRequestBytes ??
-    DEFAULT_MAX_REQUEST_BYTES
+    options.maximumRequestBytes
+    ?? DEFAULT_MAX_REQUEST_BYTES
   );
 
   if (
-    !Number.isInteger(maximumSourceBytes) ||
-    maximumSourceBytes < 1
+    !Number.isInteger(
+      maximumSourceBytes
+    )
+    || maximumSourceBytes < 1
   ) {
     throw new TypeError(
-      "maximumSourceBytes must be a positive integer."
+      (
+        "maximumSourceBytes must be "
+        + "a positive integer."
+      )
     );
   }
 
   if (
-    !Number.isInteger(maximumRequestBytes) ||
-    maximumRequestBytes < 1
+    !Number.isInteger(
+      maximumRequestBytes
+    )
+    || maximumRequestBytes < 1
   ) {
     throw new TypeError(
-      "maximumRequestBytes must be a positive integer."
+      (
+        "maximumRequestBytes must be "
+        + "a positive integer."
+      )
     );
   }
 
   return http.createServer(
     (
       request,
-
       response
     ) => {
       handleRequest(
@@ -489,73 +542,86 @@ function createExecutionServer(options = {}) {
           maximumRequestBytes,
 
           javascript: (
-            options.javascript ||
-            {}
+            options.javascript
+            || {}
+          ),
+
+          python: (
+            options.python
+            || {}
           )
         }
-      ).catch((error) => {
-        if (response.headersSent) {
-          response.end();
+      ).catch(
+        (error) => {
+          if (
+            response.headersSent
+          ) {
+            response.end();
 
-          return;
-        }
+            return;
+          }
 
-        if (
-          error instanceof ExecutionRequestError ||
-          error instanceof JavaScriptExecutionError
-        ) {
+          if (
+            error instanceof ExecutionRequestError
+            || error instanceof JavaScriptExecutionError
+            || error instanceof PythonExecutionError
+          ) {
+            writeJson(
+              response,
+
+              error.statusCode,
+
+              {
+                status: "error",
+
+                error: {
+                  code: error.code,
+
+                  message: error.message
+                }
+              }
+            );
+
+            return;
+          }
+
           writeJson(
             response,
 
-            error.statusCode,
+            500,
 
             {
               status: "error",
 
               error: {
-                code: error.code,
+                code: "INTERNAL_EXECUTION_ERROR",
 
-                message: error.message
+                message: (
+                  "Execution service could not "
+                  + "process the request."
+                )
               }
             }
           );
-
-          return;
         }
-
-        writeJson(
-          response,
-
-          500,
-
-          {
-            status: "error",
-
-            error: {
-              code: "INTERNAL_EXECUTION_ERROR",
-
-              message: (
-                "Execution service could not process the request."
-              )
-            }
-          }
-        );
-      });
+      );
     }
   );
 }
 
-function startExecutionServer(options = {}) {
+function startExecutionServer(
+  options = {}
+) {
   const host = (
-    options.host ||
-    process.env.EXECUTION_HOST ||
-    DEFAULT_HOST
+    options.host
+    || process.env.EXECUTION_HOST
+    || DEFAULT_HOST
   );
 
   const port = Number(
-    options.port ||
-    process.env.EXECUTION_PORT ||
-    DEFAULT_PORT
+    options.port
+    || process.env.EXECUTION_PORT
+    || DEFAULT_PORT
   );
 
   const server = createExecutionServer(
@@ -569,7 +635,10 @@ function startExecutionServer(options = {}) {
 
     () => {
       console.log(
-        `CodeFlow execution service running at http://${host}:${port}`
+        (
+          "CodeFlow execution service running at "
+          + `http://${host}:${port}`
+        )
       );
 
       console.log(
@@ -577,11 +646,11 @@ function startExecutionServer(options = {}) {
       );
 
       console.log(
-        "Real execution enabled: JavaScript"
+        "Real execution enabled: JavaScript, Python"
       );
 
       console.log(
-        "Pending execution integration: Python, Java, SQL"
+        "Pending execution integration: Java, SQL"
       );
     }
   );

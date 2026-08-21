@@ -9,9 +9,7 @@ import {
   Sparkles
 } from "lucide-react";
 
-import {
-  LANGUAGE_OPTIONS
-} from "../data/demo-executions";
+import { LANGUAGE_OPTIONS } from "../data/demo-executions";
 
 export default function AppHeader({
   language,
@@ -19,190 +17,99 @@ export default function AppHeader({
   isPlaying,
   isExecuting,
   hasLiveExecution,
+  supportsLiveExecution,
   isAtFinalStep,
   onRun,
   onPause
 }) {
-  const selectedLanguage =
-    LANGUAGE_OPTIONS.find(
-      (item) => item.id === language
-    );
-
-  const supportsLiveExecution =
-    language === "javascript";
-
-  let actionLabel =
-    "Preview demo";
+  const selectedLanguage = LANGUAGE_OPTIONS.find((item) => item.id === language);
+  let actionLabel = "Preview demo";
 
   if (isExecuting) {
-    actionLabel =
-      "Running...";
+    actionLabel = "Running...";
   } else if (isPlaying) {
-    actionLabel =
-      "Pause";
-  } else if (
-    supportsLiveExecution &&
-    hasLiveExecution &&
-    !isAtFinalStep
-  ) {
-    actionLabel =
-      "Resume";
-  } else if (
-    supportsLiveExecution &&
-    hasLiveExecution &&
-    isAtFinalStep
-  ) {
-    actionLabel =
-      "Run again";
-  } else if (
-    supportsLiveExecution
-  ) {
-    actionLabel =
-      "Run code";
+    actionLabel = "Pause";
+  } else if (supportsLiveExecution && hasLiveExecution && !isAtFinalStep) {
+    actionLabel = "Resume";
+  } else if (supportsLiveExecution && hasLiveExecution && isAtFinalStep) {
+    actionLabel = "Run again";
+  } else if (supportsLiveExecution) {
+    actionLabel = "Run code";
   }
 
   return (
     <header className="app-header">
       <div className="brand-lockup">
         <div className="brand-mark">
-          <Code2
-            size={21}
-            strokeWidth={2.15}
-          />
-
+          <Code2 size={21} strokeWidth={2.15} />
           <span className="brand-mark-pulse" />
         </div>
 
         <div className="brand-copy">
-          <span className="brand-name">
-            CodeFlow
-          </span>
-
-          <span className="brand-subtitle">
-            Execution Visualizer
-          </span>
+          <span className="brand-name">CodeFlow</span>
+          <span className="brand-subtitle">Execution Visualizer</span>
         </div>
 
         <span className="workspace-separator" />
 
         <div className="workspace-indicator">
           <Activity size={15} />
-
-          <span>
-            Interactive workspace
-          </span>
+          <span>Interactive workspace</span>
         </div>
       </div>
 
       <div className="header-actions">
         <div className="security-indicator">
           <ShieldCheck size={15} />
-
-          <span>
-            {
-              supportsLiveExecution
-                ? "Local execution"
-                : "Preview environment"
-            }
-          </span>
+          <span>{supportsLiveExecution ? "Local execution" : "Preview environment"}</span>
         </div>
 
         <label className="language-selector">
           <span
             className="language-dot"
-            style={{
-              "--language-color":
-                selectedLanguage.color
-            }}
+            style={{ "--language-color": selectedLanguage.color }}
           />
 
           <select
             value={language}
-            onChange={
-              (event) => {
-                onLanguageChange(
-                  event.target.value
-                );
-              }
-            }
+            onChange={(event) => onLanguageChange(event.target.value)}
             aria-label="Programming language"
             disabled={isExecuting}
           >
-            {
-              LANGUAGE_OPTIONS.map(
-                (option) => (
-                  <option
-                    key={option.id}
-                    value={option.id}
-                  >
-                    {option.label}
-                  </option>
-                )
-              )
-            }
+            {LANGUAGE_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
           </select>
 
-          <ChevronDown
-            className="language-chevron"
-            size={15}
-          />
+          <ChevronDown className="language-chevron" size={15} />
         </label>
 
         <button
-          className={
-            isPlaying
-              ? "primary-action is-playing"
-              : "primary-action"
-          }
+          className={isPlaying ? "primary-action is-playing" : "primary-action"}
           type="button"
-          onClick={
-            isPlaying
-              ? onPause
-              : onRun
-          }
+          onClick={isPlaying ? onPause : onRun}
           disabled={isExecuting}
           aria-busy={isExecuting}
-          style={
-            isExecuting
-              ? {
-                  opacity: 0.8
-                }
-              : undefined
-          }
+          style={isExecuting ? { opacity: 0.8 } : undefined}
         >
-          {
-            isExecuting
-              ? (
-                  <LoaderCircle
-                    size={16}
-                    style={{
-                      animation:
-                        "spin 760ms linear infinite"
-                    }}
-                  />
-                )
-              : isPlaying
-                ? (
-                    <Pause size={16} />
-                  )
-                : (
-                    <Play size={16} />
-                  )
-          }
+          {isExecuting ? (
+            <LoaderCircle
+              size={16}
+              style={{ animation: "spin 760ms linear infinite" }}
+            />
+          ) : isPlaying ? (
+            <Pause size={16} />
+          ) : (
+            <Play size={16} />
+          )}
 
-          <span>
-            {actionLabel}
-          </span>
+          <span>{actionLabel}</span>
 
-          {
-            !isPlaying &&
-            !isExecuting && (
-              <Sparkles
-                className="action-sparkle"
-                size={14}
-              />
-            )
-          }
+          {!isPlaying && !isExecuting && (
+            <Sparkles className="action-sparkle" size={14} />
+          )}
         </button>
       </div>
     </header>

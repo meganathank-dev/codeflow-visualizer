@@ -1,24 +1,11 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  AlertCircle,
-  Radio,
-  X
-} from "lucide-react";
+import { AlertCircle, Radio, X } from "lucide-react";
 
 import AppHeader from "./components/AppHeader";
-
 import EditorPanel from "./components/EditorPanel";
-
 import VisualizationPanel from "./components/VisualizationPanel";
-
 import InspectorPanel from "./components/InspectorPanel";
-
 import TimelineControls from "./components/TimelineControls";
 
 import {
@@ -32,550 +19,254 @@ import {
   createIdleExecutionStep
 } from "./utils/execution-presentation";
 
-const INITIAL_LANGUAGE =
-  "javascript";
-
-const BASE_PLAYBACK_INTERVAL =
-  430;
-
-const BACKEND_STATUS_REFRESH_INTERVAL =
-  5_000;
+const INITIAL_LANGUAGE = "javascript";
+const BASE_PLAYBACK_INTERVAL = 430;
+const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
+const LIVE_EXECUTION_LANGUAGES = Object.freeze(["javascript", "python"]);
 
 function createInitialSources() {
   return Object.fromEntries(
-    LANGUAGE_OPTIONS.map(
-      ({
-        id
-      }) => [
-        id,
-
-        DEMO_EXECUTIONS[id].source
-      ]
-    )
+    LANGUAGE_OPTIONS.map(({ id }) => [id, DEMO_EXECUTIONS[id].source])
   );
 }
 
 export default function App() {
-  const [
-    selectedLanguage,
+  const [selectedLanguage, setSelectedLanguage] = useState(INITIAL_LANGUAGE);
+  const [sources, setSources] = useState(createInitialSources);
+  const [executions, setExecutions] = useState({});
+  const [currentStep, setCurrentStep] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [notification, setNotification] = useState("");
+  const [backendStatus, setBackendStatus] = useState("checking");
 
-    setSelectedLanguage
-  ] = useState(
-    INITIAL_LANGUAGE
-  );
-
-  const [
-    sources,
-
-    setSources
-  ] = useState(
-    createInitialSources
-  );
-
-  const [
-    executions,
-
-    setExecutions
-  ] = useState({});
-
-  const [
-    currentStep,
-
-    setCurrentStep
-  ] = useState(0);
-
-  const [
-    isPlaying,
-
-    setIsPlaying
-  ] = useState(false);
-
-  const [
-    isExecuting,
-
-    setIsExecuting
-  ] = useState(false);
-
-  const [
-    speed,
-
-    setSpeed
-  ] = useState(1);
-
-  const [
-    notification,
-
-    setNotification
-  ] = useState("");
-
-  const [
-    backendStatus,
-
-    setBackendStatus
-  ] = useState(
-    "checking"
-  );
-
-  const activeRequestRef =
-    useRef(null);
+  const activeRequestRef = useRef(null);
 
   const language = useMemo(
-    () => getLanguageOption(
-      selectedLanguage
-    ),
-
-    [
-      selectedLanguage
-    ]
+    () => getLanguageOption(selectedLanguage),
+    [selectedLanguage]
   );
 
-  const demoExecution =
-    DEMO_EXECUTIONS[
-      selectedLanguage
-    ];
+  const demoExecution = DEMO_EXECUTIONS[selectedLanguage];
+  const source = sources[selectedLanguage];
+  const isEdited = source !== demoExecution.source;
+  const canExecuteLive = LIVE_EXECUTION_LANGUAGES.includes(selectedLanguage);
 
-  const source =
-    sources[
-      selectedLanguage
-    ];
+  const liveExecution = executions[selectedLanguage];
+  const hasLiveExecution = Boolean(
+    liveExecution && liveExecution.source === source
+  );
 
-  const isEdited =
-    source !== demoExecution.source;
+  const steps = hasLiveExecution
+    ? liveExecution.presentation.steps
+    : canExecuteLive && isEdited
+      ? [createIdleExecutionStep(selectedLanguage)]
+      : demoExecution.steps;
 
-  const canExecuteLive =
-    selectedLanguage === "javascript";
+  const totalSteps = steps.length;
+  const boundedCurrentStep = Math.min(currentStep, totalSteps - 1);
+  const activeStep = steps[boundedCurrentStep];
 
-  const liveExecution =
-    executions[
-      selectedLanguage
-    ];
+  useEffect(() => {
+    let isMounted = true;
+    let requestInProgress = false;
 
-  const hasLiveExecution =
-    Boolean(
-      liveExecution &&
-      liveExecution.source === source
+    async function checkBackendHealth() {
+      if (requestInProgress) {
+        return;
+      }
+
+      requestInProgress = true;
+
+      try {
+        const response = await fetch("/api/health", {
+          headers: { accept: "application/json" }
+        });
+
+        const result = await response.json();
+
+        if (!isMounted) {
+          return;
+        }
+
+        setBackendStatus(
+          response.ok && result.executionService?.connected === true
+            ? "connected"
+            : "offline"
+        );
+      } catch {
+        if (isMounted) {
+          setBackendStatus("offline");
+        }
+      } finally {
+        requestInProgress = false;
+      }
+    }
+
+    checkBackendHealth();
+
+    const intervalId = window.setInterval(
+      checkBackendHealth,
+      BACKEND_STATUS_REFRESH_INTERVAL
     );
 
-  const steps =
-    hasLiveExecution
-      ? liveExecution.presentation.steps
-      : canExecuteLive && isEdited
-        ? [
-            createIdleExecutionStep(
-              selectedLanguage
-            )
-          ]
-        : demoExecution.steps;
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
-  const totalSteps =
-    steps.length;
+  useEffect(() => {
+    return () => activeRequestRef.current?.abort();
+  }, []);
 
-  const boundedCurrentStep =
-    Math.min(
-      currentStep,
+  useEffect(() => {
+    if (!isPlaying || isExecuting) {
+      return undefined;
+    }
 
-      totalSteps - 1
-    );
+    if (boundedCurrentStep >= totalSteps - 1) {
+      setIsPlaying(false);
+      return undefined;
+    }
 
-  const activeStep =
-    steps[
-      boundedCurrentStep
-    ];
+    const timer = window.setTimeout(() => {
+      const nextStep = boundedCurrentStep + 1;
 
-  useEffect(
-    () => {
-      let isMounted =
-        true;
+      setCurrentStep(nextStep);
 
-      let requestInProgress =
-        false;
-
-      async function checkBackendHealth() {
-        if (
-          requestInProgress
-        ) {
-          return;
-        }
-
-        requestInProgress =
-          true;
-
-        try {
-          const response =
-            await fetch(
-              "/api/health",
-
-              {
-                headers: {
-                  accept:
-                    "application/json"
-                }
-              }
-            );
-
-          const result =
-            await response.json();
-
-          if (
-            !isMounted
-          ) {
-            return;
-          }
-
-          setBackendStatus(
-            response.ok &&
-            result.executionService?.connected === true
-              ? "connected"
-              : "offline"
-          );
-        } catch {
-          if (
-            isMounted
-          ) {
-            setBackendStatus(
-              "offline"
-            );
-          }
-        } finally {
-          requestInProgress =
-            false;
-        }
+      if (nextStep >= totalSteps - 1) {
+        setIsPlaying(false);
       }
+    }, BASE_PLAYBACK_INTERVAL / speed);
 
-      checkBackendHealth();
+    return () => window.clearTimeout(timer);
+  }, [boundedCurrentStep, isExecuting, isPlaying, speed, totalSteps]);
 
-      const intervalId =
-        window.setInterval(
-          checkBackendHealth,
-
-          BACKEND_STATUS_REFRESH_INTERVAL
-        );
-
-      return () => {
-        isMounted =
-          false;
-
-        window.clearInterval(
-          intervalId
-        );
-      };
-    },
-
-    []
-  );
-
-  useEffect(
-    () => {
-      return () => {
-        activeRequestRef.current?.abort();
-      };
-    },
-
-    []
-  );
-
-  useEffect(
-    () => {
-      if (
-        !isPlaying ||
-        isExecuting
-      ) {
-        return undefined;
-      }
+  useEffect(() => {
+    function handleKeyboardShortcut(event) {
+      const target = event.target;
+      const tagName = target?.tagName;
 
       if (
-        boundedCurrentStep >= totalSteps - 1
+        tagName === "INPUT" ||
+        tagName === "TEXTAREA" ||
+        tagName === "SELECT" ||
+        target?.isContentEditable ||
+        Boolean(target?.closest?.(".monaco-editor"))
       ) {
-        setIsPlaying(
-          false
-        );
-
-        return undefined;
+        return;
       }
 
-      const timer =
-        window.setTimeout(
-          () => {
-            const nextStep =
-              boundedCurrentStep + 1;
+      if (event.code === "Space") {
+        event.preventDefault();
 
-            setCurrentStep(
-              nextStep
-            );
-
-            if (
-              nextStep >= totalSteps - 1
-            ) {
-              setIsPlaying(
-                false
-              );
-            }
-          },
-
-          BASE_PLAYBACK_INTERVAL / speed
-        );
-
-      return () => {
-        window.clearTimeout(
-          timer
-        );
-      };
-    },
-
-    [
-      boundedCurrentStep,
-      isExecuting,
-      isPlaying,
-      speed,
-      totalSteps
-    ]
-  );
-
-  useEffect(
-    () => {
-      function handleKeyboardShortcut(event) {
-        const target =
-          event.target;
-
-        const tagName =
-          target?.tagName;
-
-        if (
-          tagName === "INPUT" ||
-          tagName === "TEXTAREA" ||
-          tagName === "SELECT" ||
-          target?.isContentEditable ||
-          Boolean(
-            target?.closest?.(
-              ".monaco-editor"
-            )
-          )
-        ) {
-          return;
+        if (isPlaying) {
+          handlePause();
+        } else {
+          handlePrimaryAction();
         }
 
-        if (
-          event.code === "Space"
-        ) {
-          event.preventDefault();
-
-          if (
-            isPlaying
-          ) {
-            handlePause();
-          } else {
-            handlePrimaryAction();
-          }
-
-          return;
-        }
-
-        if (
-          event.key === "ArrowRight"
-        ) {
-          event.preventDefault();
-
-          handleSeek(
-            boundedCurrentStep + 1
-          );
-
-          return;
-        }
-
-        if (
-          event.key === "ArrowLeft"
-        ) {
-          event.preventDefault();
-
-          handleSeek(
-            boundedCurrentStep - 1
-          );
-        }
+        return;
       }
 
-      window.addEventListener(
-        "keydown",
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        handleSeek(boundedCurrentStep + 1);
+        return;
+      }
 
-        handleKeyboardShortcut
-      );
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        handleSeek(boundedCurrentStep - 1);
+      }
+    }
 
-      return () => {
-        window.removeEventListener(
-          "keydown",
+    window.addEventListener("keydown", handleKeyboardShortcut);
 
-          handleKeyboardShortcut
-        );
-      };
-    },
-
-    [
-      backendStatus,
-      boundedCurrentStep,
-      hasLiveExecution,
-      isEdited,
-      isExecuting,
-      isPlaying,
-      selectedLanguage,
-      source,
-      totalSteps
-    ]
-  );
+    return () => window.removeEventListener("keydown", handleKeyboardShortcut);
+  }, [
+    backendStatus,
+    boundedCurrentStep,
+    hasLiveExecution,
+    isEdited,
+    isExecuting,
+    isPlaying,
+    selectedLanguage,
+    source,
+    totalSteps
+  ]);
 
   function cancelActiveExecution() {
     activeRequestRef.current?.abort();
-
-    activeRequestRef.current =
-      null;
+    activeRequestRef.current = null;
   }
 
   function clearExecution(languageId) {
-    setExecutions(
-      (
-        previousExecutions
-      ) => {
-        if (
-          !Object.hasOwn(
-            previousExecutions,
-
-            languageId
-          )
-        ) {
-          return previousExecutions;
-        }
-
-        const nextExecutions = {
-          ...previousExecutions
-        };
-
-        delete nextExecutions[
-          languageId
-        ];
-
-        return nextExecutions;
+    setExecutions((previousExecutions) => {
+      if (!Object.hasOwn(previousExecutions, languageId)) {
+        return previousExecutions;
       }
-    );
+
+      const nextExecutions = { ...previousExecutions };
+      delete nextExecutions[languageId];
+      return nextExecutions;
+    });
   }
 
   function handleLanguageChange(languageId) {
     cancelActiveExecution();
-
-    setIsExecuting(
-      false
-    );
-
-    setIsPlaying(
-      false
-    );
-
-    setSelectedLanguage(
-      languageId
-    );
-
-    setCurrentStep(
-      0
-    );
-
-    setNotification(
-      ""
-    );
+    setIsExecuting(false);
+    setIsPlaying(false);
+    setSelectedLanguage(languageId);
+    setCurrentStep(0);
+    setNotification("");
   }
 
   function handleSourceChange(value) {
-    if (
-      value === source
-    ) {
+    if (value === source) {
       return;
     }
 
     cancelActiveExecution();
+    clearExecution(selectedLanguage);
+    setIsExecuting(false);
+    setIsPlaying(false);
+    setCurrentStep(0);
+    setNotification("");
 
-    clearExecution(
-      selectedLanguage
-    );
-
-    setIsExecuting(
-      false
-    );
-
-    setIsPlaying(
-      false
-    );
-
-    setCurrentStep(
-      0
-    );
-
-    setNotification(
-      ""
-    );
-
-    setSources(
-      (
-        previousSources
-      ) => ({
-        ...previousSources,
-
-        [selectedLanguage]:
-          value
-      })
-    );
+    setSources((previousSources) => ({
+      ...previousSources,
+      [selectedLanguage]: value
+    }));
   }
 
   function handleRestoreSource() {
     cancelActiveExecution();
+    clearExecution(selectedLanguage);
+    setIsExecuting(false);
+    setIsPlaying(false);
+    setCurrentStep(0);
+    setNotification("");
 
-    clearExecution(
-      selectedLanguage
-    );
-
-    setIsExecuting(
-      false
-    );
-
-    setIsPlaying(
-      false
-    );
-
-    setCurrentStep(
-      0
-    );
-
-    setNotification(
-      ""
-    );
-
-    setSources(
-      (
-        previousSources
-      ) => ({
-        ...previousSources,
-
-        [selectedLanguage]:
-          demoExecution.source
-      })
-    );
+    setSources((previousSources) => ({
+      ...previousSources,
+      [selectedLanguage]: demoExecution.source
+    }));
   }
 
-  async function runJavaScript() {
-    if (
-      isExecuting
-    ) {
+  async function runCode() {
+    if (isExecuting) {
       return;
     }
 
-    if (
-      !source.trim()
-    ) {
-      setNotification(
-        "Add JavaScript code before starting an execution."
-      );
-
+    if (!source.trim()) {
+      setNotification(`Add ${language.label} code before starting an execution.`);
       return;
     }
 
-    if (
-      backendStatus !== "connected"
-    ) {
+    if (backendStatus !== "connected") {
       setNotification(
         "Execution services are unavailable. Start the workspace with pnpm dev."
       );
@@ -585,172 +276,89 @@ export default function App() {
 
     cancelActiveExecution();
 
-    const controller =
-      new AbortController();
+    const controller = new AbortController();
+    activeRequestRef.current = controller;
 
-    activeRequestRef.current =
-      controller;
-
-    setIsExecuting(
-      true
-    );
-
-    setIsPlaying(
-      false
-    );
-
-    setNotification(
-      ""
-    );
+    setIsExecuting(true);
+    setIsPlaying(false);
+    setNotification("");
 
     try {
-      const response =
-        await fetch(
-          "/api/execute",
+      const response = await fetch("/api/execute", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json"
+        },
+        body: JSON.stringify({ language: selectedLanguage, source }),
+        signal: controller.signal
+      });
 
-          {
-            method:
-              "POST",
+      const result = await response.json();
 
-            headers: {
-              "content-type":
-                "application/json",
-
-              accept:
-                "application/json"
-            },
-
-            body:
-              JSON.stringify({
-                language:
-                  "javascript",
-
-                source
-              }),
-
-            signal:
-              controller.signal
-          }
-        );
-
-      const result =
-        await response.json();
-
-      if (
-        !response.ok ||
-        result.status !== "ok"
-      ) {
+      if (!response.ok || result.status !== "ok") {
         throw new Error(
-          result.error?.message ||
-          "JavaScript execution failed."
+          result.error?.message || `${language.label} execution failed.`
         );
       }
 
-      const presentation =
-        createExecutionPresentation(
-          result
-        );
+      const presentation = createExecutionPresentation(result);
 
-      setExecutions(
-        (
-          previousExecutions
-        ) => ({
-          ...previousExecutions,
+      setExecutions((previousExecutions) => ({
+        ...previousExecutions,
+        [selectedLanguage]: {
+          source,
+          presentation
+        }
+      }));
 
-          javascript: {
-            source,
+      setCurrentStep(0);
 
-            presentation
-          }
-        })
-      );
-
-      setCurrentStep(
-        0
-      );
-
-      if (
-        presentation.executionStatus === "failed"
-      ) {
-        const finalStep =
-          presentation.steps.at(-1);
+      if (presentation.executionStatus === "failed") {
+        const finalStep = presentation.steps.at(-1);
 
         setNotification(
-          `Execution stopped: ${
-            finalStep?.error?.message ||
-            finalStep?.description ||
-            "Unknown runtime error."
-          }`
+          `Execution stopped: ${finalStep?.error?.message || finalStep?.description || "Unknown runtime error."}`
         );
       }
 
-      setIsPlaying(
-        presentation.steps.length > 1
-      );
+      setIsPlaying(presentation.steps.length > 1);
     } catch (error) {
-      if (
-        error.name !== "AbortError"
-      ) {
-        setNotification(
-          error.message ||
-          "JavaScript execution failed."
-        );
+      if (error.name !== "AbortError") {
+        setNotification(error.message || `${language.label} execution failed.`);
       }
     } finally {
-      if (
-        activeRequestRef.current === controller
-      ) {
-        activeRequestRef.current =
-          null;
-
-        setIsExecuting(
-          false
-        );
+      if (activeRequestRef.current === controller) {
+        activeRequestRef.current = null;
+        setIsExecuting(false);
       }
     }
   }
 
   function playExistingTimeline() {
-    if (
-      boundedCurrentStep >= totalSteps - 1
-    ) {
-      setCurrentStep(
-        0
-      );
+    if (boundedCurrentStep >= totalSteps - 1) {
+      setCurrentStep(0);
     }
 
-    setIsPlaying(
-      totalSteps > 1
-    );
+    setIsPlaying(totalSteps > 1);
   }
 
   function handlePrimaryAction() {
-    if (
-      isExecuting
-    ) {
+    if (isExecuting) {
       return;
     }
 
-    if (
-      canExecuteLive
-    ) {
-      if (
-        hasLiveExecution &&
-        boundedCurrentStep < totalSteps - 1
-      ) {
+    if (canExecuteLive) {
+      if (hasLiveExecution && boundedCurrentStep < totalSteps - 1) {
         playExistingTimeline();
-
         return;
       }
 
-      runJavaScript();
-
+      runCode();
       return;
     }
 
-    if (
-      isEdited
-    ) {
+    if (isEdited) {
       setNotification(
         `${language.label} live execution will be enabled in its upcoming development phase. Restore the example to preview its visualization.`
       );
@@ -758,170 +366,86 @@ export default function App() {
       return;
     }
 
-    setNotification(
-      ""
-    );
-
+    setNotification("");
     playExistingTimeline();
   }
 
   function handlePause() {
-    setIsPlaying(
-      false
-    );
+    setIsPlaying(false);
   }
 
   function handleSeek(step) {
-    if (
-      isExecuting
-    ) {
+    if (isExecuting) {
       return;
     }
 
-    setIsPlaying(
-      false
-    );
-
-    setCurrentStep(
-      Math.max(
-        0,
-
-        Math.min(
-          step,
-
-          totalSteps - 1
-        )
-      )
-    );
+    setIsPlaying(false);
+    setCurrentStep(Math.max(0, Math.min(step, totalSteps - 1)));
   }
 
   function handleReset() {
-    setIsPlaying(
-      false
-    );
-
-    setCurrentStep(
-      0
-    );
-
-    setNotification(
-      ""
-    );
+    setIsPlaying(false);
+    setCurrentStep(0);
+    setNotification("");
   }
 
   function getBackendStatusLabel() {
-    if (
-      backendStatus === "checking"
-    ) {
+    if (backendStatus === "checking") {
       return "Checking local services...";
     }
 
-    if (
-      backendStatus !== "connected"
-    ) {
+    if (backendStatus !== "connected") {
       return "Services offline";
     }
 
-    if (
-      !canExecuteLive
-    ) {
+    if (!canExecuteLive) {
       return `${language.label} · Curated preview`;
     }
 
-    if (
-      isExecuting
-    ) {
-      return "JavaScript · Generating execution trace";
+    if (isExecuting) {
+      return `${language.label} · Generating execution trace`;
     }
 
-    if (
-      hasLiveExecution
-    ) {
-      return `JavaScript · ${totalSteps} verified execution events`;
+    if (hasLiveExecution) {
+      return `${language.label} · ${totalSteps} verified execution events`;
     }
 
-    return "JavaScript · Ready for real execution";
+    return `${language.label} · Ready for real execution`;
   }
 
-  const executionMode =
-    hasLiveExecution
-      ? "live"
-      : canExecuteLive
-        ? "ready"
-        : "preview";
+  const executionMode = hasLiveExecution
+    ? "live"
+    : canExecuteLive
+      ? "ready"
+      : "preview";
 
   return (
-    <div
-      className={
-        isPlaying
-          ? "app-shell is-running"
-          : "app-shell"
-      }
-    >
-      <div
-        className="background-grid"
-        aria-hidden="true"
-      />
-
-      <div
-        className="ambient-glow ambient-glow-left"
-        aria-hidden="true"
-      />
-
-      <div
-        className="ambient-glow ambient-glow-right"
-        aria-hidden="true"
-      />
+    <div className={isPlaying ? "app-shell is-running" : "app-shell"}>
+      <div className="background-grid" aria-hidden="true" />
+      <div className="ambient-glow ambient-glow-left" aria-hidden="true" />
+      <div className="ambient-glow ambient-glow-right" aria-hidden="true" />
 
       <div className="workspace-shell">
         <AppHeader
-          language={
-            selectedLanguage
-          }
-          onLanguageChange={
-            handleLanguageChange
-          }
-          isPlaying={
-            isPlaying
-          }
-          isExecuting={
-            isExecuting
-          }
-          hasLiveExecution={
-            hasLiveExecution
-          }
-          isAtFinalStep={
-            boundedCurrentStep >= totalSteps - 1
-          }
-          onRun={
-            handlePrimaryAction
-          }
-          onPause={
-            handlePause
-          }
+          language={selectedLanguage}
+          onLanguageChange={handleLanguageChange}
+          isPlaying={isPlaying}
+          isExecuting={isExecuting}
+          hasLiveExecution={hasLiveExecution}
+          supportsLiveExecution={canExecuteLive}
+          isAtFinalStep={boundedCurrentStep >= totalSteps - 1}
+          onRun={handlePrimaryAction}
+          onPause={handlePause}
         />
 
         <div className="workspace-context-bar">
           <div className="context-title">
             <span className="context-live-dot" />
-
             <span>
-              {
-                selectedLanguage === "sql"
-                  ? "Logical query execution"
-                  : "Program execution"
-              }
+              {selectedLanguage === "sql" ? "Logical query execution" : "Program execution"}
             </span>
-
-            <span className="context-divider">
-              /
-            </span>
-
-            <span className="context-muted">
-              {
-                language.filename
-              }
-            </span>
+            <span className="context-divider">/</span>
+            <span className="context-muted">{language.filename}</span>
           </div>
 
           <div
@@ -932,172 +456,70 @@ export default function App() {
             }
           >
             <Radio size={14} />
-
-            <span>
-              {
-                getBackendStatusLabel()
-              }
-            </span>
+            <span>{getBackendStatusLabel()}</span>
           </div>
         </div>
 
-        {
-          notification && (
-            <div
-              className="workspace-notification"
-              role="status"
+        {notification && (
+          <div className="workspace-notification" role="status">
+            <AlertCircle size={17} />
+            <span>{notification}</span>
+
+            <button
+              type="button"
+              onClick={() => setNotification("")}
+              aria-label="Dismiss notification"
             >
-              <AlertCircle size={17} />
-
-              <span>
-                {
-                  notification
-                }
-              </span>
-
-              <button
-                type="button"
-                onClick={
-                  () => {
-                    setNotification(
-                      ""
-                    );
-                  }
-                }
-                aria-label="Dismiss notification"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          )
-        }
+              <X size={16} />
+            </button>
+          </div>
+        )}
 
         <main className="workspace-content">
           <div className="primary-workspace">
             <EditorPanel
-              language={
-                language
-              }
-              source={
-                source
-              }
-              currentLine={
-                activeStep.line
-              }
-              isEdited={
-                isEdited
-              }
-              executionMode={
-                executionMode
-              }
-              onChange={
-                handleSourceChange
-              }
-              onRestore={
-                handleRestoreSource
-              }
+              language={language}
+              source={source}
+              currentLine={activeStep.line}
+              isEdited={isEdited}
+              executionMode={executionMode}
+              onChange={handleSourceChange}
+              onRestore={handleRestoreSource}
             />
 
             <VisualizationPanel
-              step={
-                activeStep
-              }
-              currentStep={
-                boundedCurrentStep
-              }
-              totalSteps={
-                totalSteps
-              }
+              step={activeStep}
+              currentStep={boundedCurrentStep}
+              totalSteps={totalSteps}
             />
           </div>
 
-          <InspectorPanel
-            step={
-              activeStep
-            }
-          />
+          <InspectorPanel step={activeStep} />
         </main>
 
         <TimelineControls
-          currentStep={
-            boundedCurrentStep
-          }
-          totalSteps={
-            totalSteps
-          }
-          currentEvent={
-            activeStep.event
-          }
-          isPlaying={
-            isPlaying
-          }
-          isExecuting={
-            isExecuting
-          }
-          speed={
-            speed
-          }
-          onFirst={
-            () => {
-              handleSeek(
-                0
-              );
-            }
-          }
-          onPrevious={
-            () => {
-              handleSeek(
-                boundedCurrentStep - 1
-              );
-            }
-          }
-          onPlay={
-            handlePrimaryAction
-          }
-          onPause={
-            handlePause
-          }
-          onNext={
-            () => {
-              handleSeek(
-                boundedCurrentStep + 1
-              );
-            }
-          }
-          onLast={
-            () => {
-              handleSeek(
-                totalSteps - 1
-              );
-            }
-          }
-          onReset={
-            handleReset
-          }
-          onSeek={
-            handleSeek
-          }
-          onSpeedChange={
-            setSpeed
-          }
+          currentStep={boundedCurrentStep}
+          totalSteps={totalSteps}
+          currentEvent={activeStep.event}
+          isPlaying={isPlaying}
+          isExecuting={isExecuting}
+          speed={speed}
+          onFirst={() => handleSeek(0)}
+          onPrevious={() => handleSeek(boundedCurrentStep - 1)}
+          onPlay={handlePrimaryAction}
+          onPause={handlePause}
+          onNext={() => handleSeek(boundedCurrentStep + 1)}
+          onLast={() => handleSeek(totalSteps - 1)}
+          onReset={handleReset}
+          onSeek={handleSeek}
+          onSpeedChange={setSpeed}
         />
 
         <div className="workspace-footer">
-          <span>
-            RUN IT.
-          </span>
-
-          <span>
-            TRACE IT.
-          </span>
-
-          <span>
-            SEE IT.
-          </span>
-
-          <span>
-            UNDERSTAND IT.
-          </span>
+          <span>RUN IT.</span>
+          <span>TRACE IT.</span>
+          <span>SEE IT.</span>
+          <span>UNDERSTAND IT.</span>
         </div>
       </div>
     </div>
