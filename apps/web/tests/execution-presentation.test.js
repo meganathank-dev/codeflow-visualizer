@@ -16,6 +16,7 @@ function createState(step, overrides = {}) {
     queues: {},
     hashMaps: {},
     linkedLists: {},
+    trees: {},
     callStack: [],
     console: [],
     errors: [],
@@ -503,6 +504,108 @@ function createHashMapResult(language) {
   };
 }
 
+function createTreeResult(language) {
+  const treeName = language === "python" ? "search_tree" : "searchTree";
+  const allNodes = [
+    { id: "tree-node:1", value: 50, leftId: "tree-node:2", rightId: "tree-node:3", parentId: null },
+    { id: "tree-node:2", value: 30, leftId: "tree-node:4", rightId: "tree-node:5", parentId: "tree-node:1" },
+    { id: "tree-node:3", value: 70, leftId: null, rightId: null, parentId: "tree-node:1" },
+    { id: "tree-node:4", value: 20, leftId: null, rightId: null, parentId: "tree-node:2" },
+    { id: "tree-node:5", value: 40, leftId: null, rightId: null, parentId: "tree-node:2" }
+  ];
+  const nodeCounts = [0, 0, 1, 2, 3, 4, 5, 5, 5, 5];
+  const types = [
+    "PROGRAM_START",
+    "TREE_CREATE",
+    "TREE_INSERT",
+    "TREE_INSERT",
+    "TREE_INSERT",
+    "TREE_INSERT",
+    "TREE_INSERT",
+    "TREE_SEARCH",
+    "TREE_TRAVERSE",
+    "PROGRAM_END"
+  ];
+  const insertedValues = [null, null, 50, 30, 70, 20, 40];
+  const events = types.map((type, step) => {
+    const nodes = allNodes.slice(0, nodeCounts[step]);
+    const insertedNode = type === "TREE_INSERT" ? nodes.at(-1) : null;
+    const payload = {
+      name: treeName,
+      treeName,
+      nodes,
+      rootId: nodes.length > 0 ? "tree-node:1" : null
+    };
+
+    if (type === "TREE_INSERT") {
+      payload.value = insertedValues[step];
+      payload.inserted = true;
+      payload.insertedNodeId = insertedNode.id;
+      payload.path = insertedNode.id === "tree-node:1"
+        ? ["tree-node:1"]
+        : insertedNode.parentId === "tree-node:1"
+          ? ["tree-node:1", insertedNode.id]
+          : ["tree-node:1", "tree-node:2", insertedNode.id];
+    } else if (type === "TREE_SEARCH") {
+      payload.target = 40;
+      payload.found = true;
+      payload.foundNodeId = "tree-node:5";
+      payload.path = ["tree-node:1", "tree-node:2", "tree-node:5"];
+    } else if (type === "TREE_TRAVERSE") {
+      payload.traversalType = "inorder";
+      payload.visitedIds = ["tree-node:4", "tree-node:2", "tree-node:5", "tree-node:1", "tree-node:3"];
+      payload.order = [20, 30, 40, 50, 70];
+    }
+
+    return {
+      id: `tree-event-${step}`,
+      step,
+      type,
+      source: { line: step + 1 },
+      payload
+    };
+  });
+  const states = events.map((event, step) => {
+    const nodes = allNodes.slice(0, nodeCounts[step]);
+    const isSearch = event.type === "TREE_SEARCH";
+    const isTraversal = event.type === "TREE_TRAVERSE";
+
+    return createState(step, {
+      status: step === events.length - 1 ? "completed" : "running",
+      variables: step > 0 ? {
+        [treeName]: language === "java"
+          ? { $type: "object", display: "java.util.TreeSet" }
+          : [20, 30, 40, 50, 70].slice(0, nodeCounts[step])
+      } : {},
+      arrays: step > 0 ? {
+        ...(language === "java" ? { args: [] } : {}),
+        [treeName]: [20, 30, 40, 50, 70].slice(0, nodeCounts[step])
+      } : {},
+      trees: step > 0 ? {
+        [treeName]: {
+          name: treeName,
+          nodes,
+          rootId: nodes.length > 0 ? "tree-node:1" : null,
+          activeNodeId: isSearch ? "tree-node:5" : event.payload.insertedNodeId || null,
+          visitedIds: isSearch ? event.payload.path : isTraversal ? event.payload.visitedIds : event.payload.path || [],
+          traversalOrder: isTraversal || step === events.length - 1 ? [20, 30, 40, 50, 70] : [],
+          searchResult: isSearch || step === events.length - 1 ? true : null,
+          lastOperation: event.type
+        }
+      } : {}
+    });
+  });
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: { traceId: `${language}-tree-presentation-test`, status: "completed", events },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
 function runTests() {
   const presentation = createExecutionPresentation(createResult());
 
@@ -602,6 +705,26 @@ function runTests() {
     assert.deepEqual(hashMapPresentation.steps[6].variables.scores, { Bob: 85 });
     assert.equal(hashMapPresentation.steps[6].array, null);
     assert.match(hashMapPresentation.steps[4].description, /80.*85/);
+
+    const treePresentation = createExecutionPresentation(
+      createTreeResult(language)
+    );
+    const treeName = language === "python" ? "search_tree" : "searchTree";
+
+    assert.equal(treePresentation.steps[1].tree.name, treeName);
+    assert.equal(treePresentation.steps[6].tree.rootId, "tree-node:1");
+    assert.equal(treePresentation.steps[6].tree.nodes.length, 5);
+    assert.deepEqual(treePresentation.steps[7].tree.visitedIds, [
+      "tree-node:1",
+      "tree-node:2",
+      "tree-node:5"
+    ]);
+    assert.equal(treePresentation.steps[7].tree.activeNodeId, "tree-node:5");
+    assert.equal(treePresentation.steps[7].tree.searchResult, true);
+    assert.deepEqual(treePresentation.steps[8].tree.traversalOrder, [20, 30, 40, 50, 70]);
+    assert.deepEqual(treePresentation.steps[8].variables[treeName], [20, 30, 40, 50, 70]);
+    assert.equal(treePresentation.steps[8].array, null);
+    assert.match(treePresentation.steps[7].description, /found.*3 tree nodes/i);
   }
 
   const sqlPresentation = createExecutionPresentation(createSqlResult());
@@ -669,6 +792,8 @@ function runTests() {
   console.log("Linked-list node and reference animation state: passed");
   console.log("Cross-language HashMap presentation: passed");
   console.log("HashMap key-value animation state: passed");
+  console.log("Cross-language binary-search-tree presentation: passed");
+  console.log("BST comparison path and inorder animation state: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");

@@ -835,6 +835,182 @@ function HashMapVisualization({ hashMap }) {
   );
 }
 
+function TreeNodeBranch({
+  nodeId,
+  nodesById,
+  tree,
+  shouldReduceMotion
+}) {
+  const node = nodesById.get(nodeId);
+
+  if (!node) {
+    return null;
+  }
+
+  const hasChildren = Boolean(node.leftId || node.rightId);
+  const isActive = node.id === tree.activeNodeId;
+  const isVisited = tree.visitedIds.includes(node.id);
+
+  return (
+    <motion.div
+      className="tree-branch"
+      layout
+      initial={shouldReduceMotion ? false : { opacity: 0, y: -12, scale: 0.9 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={shouldReduceMotion ? undefined : { opacity: 0, y: 10, scale: 0.86 }}
+      transition={shouldReduceMotion ? { duration: 0 } : SPRING_TRANSITION}
+    >
+      <motion.div
+        className={[
+          "tree-node-pill",
+          isVisited ? "is-visited-tree-node" : "",
+          isActive ? "is-active-tree-node" : ""
+        ].filter(Boolean).join(" ")}
+        layout
+      >
+        <span>{formatVariableValue(node.value)}</span>
+      </motion.div>
+
+      {hasChildren && (
+        <div className="tree-children">
+          <svg
+            className="tree-connector-svg"
+            viewBox="0 0 100 38"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            {node.leftId && nodesById.has(node.leftId) && (
+              <line
+                className={[
+                  "tree-connector-line",
+                  "is-left-tree-edge",
+                  isVisited && tree.visitedIds.includes(node.leftId)
+                    ? "is-traversed-tree-edge"
+                    : ""
+                ].filter(Boolean).join(" ")}
+                x1="50"
+                y1="0"
+                x2="25"
+                y2="38"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+
+            {node.rightId && nodesById.has(node.rightId) && (
+              <line
+                className={[
+                  "tree-connector-line",
+                  "is-right-tree-edge",
+                  isVisited && tree.visitedIds.includes(node.rightId)
+                    ? "is-traversed-tree-edge"
+                    : ""
+                ].filter(Boolean).join(" ")}
+                x1="50"
+                y1="0"
+                x2="75"
+                y2="38"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+          </svg>
+
+          <div className={`tree-child-slot${node.leftId ? " has-tree-child" : ""}`}>
+            {node.leftId ? (
+              <TreeNodeBranch
+                nodeId={node.leftId}
+                nodesById={nodesById}
+                tree={tree}
+                shouldReduceMotion={shouldReduceMotion}
+              />
+            ) : <span className="tree-empty-slot" />}
+          </div>
+
+          <div className={`tree-child-slot${node.rightId ? " has-tree-child" : ""}`}>
+            {node.rightId ? (
+              <TreeNodeBranch
+                nodeId={node.rightId}
+                nodesById={nodesById}
+                tree={tree}
+                shouldReduceMotion={shouldReduceMotion}
+              />
+            ) : <span className="tree-empty-slot" />}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+function TreeVisualization({ tree }) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (!tree) {
+    return null;
+  }
+
+  const nodesById = new Map(tree.nodes.map((node) => [node.id, node]));
+
+  return (
+    <motion.div
+      className="visualization-card tree-card"
+      layout
+      transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+    >
+      <div className="visualization-card-heading">
+        <div className="visualization-card-title">
+          <GitBranch size={16} />
+          <span>Binary Search Tree</span>
+        </div>
+
+        <span className="structure-name">{tree.name}</span>
+      </div>
+
+      <div className="tree-stage">
+        {tree.rootId && nodesById.has(tree.rootId) ? (
+          <>
+            <span className="tree-root-label">ROOT</span>
+            <AnimatePresence initial={false} mode="popLayout">
+              <TreeNodeBranch
+                key={tree.rootId}
+                nodeId={tree.rootId}
+                nodesById={nodesById}
+                tree={tree}
+                shouldReduceMotion={shouldReduceMotion}
+              />
+            </AnimatePresence>
+          </>
+        ) : (
+          <div className="empty-tree">Waiting for the first inserted value</div>
+        )}
+      </div>
+
+      {tree.traversalOrder.length > 0 && (
+        <motion.div
+          className="tree-traversal-row"
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <span>INORDER</span>
+          <div>
+            {tree.traversalOrder.map((value, index) => (
+              <motion.span
+                key={`${index}:${JSON.stringify(value)}`}
+                layout
+              >
+                {formatVariableValue(value)}
+              </motion.span>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
+      <div className="tree-caption">
+        Educational BST shape reconstructed from insertion order
+      </div>
+    </motion.div>
+  );
+}
+
 function EventStory({
   step,
   isSql = false
@@ -1077,6 +1253,10 @@ function ProgramVisualization({
 
         <HashMapVisualization
           hashMap={step.hashMap}
+        />
+
+        <TreeVisualization
+          tree={step.tree}
         />
       </motion.div>
     </>

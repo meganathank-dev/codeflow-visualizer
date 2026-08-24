@@ -179,6 +179,7 @@ function executeSource(payload) {
     sandbox.__trace = runtime;
     sandbox.LinkedList = runtime.createLinkedListConstructor();
     sandbox.Map = runtime.createHashMapConstructor();
+    sandbox.BinarySearchTree = runtime.createBinarySearchTreeConstructor();
 
     const context = vm.createContext(
       sandbox,

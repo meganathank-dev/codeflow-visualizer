@@ -569,6 +569,88 @@ function testHashMapReconstruction() {
   ]);
 }
 
+function testTreeReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-tree-test"
+  });
+  const root = {
+    id: "tree-node:1",
+    value: 50,
+    leftId: null,
+    rightId: null,
+    parentId: null
+  };
+  const left = {
+    id: "tree-node:2",
+    value: 30,
+    leftId: null,
+    rightId: null,
+    parentId: root.id
+  };
+  const right = {
+    id: "tree-node:3",
+    value: 70,
+    leftId: null,
+    rightId: null,
+    parentId: root.id
+  };
+
+  recorder.start();
+  recorder.record(EVENT_TYPES.TREE_CREATE, {
+    name: "tree",
+    treeName: "tree",
+    nodes: [],
+    rootId: null
+  });
+  recorder.record(EVENT_TYPES.TREE_INSERT, {
+    name: "tree",
+    nodes: [root],
+    rootId: root.id,
+    insertedNodeId: root.id,
+    path: [root.id]
+  });
+  recorder.record(EVENT_TYPES.TREE_INSERT, {
+    name: "tree",
+    nodes: [{ ...root, leftId: left.id }, left],
+    rootId: root.id,
+    insertedNodeId: left.id,
+    path: [root.id, left.id]
+  });
+  recorder.record(EVENT_TYPES.TREE_INSERT, {
+    name: "tree",
+    nodes: [{ ...root, leftId: left.id, rightId: right.id }, left, right],
+    rootId: root.id,
+    insertedNodeId: right.id,
+    path: [root.id, right.id]
+  });
+  recorder.record(EVENT_TYPES.TREE_SEARCH, {
+    name: "tree",
+    target: 30,
+    found: true,
+    foundNodeId: left.id,
+    path: [root.id, left.id]
+  });
+  recorder.record(EVENT_TYPES.TREE_TRAVERSE, {
+    name: "tree",
+    traversalType: "inorder",
+    visitedIds: [left.id, root.id, right.id],
+    order: [30, 50, 70]
+  });
+  recorder.finish();
+
+  const reconstructor = new StateReconstructor(recorder.toJSON(), {
+    checkpointInterval: 2
+  });
+
+  assert.equal(reconstructor.getStateAt(1).trees.tree.rootId, null);
+  assert.equal(reconstructor.getStateAt(2).trees.tree.nodes.length, 1);
+  assert.equal(reconstructor.getStateAt(4).trees.tree.nodes.length, 3);
+  assert.equal(reconstructor.getStateAt(5).trees.tree.searchResult, true);
+  assert.deepEqual(reconstructor.getStateAt(5).trees.tree.visitedIds, [root.id, left.id]);
+  assert.deepEqual(reconstructor.getStateAt(6).trees.tree.traversalOrder, [30, 50, 70]);
+}
+
 function testProgramStateReconstruction(trace) {
   const reconstructor = new StateReconstructor(
     trace,
@@ -1315,6 +1397,8 @@ async function runTests() {
 
   testHashMapReconstruction();
 
+  testTreeReconstruction();
+
   testTimelineNavigation(
     programTrace
   );
@@ -1375,6 +1459,10 @@ async function runTests() {
 
   console.log(
     "HashMap key-value reconstruction: passed"
+  );
+
+  console.log(
+    "Binary-search-tree reconstruction: passed"
   );
 }
 

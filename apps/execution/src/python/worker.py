@@ -176,6 +176,139 @@ class CodeFlowLinkedList:
         return nodes
 
 
+class BinarySearchTreeNode:
+    def __init__(self, identifier, value, parent=None):
+        self.id = identifier
+        self.value = value
+        self.left = None
+        self.right = None
+        self.parent = parent
+
+
+class CodeFlowBinarySearchTree:
+    def __init__(self):
+        self.root = None
+        self.next_node_number = 0
+        self.last_visited_ids = []
+        self.last_inserted_node_id = None
+        self.last_found_node_id = None
+        self.last_traversal_ids = []
+        self.last_requested_value = None
+
+    def validate_value(self, value):
+        if not isinstance(value, (int, float, str)) or isinstance(value, bool):
+            raise TypeError("The current BinarySearchTree visualizer supports number or string values only.")
+
+        if self.root is not None and type(value) is not type(self.root.value):
+            raise TypeError("All BinarySearchTree values must use the same primitive type.")
+
+    def insert(self, value):
+        self.validate_value(value)
+        self.last_requested_value = value
+        self.last_visited_ids = []
+        self.last_inserted_node_id = None
+        self.next_node_number += 1
+        node = BinarySearchTreeNode(f"tree-node:{self.next_node_number}", value)
+
+        if self.root is None:
+            self.root = node
+            self.last_visited_ids.append(node.id)
+            self.last_inserted_node_id = node.id
+            return True
+
+        current = self.root
+
+        while current is not None:
+            self.last_visited_ids.append(current.id)
+
+            if value == current.value:
+                self.next_node_number -= 1
+                return False
+
+            direction = "left" if value < current.value else "right"
+            next_node = getattr(current, direction)
+
+            if next_node is None:
+                node.parent = current
+                setattr(current, direction, node)
+                self.last_visited_ids.append(node.id)
+                self.last_inserted_node_id = node.id
+                return True
+
+            current = next_node
+
+        return False
+
+    def search(self, value):
+        self.validate_value(value)
+        self.last_requested_value = value
+        self.last_visited_ids = []
+        self.last_found_node_id = None
+        current = self.root
+
+        while current is not None:
+            self.last_visited_ids.append(current.id)
+
+            if value == current.value:
+                self.last_found_node_id = current.id
+                return True
+
+            current = current.left if value < current.value else current.right
+
+        return False
+
+    def inorder_values(self):
+        values = []
+
+        def visit(node):
+            if node is None:
+                return
+
+            visit(node.left)
+            values.append(node.value)
+            visit(node.right)
+
+        visit(self.root)
+        return values
+
+    def inorder(self):
+        values = []
+        identifiers = []
+
+        def visit(node):
+            if node is None:
+                return
+
+            visit(node.left)
+            identifiers.append(node.id)
+            values.append(node.value)
+            visit(node.right)
+
+        visit(self.root)
+        self.last_traversal_ids = identifiers
+        return values
+
+    def snapshot(self):
+        nodes = []
+
+        def visit(node):
+            if node is None:
+                return
+
+            nodes.append({
+                "id": node.id,
+                "value": json_safe(node.value),
+                "leftId": node.left.id if node.left is not None else None,
+                "rightId": node.right.id if node.right is not None else None,
+                "parentId": node.parent.id if node.parent is not None else None,
+            })
+            visit(node.left)
+            visit(node.right)
+
+        visit(self.root)
+        return nodes
+
+
 def json_safe(value, depth=0, ancestors=None):
     if depth > 12:
         return {"$type": type(value).__name__, "display": "<maximum depth reached>"}
@@ -185,6 +318,9 @@ def json_safe(value, depth=0, ancestors=None):
 
     if isinstance(value, CodeFlowLinkedList):
         return [json_safe(item, depth + 1, ancestors) for item in value.to_list()]
+
+    if isinstance(value, CodeFlowBinarySearchTree):
+        return [json_safe(item, depth + 1, ancestors) for item in value.inorder_values()]
 
     if isinstance(value, float):
         if math.isfinite(value):
@@ -252,6 +388,9 @@ def get_value_type(value):
 
     if isinstance(value, CodeFlowLinkedList):
         return "linked-list"
+
+    if isinstance(value, CodeFlowBinarySearchTree):
+        return "binary-search-tree"
 
     if isinstance(value, tuple):
         return "tuple"
@@ -431,7 +570,8 @@ class SourceInstrumenter(ast.NodeTransformer):
 
         if node.func.attr not in {
             "append", "pop", "insert", "remove", "extend", "clear",
-            "prepend", "remove_at", "get", "to_list", "update", "setdefault"
+            "prepend", "remove_at", "get", "to_list", "update", "setdefault",
+            "search", "inorder"
         }:
             return node
 
@@ -518,6 +658,19 @@ class PythonExecutionTracer:
                         for key, item in value.items()
                     ],
                     "size": len(value),
+                },
+                scope_id,
+            )
+
+        if variable["valueType"] == "binary-search-tree":
+            self.record(
+                "TREE_CREATE",
+                line,
+                {
+                    "name": name,
+                    "treeName": name,
+                    "nodes": [],
+                    "rootId": None,
                 },
                 scope_id,
             )
@@ -977,6 +1130,58 @@ class PythonExecutionTracer:
 
             return result
 
+        if isinstance(collection, CodeFlowBinarySearchTree):
+            result = method(*args, **kwargs)
+            nodes = collection.snapshot()
+            scope_id = self.caller_scope()
+            payload = {
+                "name": name,
+                "treeName": name,
+                "nodes": nodes,
+                "rootId": collection.root.id if collection.root is not None else None,
+            }
+
+            if method_name == "insert":
+                self.record(
+                    "TREE_INSERT",
+                    line,
+                    {
+                        **payload,
+                        "value": json_safe(collection.last_requested_value),
+                        "inserted": bool(result),
+                        "insertedNodeId": collection.last_inserted_node_id,
+                        "path": collection.last_visited_ids,
+                    },
+                    scope_id,
+                )
+            elif method_name == "search":
+                self.record(
+                    "TREE_SEARCH",
+                    line,
+                    {
+                        **payload,
+                        "target": json_safe(collection.last_requested_value),
+                        "found": bool(result),
+                        "foundNodeId": collection.last_found_node_id,
+                        "path": collection.last_visited_ids,
+                    },
+                    scope_id,
+                )
+            elif method_name == "inorder":
+                self.record(
+                    "TREE_TRAVERSE",
+                    line,
+                    {
+                        **payload,
+                        "traversalType": "inorder",
+                        "visitedIds": collection.last_traversal_ids,
+                        "order": json_safe(result),
+                    },
+                    scope_id,
+                )
+
+            return result
+
         if not isinstance(collection, list):
             return method(*args, **kwargs)
 
@@ -1070,6 +1275,7 @@ class PythonExecutionTracer:
             "len": len,
             "list": list,
             "LinkedList": CodeFlowLinkedList,
+            "BinarySearchTree": CodeFlowBinarySearchTree,
             "max": max,
             "min": min,
             "print": self.traced_print,

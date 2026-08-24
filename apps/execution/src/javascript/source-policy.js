@@ -283,7 +283,8 @@ function validateSourcePolicy(ast) {
         if (
           (
             t.isIdentifier(path.node.callee, { name: "LinkedList" }) ||
-            t.isIdentifier(path.node.callee, { name: "Map" })
+            t.isIdentifier(path.node.callee, { name: "Map" }) ||
+            t.isIdentifier(path.node.callee, { name: "BinarySearchTree" })
           ) &&
           path.node.arguments.length === 0
         ) {

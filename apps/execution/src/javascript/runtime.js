@@ -95,6 +95,10 @@ function toSerializable(
       );
     }
 
+    if (value.__codeflowBinarySearchTree === true) {
+      return value.inorderValues().map((item) => toSerializable(item, depth + 1, ancestors));
+    }
+
     if (
       ancestors.has(value)
     ) {
@@ -172,6 +176,10 @@ function getValueType(value) {
 
   if (value && value.__codeflowHashMap === true) {
     return "hash-map";
+  }
+
+  if (value && value.__codeflowBinarySearchTree === true) {
+    return "binary-search-tree";
   }
 
   return typeof value;
@@ -532,6 +540,196 @@ function createJavaScriptRuntime(options = {}) {
         key: toSerializable(key),
         value: toSerializable(value)
       }));
+    }
+  }
+
+  class CodeFlowBinarySearchTree {
+    constructor() {
+      Object.defineProperty(this, "__codeflowBinarySearchTree", {
+        value: true,
+        enumerable: false,
+        configurable: false,
+        writable: false
+      });
+      this.root = null;
+      this.nextNodeNumber = 0;
+      this.lastVisitedIds = [];
+      this.lastInsertedNodeId = null;
+      this.lastFoundNodeId = null;
+      this.lastTraversalIds = [];
+      this.lastRequestedValue = undefined;
+    }
+
+    validateValue(value) {
+      if (!["number", "string"].includes(typeof value)) {
+        throw new TypeError("The current BinarySearchTree visualizer supports number or string values only.");
+      }
+
+      if (this.root && typeof value !== typeof this.root.value) {
+        throw new TypeError("All BinarySearchTree values must use the same primitive type.");
+      }
+    }
+
+    insert(value) {
+      this.validateValue(value);
+      this.lastRequestedValue = value;
+      this.lastVisitedIds = [];
+      this.lastInsertedNodeId = null;
+
+      const node = {
+        id: `tree-node:${++this.nextNodeNumber}`,
+        value,
+        left: null,
+        right: null,
+        parent: null
+      };
+
+      if (!this.root) {
+        this.root = node;
+        this.lastVisitedIds.push(node.id);
+        this.lastInsertedNodeId = node.id;
+        return true;
+      }
+
+      let current = this.root;
+
+      while (current) {
+        this.lastVisitedIds.push(current.id);
+
+        if (value === current.value) {
+          this.nextNodeNumber -= 1;
+          return false;
+        }
+
+        const direction = value < current.value ? "left" : "right";
+
+        if (!current[direction]) {
+          node.parent = current;
+          current[direction] = node;
+          this.lastVisitedIds.push(node.id);
+          this.lastInsertedNodeId = node.id;
+          return true;
+        }
+
+        current = current[direction];
+      }
+
+      return false;
+    }
+
+    search(value) {
+      this.validateValue(value);
+      this.lastRequestedValue = value;
+      this.lastVisitedIds = [];
+      this.lastFoundNodeId = null;
+      let current = this.root;
+
+      while (current) {
+        this.lastVisitedIds.push(current.id);
+
+        if (value === current.value) {
+          this.lastFoundNodeId = current.id;
+          return true;
+        }
+
+        current = value < current.value ? current.left : current.right;
+      }
+
+      return false;
+    }
+
+    inorderValues() {
+      const values = [];
+
+      function visit(node) {
+        if (!node) {
+          return;
+        }
+
+        visit(node.left);
+        values.push(node.value);
+        visit(node.right);
+      }
+
+      visit(this.root);
+      return values;
+    }
+
+    inorder() {
+      const values = [];
+      const identifiers = [];
+
+      function visit(node) {
+        if (!node) {
+          return;
+        }
+
+        visit(node.left);
+        identifiers.push(node.id);
+        values.push(node.value);
+        visit(node.right);
+      }
+
+      visit(this.root);
+      this.lastTraversalIds = identifiers;
+      return values;
+    }
+
+    snapshot() {
+      const nodes = [];
+
+      function visit(node) {
+        if (!node) {
+          return;
+        }
+
+        nodes.push({
+          id: node.id,
+          value: toSerializable(node.value),
+          leftId: node.left?.id || null,
+          rightId: node.right?.id || null,
+          parentId: node.parent?.id || null
+        });
+        visit(node.left);
+        visit(node.right);
+      }
+
+      visit(this.root);
+      return nodes;
+    }
+  }
+
+  function recordTreeMethod(name, method, tree, result, line, requestedValue) {
+    const payload = {
+      name,
+      treeName: name,
+      nodes: tree.snapshot(),
+      rootId: tree.root?.id || null
+    };
+
+    if (method === "insert") {
+      record(EVENT_TYPES.TREE_INSERT, line, {
+        ...payload,
+        value: toSerializable(requestedValue),
+        inserted: Boolean(result),
+        insertedNodeId: tree.lastInsertedNodeId,
+        path: tree.lastVisitedIds
+      });
+    } else if (method === "search") {
+      record(EVENT_TYPES.TREE_SEARCH, line, {
+        ...payload,
+        target: toSerializable(requestedValue),
+        found: Boolean(result),
+        foundNodeId: tree.lastFoundNodeId,
+        path: tree.lastVisitedIds
+      });
+    } else if (method === "inorder") {
+      record(EVENT_TYPES.TREE_TRAVERSE, line, {
+        ...payload,
+        traversalType: "inorder",
+        visitedIds: tree.lastTraversalIds,
+        order: toSerializable(result)
+      });
     }
   }
 
@@ -935,6 +1133,17 @@ function createJavaScriptRuntime(options = {}) {
         });
       }
 
+      if (value && value.__codeflowBinarySearchTree === true) {
+        references.set(name, value);
+
+        record(EVENT_TYPES.TREE_CREATE, line, {
+          name,
+          treeName: name,
+          nodes: value.snapshot(),
+          rootId: value.root?.id || null
+        });
+      }
+
       if (
         Array.isArray(value)
       ) {
@@ -1210,6 +1419,8 @@ function createJavaScriptRuntime(options = {}) {
         ? reference.snapshot()
         : null;
 
+      const isBinarySearchTree = reference?.__codeflowBinarySearchTree === true;
+
       const frameCountBeforeCall = callFrames.length;
 
       const result = invoke();
@@ -1271,6 +1482,17 @@ function createJavaScriptRuntime(options = {}) {
             toSerializable(reference.lastAccessKey())
           );
         }
+      }
+
+      if (isBinarySearchTree) {
+        recordTreeMethod(
+          objectName,
+          methodName,
+          reference,
+          result,
+          line,
+          methodName === "inorder" ? undefined : reference.lastRequestedValue
+        );
       }
 
       if (
@@ -1663,6 +1885,10 @@ function createJavaScriptRuntime(options = {}) {
 
     createHashMapConstructor() {
       return CodeFlowHashMap;
+    },
+
+    createBinarySearchTreeConstructor() {
+      return CodeFlowBinarySearchTree;
     },
 
     getTrace() {

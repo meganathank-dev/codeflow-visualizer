@@ -46,6 +46,8 @@ function createInitialState(trace) {
 
     hashMaps: {},
 
+    trees: {},
+
     linkedLists: {},
 
     objects: {},
@@ -356,6 +358,15 @@ function applyStateDelta(state, stateDelta) {
   ) {
     for (const [name, hashMap] of Object.entries(stateDelta.hashMaps)) {
       state.hashMaps[name] = cloneValue(hashMap);
+    }
+  }
+
+  if (
+    stateDelta.trees &&
+    typeof stateDelta.trees === "object"
+  ) {
+    for (const [name, tree] of Object.entries(stateDelta.trees)) {
+      state.trees[name] = cloneValue(tree);
     }
   }
 
@@ -801,6 +812,56 @@ function handleHashMapEvent(state, event) {
 
   hashMap.size = hashMap.entries.length;
   hashMap.lastOperation = event.type;
+}
+
+function handleTreeEvent(state, event) {
+  const payload = event.payload || {};
+  const name = payload.treeName || payload.name || "tree";
+
+  if (!state.trees[name]) {
+    state.trees[name] = {
+      name,
+      nodes: [],
+      rootId: null,
+      activeNodeId: null,
+      visitedIds: [],
+      traversalOrder: [],
+      searchResult: null,
+      lastOperation: null
+    };
+  }
+
+  const tree = state.trees[name];
+
+  if (Array.isArray(payload.nodes)) {
+    tree.nodes = cloneValue(payload.nodes);
+  }
+
+  if (Object.hasOwn(payload, "rootId")) {
+    tree.rootId = payload.rootId || null;
+  } else if (!tree.rootId && tree.nodes.length > 0) {
+    tree.rootId = tree.nodes[0].id;
+  }
+
+  if (event.type === EVENT_TYPES.TREE_CREATE) {
+    tree.activeNodeId = null;
+    tree.visitedIds = [];
+    tree.traversalOrder = [];
+    tree.searchResult = null;
+  } else if (event.type === EVENT_TYPES.TREE_INSERT) {
+    tree.activeNodeId = payload.insertedNodeId || payload.nodeId || null;
+    tree.visitedIds = cloneValue(payload.path || []);
+  } else if (event.type === EVENT_TYPES.TREE_SEARCH) {
+    tree.activeNodeId = payload.foundNodeId || (payload.path || []).at(-1) || null;
+    tree.visitedIds = cloneValue(payload.path || []);
+    tree.searchResult = Boolean(payload.found);
+  } else if (event.type === EVENT_TYPES.TREE_TRAVERSE) {
+    tree.activeNodeId = (payload.visitedIds || []).at(-1) || null;
+    tree.visitedIds = cloneValue(payload.visitedIds || []);
+    tree.traversalOrder = cloneValue(payload.order || []);
+  }
+
+  tree.lastOperation = event.type;
 }
 
 function handleFunctionEnter(state, event) {
@@ -1394,6 +1455,15 @@ function reduceExecutionEvent(previousState, event) {
     case EVENT_TYPES.HASHMAP_DELETE:
     case EVENT_TYPES.HASHMAP_HAS: {
       handleHashMapEvent(state, event);
+
+      break;
+    }
+
+    case EVENT_TYPES.TREE_CREATE:
+    case EVENT_TYPES.TREE_INSERT:
+    case EVENT_TYPES.TREE_SEARCH:
+    case EVENT_TYPES.TREE_TRAVERSE: {
+      handleTreeEvent(state, event);
 
       break;
     }

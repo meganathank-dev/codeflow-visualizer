@@ -254,6 +254,32 @@ function describeEvent(event, state, language) {
         description: `The entry ${formatValue(payload.key)} → ${formatValue(value)} is removed from ${name || "the map"}.`
       };
 
+    case "TREE_CREATE":
+      return {
+        title: `Create ${name || "a binary search tree"}`,
+        description: "An empty binary search tree is ready to organize smaller values left and larger values right."
+      };
+
+    case "TREE_INSERT":
+      return {
+        title: `${payload.inserted === false ? "Skip duplicate" : "Insert"} ${formatValue(payload.value)}`,
+        description: payload.inserted === false
+          ? `${formatValue(payload.value)} already exists, so the tree shape is unchanged.`
+          : `${formatValue(payload.value)} follows ${payload.path?.length || 1} comparison step${payload.path?.length === 1 ? "" : "s"} to its BST position.`
+      };
+
+    case "TREE_SEARCH":
+      return {
+        title: `${payload.found ? "Found" : "Search for"} ${formatValue(payload.target)}`,
+        description: `${formatValue(payload.target)} ${payload.found ? "is found" : "is not present"} after visiting ${payload.path?.length || 0} tree node${payload.path?.length === 1 ? "" : "s"}.`
+      };
+
+    case "TREE_TRAVERSE":
+      return {
+        title: `${payload.traversalType || "inorder"} traversal`,
+        description: `The traversal visits the tree in order: ${formatValue(payload.order || [])}.`
+      };
+
     case "LINKED_LIST_CREATE":
       return {
         title: `Create ${name || "a linked list"}`,
@@ -372,6 +398,7 @@ function selectArray(state, event) {
   const queueNames = new Set(Object.keys(state.queues || {}));
   const hashMapNames = new Set(Object.keys(state.hashMaps || {}));
   const linkedListNames = new Set(Object.keys(state.linkedLists || {}));
+  const treeNames = new Set(Object.keys(state.trees || {}));
   const eventArray = event.payload?.arrayName || event.payload?.name;
 
   const visibleNames = Object.keys(arrays).filter(
@@ -380,6 +407,7 @@ function selectArray(state, event) {
       !queueNames.has(name) &&
       !hashMapNames.has(name) &&
       !linkedListNames.has(name) &&
+      !treeNames.has(name) &&
       !(
         ["args", "argv"].includes(name.toLowerCase()) &&
         Array.isArray(arrays[name]) &&
@@ -438,7 +466,62 @@ function selectVariables(state) {
     );
   }
 
+  for (const [name, tree] of Object.entries(state.trees || {})) {
+    variables[name] = treeValuesInorder(tree);
+  }
+
   return variables;
+}
+
+function treeValuesInorder(tree) {
+  if (Array.isArray(tree.traversalOrder) && tree.traversalOrder.length > 0) {
+    return tree.traversalOrder;
+  }
+
+  const nodes = Array.isArray(tree.nodes) ? tree.nodes : [];
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const values = [];
+
+  function visit(nodeId) {
+    const node = byId.get(nodeId);
+
+    if (!node) {
+      return;
+    }
+
+    visit(node.leftId);
+    values.push(node.value);
+    visit(node.rightId);
+  }
+
+  visit(tree.rootId);
+  return values;
+}
+
+function selectTree(state, event) {
+  const trees = state.trees || {};
+  const eventTree = event.payload?.treeName || event.payload?.name;
+  const selectedName = Object.hasOwn(trees, eventTree)
+    ? eventTree
+    : Object.keys(trees)[0];
+
+  if (!selectedName || !Array.isArray(trees[selectedName]?.nodes)) {
+    return null;
+  }
+
+  const tree = trees[selectedName];
+  const isTreeEvent = eventTree === selectedName && event.type.startsWith("TREE_");
+
+  return {
+    name: selectedName,
+    nodes: tree.nodes,
+    rootId: tree.rootId,
+    activeNodeId: isTreeEvent ? tree.activeNodeId : null,
+    visitedIds: isTreeEvent && Array.isArray(tree.visitedIds) ? tree.visitedIds : [],
+    traversalOrder: Array.isArray(tree.traversalOrder) ? tree.traversalOrder : [],
+    searchResult: tree.searchResult,
+    operation: isTreeEvent ? event.type : null
+  };
 }
 
 function selectStack(state, event) {
@@ -662,6 +745,7 @@ export function createExecutionPresentation(result) {
       queue: selectQueue(state, event),
       linkedList: selectLinkedList(state, event),
       hashMap: selectHashMap(state, event),
+      tree: selectTree(state, event),
       callStack: (state.callStack || []).map((frame) => ({
         name: frame.name || frame.functionName || "anonymous",
         line: frame.source?.line || line
@@ -704,6 +788,7 @@ export function createIdleExecutionStep(language = "javascript") {
     queue: null,
     linkedList: null,
     hashMap: null,
+    tree: null,
     callStack: [],
     console: [],
     iteration: null,

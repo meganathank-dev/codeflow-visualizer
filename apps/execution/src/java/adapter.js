@@ -33,7 +33,8 @@ const ALLOWED_IMPORTS = new Set([
   "java.util.List",
   "java.util.Map",
   "java.util.Queue",
-  "java.util.Stack"
+  "java.util.Stack",
+  "java.util.TreeSet"
 ]);
 
 const FORBIDDEN_SOURCE_RULES = [
@@ -454,6 +455,18 @@ function emitVariableDeclare(recorder, name, variable, line, scopeId) {
     }, scopeId);
   }
 
+  if (
+    variable.valueType === "object" &&
+    /(?:^|\.)TreeSet$/.test(variable.value?.display || "")
+  ) {
+    record(recorder, EVENT_TYPES.TREE_CREATE, line, {
+      name,
+      treeName: name,
+      nodes: [],
+      rootId: null
+    }, scopeId);
+  }
+
   if (/linked.?list/i.test(name)) {
     record(recorder, EVENT_TYPES.LINKED_LIST_CREATE, line, {
       name,
@@ -565,6 +578,105 @@ function evaluateSimpleExpression(expression, locals) {
   return { $type: "expression", display: value };
 }
 
+function compareTreeValues(left, right) {
+  if (typeof left === "number" && typeof right === "number") {
+    return left === right ? 0 : left < right ? -1 : 1;
+  }
+
+  const leftText = String(left);
+  const rightText = String(right);
+  return leftText === rightText ? 0 : leftText < rightText ? -1 : 1;
+}
+
+function insertLogicalTree(tree, value) {
+  const node = {
+    id: `tree-node:${++tree.nextNodeNumber}`,
+    value: structuredClone(value),
+    leftId: null,
+    rightId: null,
+    parentId: null
+  };
+  const path = [];
+
+  if (!tree.rootId) {
+    tree.rootId = node.id;
+    tree.nodes.push(node);
+    path.push(node.id);
+    return { inserted: true, insertedNodeId: node.id, path };
+  }
+
+  let current = tree.nodes.find((item) => item.id === tree.rootId);
+
+  while (current) {
+    path.push(current.id);
+    const comparison = compareTreeValues(value, current.value);
+
+    if (comparison === 0) {
+      tree.nextNodeNumber -= 1;
+      return { inserted: false, insertedNodeId: null, path };
+    }
+
+    const property = comparison < 0 ? "leftId" : "rightId";
+
+    if (!current[property]) {
+      node.parentId = current.id;
+      current[property] = node.id;
+      tree.nodes.push(node);
+      path.push(node.id);
+      return { inserted: true, insertedNodeId: node.id, path };
+    }
+
+    current = tree.nodes.find((item) => item.id === current[property]);
+  }
+
+  return { inserted: false, insertedNodeId: null, path };
+}
+
+function searchLogicalTree(tree, target) {
+  const path = [];
+  let current = tree.nodes.find((item) => item.id === tree.rootId);
+
+  while (current) {
+    path.push(current.id);
+    const comparison = compareTreeValues(target, current.value);
+
+    if (comparison === 0) {
+      return { found: true, foundNodeId: current.id, path };
+    }
+
+    current = tree.nodes.find((item) => (
+      item.id === (comparison < 0 ? current.leftId : current.rightId)
+    ));
+  }
+
+  return { found: false, foundNodeId: null, path };
+}
+
+function traverseLogicalTree(tree) {
+  const order = [];
+  const visitedIds = [];
+
+  function visit(nodeId) {
+    if (!nodeId) {
+      return;
+    }
+
+    const node = tree.nodes.find((item) => item.id === nodeId);
+
+    if (!node) {
+      return;
+    }
+
+    visit(node.leftId);
+    visitedIds.push(node.id);
+    order.push(structuredClone(node.value));
+    visit(node.rightId);
+  }
+
+  visit(tree.rootId);
+  return { order, visitedIds };
+}
+
 function processCollectionStatement(
   recorder,
   sourceLine,
@@ -573,10 +685,11 @@ function processCollectionStatement(
   scopeId,
   logicalQueues,
   logicalLinkedLists,
-  logicalHashMaps
+  logicalHashMaps,
+  logicalTrees
 ) {
   const match = sourceLine.match(
-    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey)\s*\((.*?)\)\s*;/
+    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey|contains|toArray)\s*\((.*?)\)\s*;/
   );
 
   if (!match) {
@@ -585,6 +698,57 @@ function processCollectionStatement(
 
   const [, name, method, expression] = match;
   const lowerName = name.toLowerCase();
+
+  if (
+    logicalTrees.has(name) ||
+    /(?:^|\.)TreeSet$/.test(locals[name]?.value?.display || "")
+  ) {
+    const tree = logicalTrees.get(name) || {
+      nodes: [],
+      rootId: null,
+      nextNodeNumber: 0
+    };
+    const value = evaluateSimpleExpression(expression.trim(), locals);
+    const payload = {
+      name,
+      treeName: name
+    };
+
+    if (method === "add") {
+      const insertion = insertLogicalTree(tree, value);
+      logicalTrees.set(name, tree);
+
+      record(recorder, EVENT_TYPES.TREE_INSERT, line, {
+        ...payload,
+        value,
+        ...insertion,
+        nodes: structuredClone(tree.nodes),
+        rootId: tree.rootId
+      }, scopeId);
+    } else if (method === "contains") {
+      const search = searchLogicalTree(tree, value);
+
+      record(recorder, EVENT_TYPES.TREE_SEARCH, line, {
+        ...payload,
+        target: value,
+        ...search,
+        nodes: structuredClone(tree.nodes),
+        rootId: tree.rootId
+      }, scopeId);
+    } else if (method === "toArray") {
+      const traversal = traverseLogicalTree(tree);
+
+      record(recorder, EVENT_TYPES.TREE_TRAVERSE, line, {
+        ...payload,
+        traversalType: "inorder",
+        ...traversal,
+        nodes: structuredClone(tree.nodes),
+        rootId: tree.rootId
+      }, scopeId);
+    }
+
+    return;
+  }
 
   if (
     logicalHashMaps.has(name) ||
@@ -1027,6 +1191,7 @@ function buildJavaTrace(rawObservations, options) {
   const logicalQueues = new Map();
   const logicalLinkedLists = new Map();
   const logicalHashMaps = new Map();
+  const logicalTrees = new Map();
   const controlFlow = createControlFlowTracker(options.sourceLines);
   const observations = rawObservations.trim().split(/\r?\n/).filter(Boolean);
 
@@ -1116,7 +1281,8 @@ function buildJavaTrace(rawObservations, options) {
         frameState.scopeId,
         logicalQueues,
         logicalLinkedLists,
-        logicalHashMaps
+        logicalHashMaps,
+        logicalTrees
       );
 
       controlFlow.observeLine(
@@ -1165,7 +1331,8 @@ function buildJavaTrace(rawObservations, options) {
           frameState.scopeId,
           logicalQueues,
           logicalLinkedLists,
-          logicalHashMaps
+          logicalHashMaps,
+          logicalTrees
         );
 
         controlFlow.close(recorder, frameState.lastLine, frameState.scopeId);

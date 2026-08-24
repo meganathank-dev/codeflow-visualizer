@@ -556,6 +556,82 @@ async function testCrossLanguageHashMaps(baseUrl) {
   return executions;
 }
 
+async function testCrossLanguageBinarySearchTrees(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "const tree = new BinarySearchTree();",
+      "tree.insert(50);",
+      "tree.insert(30);",
+      "tree.insert(70);",
+      "tree.insert(20);",
+      "tree.insert(40);",
+      "const found = tree.search(40);",
+      "const traversal = tree.inorder();",
+      'console.log("Found:", found, "Inorder:", traversal);'
+    ].join("\n"),
+    python: [
+      "tree = BinarySearchTree()",
+      "tree.insert(50)",
+      "tree.insert(30)",
+      "tree.insert(70)",
+      "tree.insert(20)",
+      "tree.insert(40)",
+      "found = tree.search(40)",
+      "traversal = tree.inorder()",
+      'print("Found:", found, "Inorder:", traversal)'
+    ].join("\n"),
+    java: [
+      "import java.util.TreeSet;",
+      "",
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        TreeSet<Integer> tree = new TreeSet<>();",
+      "        tree.add(50);",
+      "        tree.add(30);",
+      "        tree.add(70);",
+      "        tree.add(20);",
+      "        tree.add(40);",
+      "        boolean found = tree.contains(40);",
+      "        Object[] traversal = tree.toArray();",
+      '        System.out.println("Found: " + found + " Inorder size: " + traversal.length);',
+      "    }",
+      "}"
+    ].join("\n")
+  };
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "TREE_CREATE",
+      "TREE_INSERT",
+      "TREE_SEARCH",
+      "TREE_TRAVERSE"
+    ]);
+
+    const finalState = execution.states.at(-1);
+    const tree = finalState.trees.tree;
+
+    assert.equal(tree.nodes.length, 5);
+    assert.equal(tree.nodes.find((node) => node.id === tree.rootId).value, 50);
+    assert.deepEqual(tree.traversalOrder, [20, 30, 40, 50, 70]);
+    assert.equal(tree.searchResult, true);
+    assert.equal(finalState.variables.found, true);
+    assert.equal(
+      execution.trace.events.filter((event) => event.type === "TREE_INSERT").length,
+      5
+    );
+
+    executions[language] = execution;
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -732,6 +808,7 @@ async function runTests() {
     const queues = await testCrossLanguageQueues(baseUrl);
     const linkedLists = await testCrossLanguageLinkedLists(baseUrl);
     const hashMaps = await testCrossLanguageHashMaps(baseUrl);
+    const trees = await testCrossLanguageBinarySearchTrees(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -782,6 +859,11 @@ async function runTests() {
     console.log(`JavaScript HashMap events: ${hashMaps.javascript.trace.events.filter((event) => event.type.startsWith("HASHMAP_")).length}`);
     console.log(`Python HashMap events: ${hashMaps.python.trace.events.filter((event) => event.type.startsWith("HASHMAP_")).length}`);
     console.log(`Java HashMap events: ${hashMaps.java.trace.events.filter((event) => event.type.startsWith("HASHMAP_")).length}`);
+    console.log("Cross-language Binary Search Tree execution: passed");
+    console.log("BST insertion, search path, and inorder traversal: passed");
+    console.log(`JavaScript tree events: ${trees.javascript.trace.events.filter((event) => event.type.startsWith("TREE_")).length}`);
+    console.log(`Python tree events: ${trees.python.trace.events.filter((event) => event.type.startsWith("TREE_")).length}`);
+    console.log(`Java tree events: ${trees.java.trace.events.filter((event) => event.type.startsWith("TREE_")).length}`);
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");
