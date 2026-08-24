@@ -479,6 +479,83 @@ async function testCrossLanguageLinkedLists(baseUrl) {
   return executions;
 }
 
+async function testCrossLanguageHashMaps(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "const scores = new Map();",
+      'scores.set("Alice", 90);',
+      'scores.set("Bob", 80);',
+      'scores.set("Bob", 85);',
+      'const selected = scores.get("Bob");',
+      'const removed = scores.get("Alice");',
+      'scores.delete("Alice");',
+      'console.log("Selected:", selected, "Removed:", removed);'
+    ].join("\n"),
+    python: [
+      "scores = {}",
+      'scores["Alice"] = 90',
+      'scores["Bob"] = 80',
+      'scores["Bob"] = 85',
+      'selected = scores.get("Bob")',
+      'removed = scores.pop("Alice")',
+      'print("Selected:", selected, "Removed:", removed)'
+    ].join("\n"),
+    java: [
+      "import java.util.HashMap;",
+      "import java.util.Map;",
+      "",
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        Map<String, Integer> scores = new HashMap<>();",
+      '        scores.put("Alice", 90);',
+      '        scores.put("Bob", 80);',
+      '        scores.put("Bob", 85);',
+      '        int selected = scores.get("Bob");',
+      '        int removed = scores.remove("Alice");',
+      '        System.out.println("Selected: " + selected + " Removed: " + removed);',
+      "    }",
+      "}"
+    ].join("\n")
+  };
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "HASHMAP_CREATE",
+      "HASHMAP_SET",
+      "HASHMAP_GET",
+      "HASHMAP_DELETE"
+    ]);
+
+    const finalState = execution.states.at(-1);
+
+    assert.deepEqual(finalState.hashMaps.scores.entries, [
+      { key: "Bob", value: 85 }
+    ]);
+    assert.equal(finalState.hashMaps.scores.size, 1);
+    assert.equal(finalState.variables.selected, 85);
+    assert.equal(finalState.variables.removed, 90);
+    assert.equal(
+      execution.trace.events.some((event) => (
+        event.type === "HASHMAP_SET" &&
+        event.payload.key === "Bob" &&
+        event.payload.updated === true &&
+        event.payload.previousValue === 80
+      )),
+      true
+    );
+
+    executions[language] = execution;
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -654,6 +731,7 @@ async function runTests() {
     const sql = await testRealSqlExecution(baseUrl);
     const queues = await testCrossLanguageQueues(baseUrl);
     const linkedLists = await testCrossLanguageLinkedLists(baseUrl);
+    const hashMaps = await testCrossLanguageHashMaps(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -699,6 +777,11 @@ async function runTests() {
     console.log(`JavaScript linked-list events: ${linkedLists.javascript.trace.events.filter((event) => /LINKED_LIST|NODE_|REFERENCE_/.test(event.type)).length}`);
     console.log(`Python linked-list events: ${linkedLists.python.trace.events.filter((event) => /LINKED_LIST|NODE_|REFERENCE_/.test(event.type)).length}`);
     console.log(`Java linked-list events: ${linkedLists.java.trace.events.filter((event) => /LINKED_LIST|NODE_|REFERENCE_/.test(event.type)).length}`);
+    console.log("Cross-language HashMap execution: passed");
+    console.log("HashMap insertion, update, lookup, and deletion: passed");
+    console.log(`JavaScript HashMap events: ${hashMaps.javascript.trace.events.filter((event) => event.type.startsWith("HASHMAP_")).length}`);
+    console.log(`Python HashMap events: ${hashMaps.python.trace.events.filter((event) => event.type.startsWith("HASHMAP_")).length}`);
+    console.log(`Java HashMap events: ${hashMaps.java.trace.events.filter((event) => event.type.startsWith("HASHMAP_")).length}`);
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");

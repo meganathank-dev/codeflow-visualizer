@@ -431,7 +431,7 @@ class SourceInstrumenter(ast.NodeTransformer):
 
         if node.func.attr not in {
             "append", "pop", "insert", "remove", "extend", "clear",
-            "prepend", "remove_at", "get", "to_list"
+            "prepend", "remove_at", "get", "to_list", "update", "setdefault"
         }:
             return node
 
@@ -506,6 +506,22 @@ class PythonExecutionTracer:
                 scope_id,
             )
 
+        if variable["valueType"] == "dictionary":
+            self.record(
+                "HASHMAP_CREATE",
+                line,
+                {
+                    "name": name,
+                    "mapName": name,
+                    "entries": [
+                        {"key": key, "value": item}
+                        for key, item in value.items()
+                    ],
+                    "size": len(value),
+                },
+                scope_id,
+            )
+
         if variable["valueType"] == "array":
             self.record(
                 "ARRAY_CREATE",
@@ -549,6 +565,47 @@ class PythonExecutionTracer:
                             },
                             scope_id,
                         )
+
+        if previous["valueType"] == "dictionary" and current["valueType"] == "dictionary":
+            for key, value in new_value.items():
+                if key not in previous_value or previous_value[key] != value:
+                    self.record(
+                        "HASHMAP_SET",
+                        line,
+                        {
+                            "name": name,
+                            "mapName": name,
+                            "key": key,
+                            "value": value,
+                            "previousValue": previous_value.get(key),
+                            "updated": key in previous_value,
+                            "entries": [
+                                {"key": item_key, "value": item_value}
+                                for item_key, item_value in new_value.items()
+                            ],
+                            "size": len(new_value),
+                        },
+                        scope_id,
+                    )
+
+            for key, value in previous_value.items():
+                if key not in new_value:
+                    self.record(
+                        "HASHMAP_DELETE",
+                        line,
+                        {
+                            "name": name,
+                            "mapName": name,
+                            "key": key,
+                            "value": value,
+                            "entries": [
+                                {"key": item_key, "value": item_value}
+                                for item_key, item_value in new_value.items()
+                            ],
+                            "size": len(new_value),
+                        },
+                        scope_id,
+                    )
 
         self.record(
             "VARIABLE_UPDATE",
@@ -769,6 +826,24 @@ class PythonExecutionTracer:
     def trace_array_access(self, name, collection, index, line):
         value = collection[index]
 
+        if isinstance(collection, dict):
+            self.record(
+                "HASHMAP_GET",
+                line,
+                {
+                    "name": name,
+                    "mapName": name,
+                    "key": json_safe(index),
+                    "value": json_safe(value),
+                    "entries": [
+                        {"key": json_safe(key), "value": json_safe(item)}
+                        for key, item in collection.items()
+                    ],
+                    "size": len(collection),
+                },
+                self.caller_scope(),
+            )
+
         if isinstance(collection, list):
             self.record(
                 "ARRAY_ACCESS",
@@ -794,6 +869,29 @@ class PythonExecutionTracer:
 
     def trace_method(self, line, name, collection, method_name, *args, **kwargs):
         method = getattr(collection, method_name)
+
+        if isinstance(collection, dict):
+            result = method(*args, **kwargs)
+
+            if method_name == "get":
+                self.record(
+                    "HASHMAP_GET",
+                    line,
+                    {
+                        "name": name,
+                        "mapName": name,
+                        "key": json_safe(args[0]),
+                        "value": json_safe(result),
+                        "entries": [
+                            {"key": json_safe(key), "value": json_safe(item)}
+                            for key, item in collection.items()
+                        ],
+                        "size": len(collection),
+                    },
+                    self.caller_scope(),
+                )
+
+            return result
 
         if isinstance(collection, CodeFlowLinkedList):
             before = collection.snapshot()

@@ -281,7 +281,10 @@ function validateSourcePolicy(ast) {
 
       NewExpression(path) {
         if (
-          t.isIdentifier(path.node.callee, { name: "LinkedList" }) &&
+          (
+            t.isIdentifier(path.node.callee, { name: "LinkedList" }) ||
+            t.isIdentifier(path.node.callee, { name: "Map" })
+          ) &&
           path.node.arguments.length === 0
         ) {
           return;

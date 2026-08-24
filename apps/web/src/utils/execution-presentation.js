@@ -222,6 +222,38 @@ function describeEvent(event, state, language) {
         description: `${formatValue(value)} is currently at the front; the queue is not changed.`
       };
 
+    case "HASHMAP_CREATE":
+      return {
+        title: `Create ${name || "a hash map"}`,
+        description: "A key-value collection is ready to store and retrieve entries by key."
+      };
+
+    case "HASHMAP_SET":
+      return {
+        title: `${payload.updated ? "Update" : "Add"} key ${formatValue(payload.key)}`,
+        description: payload.updated
+          ? `${formatValue(payload.key)} changes from ${formatValue(payload.previousValue)} to ${formatValue(value)}.`
+          : `${formatValue(payload.key)} now maps to ${formatValue(value)}.`
+      };
+
+    case "HASHMAP_GET":
+      return {
+        title: `Look up key ${formatValue(payload.key)}`,
+        description: `${name || "The map"} returns ${formatValue(value)} for ${formatValue(payload.key)}.`
+      };
+
+    case "HASHMAP_HAS":
+      return {
+        title: `Check key ${formatValue(payload.key)}`,
+        description: `${formatValue(payload.key)} ${payload.result ? "exists in" : "is absent from"} ${name || "the map"}.`
+      };
+
+    case "HASHMAP_DELETE":
+      return {
+        title: `Remove key ${formatValue(payload.key)}`,
+        description: `The entry ${formatValue(payload.key)} → ${formatValue(value)} is removed from ${name || "the map"}.`
+      };
+
     case "LINKED_LIST_CREATE":
       return {
         title: `Create ${name || "a linked list"}`,
@@ -338,6 +370,7 @@ function selectArray(state, event) {
   const arrays = state.arrays || {};
   const stackNames = new Set(Object.keys(state.stacks || {}));
   const queueNames = new Set(Object.keys(state.queues || {}));
+  const hashMapNames = new Set(Object.keys(state.hashMaps || {}));
   const linkedListNames = new Set(Object.keys(state.linkedLists || {}));
   const eventArray = event.payload?.arrayName || event.payload?.name;
 
@@ -345,6 +378,7 @@ function selectArray(state, event) {
     (name) => (
       !stackNames.has(name) &&
       !queueNames.has(name) &&
+      !hashMapNames.has(name) &&
       !linkedListNames.has(name) &&
       !(
         ["args", "argv"].includes(name.toLowerCase()) &&
@@ -396,6 +430,12 @@ function selectVariables(state) {
 
   for (const [name, linkedList] of Object.entries(state.linkedLists || {})) {
     variables[name] = (linkedList.nodes || []).map((node) => node.value);
+  }
+
+  for (const [name, hashMap] of Object.entries(state.hashMaps || {})) {
+    variables[name] = Object.fromEntries(
+      (hashMap.entries || []).map((entry) => [String(entry.key), entry.value])
+    );
   }
 
   return variables;
@@ -466,6 +506,30 @@ function selectLinkedList(state, event) {
       event.type === "REFERENCE_UPDATE" ||
       event.type === "LINKED_LIST_CREATE"
     ) ? event.type : null
+  };
+}
+
+function selectHashMap(state, event) {
+  const hashMaps = state.hashMaps || {};
+  const eventMap = event.payload?.mapName || event.payload?.name;
+  const selectedName = Object.hasOwn(hashMaps, eventMap)
+    ? eventMap
+    : Object.keys(hashMaps)[0];
+
+  if (!selectedName || !Array.isArray(hashMaps[selectedName]?.entries)) {
+    return null;
+  }
+
+  const hashMap = hashMaps[selectedName];
+  const activeOperation = eventMap === selectedName && event.type.startsWith("HASHMAP_");
+
+  return {
+    name: selectedName,
+    entries: hashMap.entries,
+    size: hashMap.entries.length,
+    activeKey: activeOperation ? hashMap.activeKey : null,
+    operation: activeOperation ? event.type : null,
+    lastResult: hashMap.lastResult
   };
 }
 
@@ -597,6 +661,7 @@ export function createExecutionPresentation(result) {
       stack: selectStack(state, event),
       queue: selectQueue(state, event),
       linkedList: selectLinkedList(state, event),
+      hashMap: selectHashMap(state, event),
       callStack: (state.callStack || []).map((frame) => ({
         name: frame.name || frame.functionName || "anonymous",
         line: frame.source?.line || line
@@ -638,6 +703,7 @@ export function createIdleExecutionStep(language = "javascript") {
     stack: null,
     queue: null,
     linkedList: null,
+    hashMap: null,
     callStack: [],
     console: [],
     iteration: null,

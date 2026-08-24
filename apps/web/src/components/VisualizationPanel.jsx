@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Database,
   GitBranch,
+  KeyRound,
   Layers3,
   Sparkles,
   Table2,
@@ -748,6 +749,92 @@ function LinkedListVisualization({ linkedList }) {
   );
 }
 
+function HashMapVisualization({ hashMap }) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (!hashMap) {
+    return null;
+  }
+
+  return (
+    <motion.div
+      className="visualization-card hashmap-card"
+      layout
+      transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+    >
+      <div className="visualization-card-heading">
+        <div className="visualization-card-title">
+          <KeyRound size={16} />
+          <span>HashMap</span>
+        </div>
+
+        <div className="hashmap-heading-meta">
+          <span className="hashmap-entry-count">
+            {hashMap.size} {hashMap.size === 1 ? "entry" : "entries"}
+          </span>
+
+          <span className="structure-name">{hashMap.name}</span>
+        </div>
+      </div>
+
+      <div className="hashmap-stage">
+        <div className="hashmap-column-labels">
+          <span>KEY</span>
+          <span>LOOKUP</span>
+          <span>VALUE</span>
+        </div>
+
+        <motion.div className="hashmap-entry-list" layout>
+          <AnimatePresence initial={false} mode="popLayout">
+            {hashMap.entries.length === 0 ? (
+              <motion.div
+                key="empty-hashmap"
+                className="empty-hashmap"
+                initial={shouldReduceMotion ? false : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0 }}
+              >
+                Waiting for the first key-value entry
+              </motion.div>
+            ) : hashMap.entries.map((entry) => {
+              const active = JSON.stringify(entry.key) === JSON.stringify(hashMap.activeKey);
+
+              return (
+                <motion.div
+                  key={`${typeof entry.key}:${JSON.stringify(entry.key)}`}
+                  className={`hashmap-entry${active ? " is-active-entry" : ""}`}
+                  layout
+                  initial={shouldReduceMotion ? false : { opacity: 0, x: -15, scale: 0.96 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={shouldReduceMotion ? undefined : { opacity: 0, x: 19, scale: 0.94 }}
+                  transition={shouldReduceMotion ? { duration: 0 } : SPRING_TRANSITION}
+                >
+                  <span className="hashmap-key-cell">
+                    {formatVariableValue(entry.key)}
+                  </span>
+
+                  <span className="hashmap-lookup-link">
+                    <span />
+                    <ArrowRight size={14} />
+                  </span>
+
+                  <span className="hashmap-value-cell">
+                    <AnimatedValue value={entry.value} />
+                  </span>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </motion.div>
+
+        <div className="hashmap-caption">
+          Direct key lookup · conceptual key-value representation
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 function EventStory({
   step,
   isSql = false
@@ -986,6 +1073,10 @@ function ProgramVisualization({
 
         <LinkedListVisualization
           linkedList={step.linkedList}
+        />
+
+        <HashMapVisualization
+          hashMap={step.hashMap}
         />
       </motion.div>
     </>

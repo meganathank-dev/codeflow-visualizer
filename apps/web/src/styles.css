@@ -1650,6 +1650,114 @@ input:focus-visible {
   color: var(--accent-purple);
 }
 
+.hashmap-card {
+  grid-column: 1 / -1;
+}
+
+.hashmap-heading-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.hashmap-entry-count {
+  color: var(--text-muted);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+}
+
+.hashmap-stage {
+  padding: 13px 16px 11px;
+}
+
+.hashmap-column-labels,
+.hashmap-entry {
+  display: grid;
+  grid-template-columns: minmax(85px, 1fr) 58px minmax(85px, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.hashmap-column-labels {
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 8px;
+  letter-spacing: 0.09em;
+}
+
+.hashmap-column-labels span:nth-child(2) {
+  text-align: center;
+}
+
+.hashmap-entry-list {
+  display: grid;
+  min-height: 55px;
+  gap: 7px;
+}
+
+.hashmap-entry {
+  min-height: 43px;
+  padding: 5px 8px;
+  border: 1px solid rgba(106, 125, 151, 0.16);
+  border-radius: 9px;
+  background: linear-gradient(100deg, rgba(91, 164, 255, 0.045), rgba(169, 145, 255, 0.038));
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.hashmap-entry.is-active-entry {
+  border-color: rgba(112, 230, 178, 0.43);
+  background: linear-gradient(100deg, rgba(112, 230, 178, 0.09), rgba(91, 164, 255, 0.06));
+  box-shadow: 0 0 17px rgba(112, 230, 178, 0.055);
+}
+
+.hashmap-key-cell,
+.hashmap-value-cell {
+  overflow: hidden;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hashmap-key-cell {
+  color: var(--accent-blue);
+}
+
+.hashmap-value-cell {
+  color: var(--accent-green);
+}
+
+.hashmap-lookup-link {
+  display: flex;
+  align-items: center;
+  color: var(--accent-purple);
+}
+
+.hashmap-lookup-link span {
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(90deg, rgba(91, 164, 255, 0.35), rgba(169, 145, 255, 0.75));
+}
+
+.empty-hashmap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(106, 125, 151, 0.22);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.hashmap-caption {
+  margin-top: 9px;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-align: center;
+}
+
 .query-metrics {
   display: grid;
 
@@ -2655,6 +2763,16 @@ input:focus-visible {
 
   .linked-list-flow-line {
     font-size: 7px;
+  }
+
+  .hashmap-stage {
+    padding-inline: 10px;
+  }
+
+  .hashmap-column-labels,
+  .hashmap-entry {
+    grid-template-columns: minmax(65px, 1fr) 36px minmax(65px, 1fr);
+    gap: 5px;
   }
 
   .timeline-panel {

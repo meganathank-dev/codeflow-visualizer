@@ -89,6 +89,12 @@ function toSerializable(
       return value.toArray().map((item) => toSerializable(item, depth + 1, ancestors));
     }
 
+    if (value.__codeflowHashMap === true) {
+      return Object.fromEntries(
+        value.snapshot().map((entry) => [String(entry.key), entry.value])
+      );
+    }
+
     if (
       ancestors.has(value)
     ) {
@@ -162,6 +168,10 @@ function getValueType(value) {
 
   if (value && value.__codeflowLinkedList === true) {
     return "linked-list";
+  }
+
+  if (value && value.__codeflowHashMap === true) {
+    return "hash-map";
   }
 
   return typeof value;
@@ -464,6 +474,106 @@ function createJavaScriptRuntime(options = {}) {
       }
 
       return nodes;
+    }
+  }
+
+  class CodeFlowHashMap {
+    #entries = new Map();
+    #lastAccessKey = null;
+
+    constructor() {
+      Object.defineProperty(this, "__codeflowHashMap", {
+        value: true,
+        enumerable: false,
+        configurable: false,
+        writable: false
+      });
+    }
+
+    get size() {
+      return this.#entries.size;
+    }
+
+    set(key, value) {
+      if (key !== null && !["string", "number", "boolean"].includes(typeof key)) {
+        throw new TypeError("The current Map visualizer supports primitive keys only.");
+      }
+
+      this.#lastAccessKey = key;
+      this.#entries.set(key, value);
+      return this;
+    }
+
+    get(key) {
+      this.#lastAccessKey = key;
+      return this.#entries.get(key);
+    }
+
+    has(key) {
+      this.#lastAccessKey = key;
+      return this.#entries.has(key);
+    }
+
+    delete(key) {
+      this.#lastAccessKey = key;
+      return this.#entries.delete(key);
+    }
+
+    entries() {
+      return this.#entries.entries();
+    }
+
+    lastAccessKey() {
+      return this.#lastAccessKey;
+    }
+
+    snapshot() {
+      return Array.from(this.#entries, ([key, value]) => ({
+        key: toSerializable(key),
+        value: toSerializable(value)
+      }));
+    }
+  }
+
+  function recordHashMapMethod(name, method, before, after, result, line, requestedKey) {
+    const entryMatches = (left, right) => (
+      JSON.stringify(left.key) === JSON.stringify(right.key)
+    );
+    const changed = after.find((entry) => {
+      const previous = before.find((item) => entryMatches(item, entry));
+
+      return !previous || JSON.stringify(previous.value) !== JSON.stringify(entry.value);
+    });
+    const removed = before.find(
+      (entry) => !after.some((item) => entryMatches(item, entry))
+    );
+    const payload = {
+      name,
+      mapName: name,
+      entries: after,
+      size: after.length
+    };
+
+    if (method === "set") {
+      const current = changed || after.find((entry) => (
+        JSON.stringify(entry.key) === JSON.stringify(requestedKey)
+      ));
+      const previous = before.find((entry) => entryMatches(entry, current));
+
+      record(EVENT_TYPES.HASHMAP_SET, line, {
+        ...payload,
+        key: current.key,
+        value: current.value,
+        previousValue: previous?.value,
+        updated: Boolean(previous)
+      });
+    } else if (method === "delete" && removed) {
+      record(EVENT_TYPES.HASHMAP_DELETE, line, {
+        ...payload,
+        key: removed.key,
+        value: removed.value,
+        result
+      });
     }
   }
 
@@ -814,6 +924,17 @@ function createJavaScriptRuntime(options = {}) {
         });
       }
 
+      if (value && value.__codeflowHashMap === true) {
+        references.set(name, value);
+
+        record(EVENT_TYPES.HASHMAP_CREATE, line, {
+          name,
+          mapName: name,
+          entries: value.snapshot(),
+          size: value.size
+        });
+      }
+
       if (
         Array.isArray(value)
       ) {
@@ -1085,6 +1206,10 @@ function createJavaScriptRuntime(options = {}) {
         ? reference.snapshot()
         : null;
 
+      const beforeEntries = reference?.__codeflowHashMap === true
+        ? reference.snapshot()
+        : null;
+
       const frameCountBeforeCall = callFrames.length;
 
       const result = invoke();
@@ -1115,6 +1240,37 @@ function createJavaScriptRuntime(options = {}) {
           result,
           line
         );
+      }
+
+      if (beforeEntries !== null) {
+        const afterEntries = reference.snapshot();
+
+        if (methodName === "get" || methodName === "has") {
+          record(
+            methodName === "get" ? EVENT_TYPES.HASHMAP_GET : EVENT_TYPES.HASHMAP_HAS,
+            line,
+            {
+              name: objectName,
+              mapName: objectName,
+              key: toSerializable(reference.lastAccessKey()),
+              ...(methodName === "get"
+                ? { value: toSerializable(result) }
+                : { result }),
+              entries: afterEntries,
+              size: afterEntries.length
+            }
+          );
+        } else {
+          recordHashMapMethod(
+            objectName,
+            methodName,
+            beforeEntries,
+            afterEntries,
+            result,
+            line,
+            toSerializable(reference.lastAccessKey())
+          );
+        }
       }
 
       if (
@@ -1503,6 +1659,10 @@ function createJavaScriptRuntime(options = {}) {
 
     createLinkedListConstructor() {
       return CodeFlowLinkedList;
+    },
+
+    createHashMapConstructor() {
+      return CodeFlowHashMap;
     },
 
     getTrace() {

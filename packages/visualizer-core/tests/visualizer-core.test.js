@@ -507,6 +507,68 @@ function testLinkedListReconstruction() {
   assert.equal(reconstructor.getStateAt(7).linkedLists.linkedList.headId, second.id);
 }
 
+function testHashMapReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-hash-map-test"
+  });
+
+  recorder.start();
+  recorder.record(EVENT_TYPES.HASHMAP_CREATE, {
+    name: "scores",
+    mapName: "scores",
+    entries: []
+  });
+  recorder.record(EVENT_TYPES.HASHMAP_SET, {
+    name: "scores",
+    key: "Alice",
+    value: 90
+  });
+  recorder.record(EVENT_TYPES.HASHMAP_SET, {
+    name: "scores",
+    key: "Bob",
+    value: 80
+  });
+  recorder.record(EVENT_TYPES.HASHMAP_SET, {
+    name: "scores",
+    key: "Bob",
+    value: 85,
+    previousValue: 80
+  });
+  recorder.record(EVENT_TYPES.HASHMAP_GET, {
+    name: "scores",
+    key: "Bob",
+    value: 85
+  });
+  recorder.record(EVENT_TYPES.HASHMAP_HAS, {
+    name: "scores",
+    key: "Alice",
+    result: true
+  });
+  recorder.record(EVENT_TYPES.HASHMAP_DELETE, {
+    name: "scores",
+    key: "Alice",
+    value: 90
+  });
+  recorder.finish();
+
+  const reconstructor = new StateReconstructor(recorder.toJSON(), {
+    checkpointInterval: 2
+  });
+
+  assert.deepEqual(reconstructor.getStateAt(1).hashMaps.scores.entries, []);
+  assert.equal(reconstructor.getStateAt(3).hashMaps.scores.size, 2);
+  assert.deepEqual(reconstructor.getStateAt(4).hashMaps.scores.entries, [
+    { key: "Alice", value: 90 },
+    { key: "Bob", value: 85 }
+  ]);
+  assert.equal(reconstructor.getStateAt(5).hashMaps.scores.activeKey, "Bob");
+  assert.equal(reconstructor.getStateAt(6).hashMaps.scores.lastResult, true);
+  assert.deepEqual(reconstructor.getStateAt(7).hashMaps.scores.entries, [
+    { key: "Bob", value: 85 }
+  ]);
+}
+
 function testProgramStateReconstruction(trace) {
   const reconstructor = new StateReconstructor(
     trace,
@@ -1251,6 +1313,8 @@ async function runTests() {
 
   testLinkedListReconstruction();
 
+  testHashMapReconstruction();
+
   testTimelineNavigation(
     programTrace
   );
@@ -1307,6 +1371,10 @@ async function runTests() {
 
   console.log(
     "Linked-list node and reference reconstruction: passed"
+  );
+
+  console.log(
+    "HashMap key-value reconstruction: passed"
   );
 }
 

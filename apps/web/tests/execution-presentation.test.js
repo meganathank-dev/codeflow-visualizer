@@ -14,6 +14,7 @@ function createState(step, overrides = {}) {
     arrays: {},
     stacks: {},
     queues: {},
+    hashMaps: {},
     linkedLists: {},
     callStack: [],
     console: [],
@@ -437,6 +438,71 @@ function createLinkedListResult(language) {
   };
 }
 
+function createHashMapResult(language) {
+  const entryStates = [
+    [],
+    [],
+    [{ key: "Alice", value: 90 }],
+    [{ key: "Alice", value: 90 }, { key: "Bob", value: 80 }],
+    [{ key: "Alice", value: 90 }, { key: "Bob", value: 85 }],
+    [{ key: "Alice", value: 90 }, { key: "Bob", value: 85 }],
+    [{ key: "Bob", value: 85 }],
+    [{ key: "Bob", value: 85 }]
+  ];
+  const types = [
+    "PROGRAM_START",
+    "HASHMAP_CREATE",
+    "HASHMAP_SET",
+    "HASHMAP_SET",
+    "HASHMAP_SET",
+    "HASHMAP_GET",
+    "HASHMAP_DELETE",
+    "PROGRAM_END"
+  ];
+  const events = types.map((type, step) => ({
+    id: `hashmap-event-${step}`,
+    step,
+    type,
+    source: { line: step + 1 },
+    payload: {
+      name: "scores",
+      mapName: "scores",
+      key: step === 2 || step === 6 ? "Alice" : "Bob",
+      value: step === 2 || step === 6 ? 90 : step === 3 ? 80 : 85,
+      previousValue: step === 4 ? 80 : null,
+      updated: step === 4
+    }
+  }));
+  const states = entryStates.map((entries, step) => createState(step, {
+    status: step === entryStates.length - 1 ? "completed" : "running",
+    arrays: language === "java" ? { args: [] } : {},
+    variables: step > 0 ? {
+      scores: language === "java"
+        ? { $type: "object", display: "java.util.HashMap" }
+        : Object.fromEntries(entries.map((entry) => [entry.key, entry.value]))
+    } : {},
+    hashMaps: step > 0 ? {
+      scores: {
+        name: "scores",
+        entries,
+        size: entries.length,
+        activeKey: events[step].payload.key,
+        lastOperation: types[step],
+        lastResult: events[step].payload.value
+      }
+    } : {}
+  }));
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: { traceId: `${language}-hashmap-presentation-test`, status: "completed", events },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
 function runTests() {
   const presentation = createExecutionPresentation(createResult());
 
@@ -518,6 +584,24 @@ function runTests() {
     );
     assert.equal(linkedListPresentation.steps[6].array, null);
     assert.deepEqual(linkedListPresentation.steps[6].variables[linkedListName], [20, 30]);
+
+    const hashMapPresentation = createExecutionPresentation(
+      createHashMapResult(language)
+    );
+
+    assert.equal(hashMapPresentation.steps[1].hashMap.name, "scores");
+    assert.deepEqual(hashMapPresentation.steps[4].hashMap.entries, [
+      { key: "Alice", value: 90 },
+      { key: "Bob", value: 85 }
+    ]);
+    assert.equal(hashMapPresentation.steps[4].hashMap.activeKey, "Bob");
+    assert.equal(hashMapPresentation.steps[5].hashMap.operation, "HASHMAP_GET");
+    assert.deepEqual(hashMapPresentation.steps[6].hashMap.entries, [
+      { key: "Bob", value: 85 }
+    ]);
+    assert.deepEqual(hashMapPresentation.steps[6].variables.scores, { Bob: 85 });
+    assert.equal(hashMapPresentation.steps[6].array, null);
+    assert.match(hashMapPresentation.steps[4].description, /80.*85/);
   }
 
   const sqlPresentation = createExecutionPresentation(createSqlResult());
@@ -583,6 +667,8 @@ function runTests() {
   console.log("Queue FIFO animation state: passed");
   console.log("Cross-language linked-list presentation: passed");
   console.log("Linked-list node and reference animation state: passed");
+  console.log("Cross-language HashMap presentation: passed");
+  console.log("HashMap key-value animation state: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");

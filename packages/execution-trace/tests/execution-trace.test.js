@@ -595,6 +595,16 @@ function testSqlTrace(trace) {
 
 function testDomainRestrictions() {
   assert.equal(
+    isEventAllowedForDomain(EVENT_TYPES.HASHMAP_SET, TRACE_DOMAINS.PROGRAM),
+    true
+  );
+
+  assert.equal(
+    isEventAllowedForDomain(EVENT_TYPES.HASHMAP_SET, TRACE_DOMAINS.QUERY),
+    false
+  );
+
+  assert.equal(
     isEventAllowedForDomain(
       EVENT_TYPES.LINKED_LIST_CREATE,
       TRACE_DOMAINS.PROGRAM

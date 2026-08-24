@@ -44,6 +44,8 @@ function createInitialState(trace) {
 
     queues: {},
 
+    hashMaps: {},
+
     linkedLists: {},
 
     objects: {},
@@ -345,6 +347,15 @@ function applyStateDelta(state, stateDelta) {
       state.objects[name] = cloneValue(
         value
       );
+    }
+  }
+
+  if (
+    stateDelta.hashMaps &&
+    typeof stateDelta.hashMaps === "object"
+  ) {
+    for (const [name, hashMap] of Object.entries(stateDelta.hashMaps)) {
+      state.hashMaps[name] = cloneValue(hashMap);
     }
   }
 
@@ -722,6 +733,74 @@ function handleLinkedListEvent(state, event) {
   }
 
   linkedList.lastOperation = event.type;
+}
+
+function handleHashMapEvent(state, event) {
+  const payload = event.payload || {};
+  const name = payload.mapName || payload.name || "hashMap";
+
+  if (!state.hashMaps[name]) {
+    state.hashMaps[name] = {
+      name,
+      entries: [],
+      size: 0,
+      activeKey: null,
+      lastOperation: null,
+      lastResult: null
+    };
+  }
+
+  const hashMap = state.hashMaps[name];
+  const keyMatches = (entry) => (
+    JSON.stringify(entry.key) === JSON.stringify(payload.key)
+  );
+
+  if (event.type === EVENT_TYPES.HASHMAP_CREATE) {
+    hashMap.entries = Array.isArray(payload.entries)
+      ? cloneValue(payload.entries)
+      : [];
+    hashMap.activeKey = null;
+    hashMap.lastResult = null;
+  } else if (event.type === EVENT_TYPES.HASHMAP_SET) {
+    if (Array.isArray(payload.entries)) {
+      hashMap.entries = cloneValue(payload.entries);
+    } else {
+      const existing = hashMap.entries.find(keyMatches);
+
+      if (existing) {
+        existing.value = cloneValue(payload.value);
+      } else {
+        hashMap.entries.push({
+          key: cloneValue(payload.key),
+          value: cloneValue(payload.value)
+        });
+      }
+    }
+
+    hashMap.activeKey = cloneValue(payload.key);
+    hashMap.lastResult = cloneValue(payload.value);
+  } else if (event.type === EVENT_TYPES.HASHMAP_DELETE) {
+    hashMap.entries = Array.isArray(payload.entries)
+      ? cloneValue(payload.entries)
+      : hashMap.entries.filter((entry) => !keyMatches(entry));
+    hashMap.activeKey = cloneValue(payload.key);
+    hashMap.lastResult = Object.hasOwn(payload, "value")
+      ? cloneValue(payload.value)
+      : null;
+  } else if (
+    event.type === EVENT_TYPES.HASHMAP_GET ||
+    event.type === EVENT_TYPES.HASHMAP_HAS
+  ) {
+    hashMap.activeKey = cloneValue(payload.key);
+    hashMap.lastResult = Object.hasOwn(payload, "value")
+      ? cloneValue(payload.value)
+      : Object.hasOwn(payload, "result")
+        ? cloneValue(payload.result)
+        : null;
+  }
+
+  hashMap.size = hashMap.entries.length;
+  hashMap.lastOperation = event.type;
 }
 
 function handleFunctionEnter(state, event) {
@@ -1305,6 +1384,16 @@ function reduceExecutionEvent(previousState, event) {
     case EVENT_TYPES.NODE_VISIT:
     case EVENT_TYPES.REFERENCE_UPDATE: {
       handleLinkedListEvent(state, event);
+
+      break;
+    }
+
+    case EVENT_TYPES.HASHMAP_CREATE:
+    case EVENT_TYPES.HASHMAP_SET:
+    case EVENT_TYPES.HASHMAP_GET:
+    case EVENT_TYPES.HASHMAP_DELETE:
+    case EVENT_TYPES.HASHMAP_HAS: {
+      handleHashMapEvent(state, event);
 
       break;
     }

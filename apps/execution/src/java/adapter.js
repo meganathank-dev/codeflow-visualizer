@@ -27,8 +27,11 @@ const ALLOWED_IMPORTS = new Set([
   "java.util.ArrayList",
   "java.util.Arrays",
   "java.util.Deque",
+  "java.util.HashMap",
+  "java.util.LinkedHashMap",
   "java.util.LinkedList",
   "java.util.List",
+  "java.util.Map",
   "java.util.Queue",
   "java.util.Stack"
 ]);
@@ -439,6 +442,18 @@ function emitVariableDeclare(recorder, name, variable, line, scopeId) {
     }, scopeId);
   }
 
+  if (
+    variable.valueType === "object" &&
+    /(?:^|\.)(?:HashMap|LinkedHashMap)$/.test(variable.value?.display || "")
+  ) {
+    record(recorder, EVENT_TYPES.HASHMAP_CREATE, line, {
+      name,
+      mapName: name,
+      entries: [],
+      size: 0
+    }, scopeId);
+  }
+
   if (/linked.?list/i.test(name)) {
     record(recorder, EVENT_TYPES.LINKED_LIST_CREATE, line, {
       name,
@@ -557,10 +572,11 @@ function processCollectionStatement(
   locals,
   scopeId,
   logicalQueues,
-  logicalLinkedLists
+  logicalLinkedLists,
+  logicalHashMaps
 ) {
   const match = sourceLine.match(
-    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element)\s*\((.*?)\)\s*;/
+    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey)\s*\((.*?)\)\s*;/
   );
 
   if (!match) {
@@ -569,6 +585,77 @@ function processCollectionStatement(
 
   const [, name, method, expression] = match;
   const lowerName = name.toLowerCase();
+
+  if (
+    logicalHashMaps.has(name) ||
+    /(?:^|\.)(?:HashMap|LinkedHashMap)$/.test(locals[name]?.value?.display || "")
+  ) {
+    const entries = logicalHashMaps.get(name) || [];
+    const argumentsList = expression.trim() === ""
+      ? []
+      : expression.split(",").map((item) => item.trim());
+    const key = evaluateSimpleExpression(argumentsList[0] || "", locals);
+    const index = entries.findIndex((entry) => (
+      JSON.stringify(entry.key) === JSON.stringify(key)
+    ));
+    const previous = index >= 0 ? entries[index] : null;
+
+    if (method === "put" || (method === "putIfAbsent" && !previous)) {
+      const value = evaluateSimpleExpression(argumentsList[1] || "", locals);
+      const previousValue = previous ? structuredClone(previous.value) : null;
+
+      if (previous) {
+        previous.value = structuredClone(value);
+      } else {
+        entries.push({ key: structuredClone(key), value: structuredClone(value) });
+      }
+
+      logicalHashMaps.set(name, entries);
+
+      record(recorder, EVENT_TYPES.HASHMAP_SET, line, {
+        name,
+        mapName: name,
+        key,
+        value,
+        previousValue,
+        updated: Boolean(previous),
+        entries: structuredClone(entries),
+        size: entries.length
+      }, scopeId);
+    } else if (method === "get") {
+      record(recorder, EVENT_TYPES.HASHMAP_GET, line, {
+        name,
+        mapName: name,
+        key,
+        value: previous ? structuredClone(previous.value) : null,
+        entries: structuredClone(entries),
+        size: entries.length
+      }, scopeId);
+    } else if (method === "containsKey") {
+      record(recorder, EVENT_TYPES.HASHMAP_HAS, line, {
+        name,
+        mapName: name,
+        key,
+        result: Boolean(previous),
+        entries: structuredClone(entries),
+        size: entries.length
+      }, scopeId);
+    } else if (method === "remove" && previous) {
+      entries.splice(index, 1);
+      logicalHashMaps.set(name, entries);
+
+      record(recorder, EVENT_TYPES.HASHMAP_DELETE, line, {
+        name,
+        mapName: name,
+        key,
+        value: previous.value,
+        entries: structuredClone(entries),
+        size: entries.length
+      }, scopeId);
+    }
+
+    return;
+  }
 
   if (/linked.?list/i.test(name)) {
     const list = logicalLinkedLists.get(name) || { nodes: [], nextNodeNumber: 0 };
@@ -939,6 +1026,7 @@ function buildJavaTrace(rawObservations, options) {
   const frameStates = new Map();
   const logicalQueues = new Map();
   const logicalLinkedLists = new Map();
+  const logicalHashMaps = new Map();
   const controlFlow = createControlFlowTracker(options.sourceLines);
   const observations = rawObservations.trim().split(/\r?\n/).filter(Boolean);
 
@@ -1027,7 +1115,8 @@ function buildJavaTrace(rawObservations, options) {
         frameState.locals,
         frameState.scopeId,
         logicalQueues,
-        logicalLinkedLists
+        logicalLinkedLists,
+        logicalHashMaps
       );
 
       controlFlow.observeLine(
@@ -1075,7 +1164,8 @@ function buildJavaTrace(rawObservations, options) {
           frameState.locals,
           frameState.scopeId,
           logicalQueues,
-          logicalLinkedLists
+          logicalLinkedLists,
+          logicalHashMaps
         );
 
         controlFlow.close(recorder, frameState.lastLine, frameState.scopeId);
