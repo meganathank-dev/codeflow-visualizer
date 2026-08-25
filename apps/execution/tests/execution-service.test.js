@@ -172,7 +172,7 @@ function assertRequiredEvents(trace, eventTypes) {
     assert.equal(
       trace.events.some((event) => event.type === eventType),
       true,
-      `Expected execution event was missing: ${eventType}`
+      `Expected ${trace.language || "program"} execution event was missing: ${eventType}`
     );
   }
 }
@@ -880,6 +880,91 @@ async function testCrossLanguageSearchAlgorithms(baseUrl) {
   return executions;
 }
 
+async function testCrossLanguageSortingAlgorithms(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "const bubbleNumbers = [5, 2, 4, 1, 3];",
+      "const selectionNumbers = [5, 2, 4, 1, 3];",
+      "const insertionNumbers = [5, 2, 4, 1, 3];",
+      "const bubbleSorted = SortingAlgorithms.bubbleSort(bubbleNumbers);",
+      "const selectionSorted = SortingAlgorithms.selectionSort(selectionNumbers);",
+      "const insertionSorted = SortingAlgorithms.insertionSort(insertionNumbers);",
+      'console.log("Bubble:", bubbleSorted, "Selection:", selectionSorted, "Insertion:", insertionSorted);'
+    ].join("\n"),
+    python: [
+      "bubble_numbers = [5, 2, 4, 1, 3]",
+      "selection_numbers = [5, 2, 4, 1, 3]",
+      "insertion_numbers = [5, 2, 4, 1, 3]",
+      "bubble_sorted = SortingAlgorithms.bubble_sort(bubble_numbers)",
+      "selection_sorted = SortingAlgorithms.selection_sort(selection_numbers)",
+      "insertion_sorted = SortingAlgorithms.insertion_sort(insertion_numbers)",
+      'print("Bubble:", bubble_sorted, "Selection:", selection_sorted, "Insertion:", insertion_sorted)'
+    ].join("\n"),
+    java: [
+      "import java.util.Arrays;",
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        int[] bubbleNumbers = {5, 2, 4, 1, 3};",
+      "        int[] selectionNumbers = {5, 2, 4, 1, 3};",
+      "        int[] insertionNumbers = {5, 2, 4, 1, 3};",
+      "        int[] bubbleSorted = SortingAlgorithms.bubbleSort(bubbleNumbers);",
+      "        int[] selectionSorted = SortingAlgorithms.selectionSort(selectionNumbers);",
+      "        int[] insertionSorted = SortingAlgorithms.insertionSort(insertionNumbers);",
+      '        System.out.println("Bubble: " + Arrays.toString(bubbleSorted) + " Selection: " + Arrays.toString(selectionSorted) + " Insertion: " + Arrays.toString(insertionSorted));',
+      "    }",
+      "}"
+    ].join("\n")
+  };
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "SORT_START",
+      "SORT_COMPARE",
+      "SORT_SWAP",
+      "SORT_WRITE",
+      "SORT_PASS",
+      "SORT_MARK_SORTED",
+      "SORT_END"
+    ]);
+
+    const finalState = execution.states.at(-1);
+    const sorts = Object.values(finalState.sorts);
+    const names = language === "python"
+      ? ["bubble_numbers", "selection_numbers", "insertion_numbers"]
+      : ["bubbleNumbers", "selectionNumbers", "insertionNumbers"];
+
+    assert.equal(sorts.length, 3);
+    assert.deepEqual(sorts.map((sort) => sort.algorithm), ["bubble", "selection", "insertion"]);
+
+    for (const sort of sorts) {
+      assert.deepEqual(sort.initialValues, [5, 2, 4, 1, 3]);
+      assert.deepEqual(sort.values, [1, 2, 3, 4, 5]);
+      assert.deepEqual(sort.sortedIndices, [0, 1, 2, 3, 4]);
+      assert.equal(sort.finished, true);
+      assert.equal(sort.comparisonCount > 0, true);
+    }
+
+    assert.equal(sorts[0].swapCount > 0, true);
+    assert.equal(sorts[1].swapCount > 0, true);
+    assert.equal(sorts[2].writeCount > 0, true);
+
+    for (const name of names) {
+      assert.deepEqual(finalState.variables[name], [1, 2, 3, 4, 5]);
+      assert.deepEqual(finalState.arrays[name], [1, 2, 3, 4, 5]);
+    }
+
+    executions[language] = execution;
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -1060,6 +1145,7 @@ async function runTests() {
     const heaps = await testCrossLanguageMinHeaps(baseUrl);
     const graphs = await testCrossLanguageGraphs(baseUrl);
     const searches = await testCrossLanguageSearchAlgorithms(baseUrl);
+    const sorts = await testCrossLanguageSortingAlgorithms(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -1130,6 +1216,11 @@ async function runTests() {
     console.log(`JavaScript search events: ${searches.javascript.trace.events.filter((event) => event.type.startsWith("SEARCH_")).length}`);
     console.log(`Python search events: ${searches.python.trace.events.filter((event) => event.type.startsWith("SEARCH_")).length}`);
     console.log(`Java search events: ${searches.java.trace.events.filter((event) => event.type.startsWith("SEARCH_")).length}`);
+    console.log("Cross-language sorting algorithms: passed");
+    console.log("Bubble, selection, insertion; comparisons, swaps, writes, and sorted positions: passed");
+    console.log(`JavaScript sort events: ${sorts.javascript.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
+    console.log(`Python sort events: ${sorts.python.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
+    console.log(`Java sort events: ${sorts.java.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");

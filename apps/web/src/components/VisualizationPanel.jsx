@@ -8,6 +8,7 @@ import {
 import {
   Activity,
   ArrowRight,
+  ArrowUpDown,
   Database,
   GitBranch,
   KeyRound,
@@ -1471,6 +1472,140 @@ function SearchVisualization({ search }) {
   );
 }
 
+function SortVisualization({ sort }) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (!sort) {
+    return null;
+  }
+
+  const labels = {
+    bubble: "Bubble Sort",
+    selection: "Selection Sort",
+    insertion: "Insertion Sort"
+  };
+  const compared = new Set(sort.compareIndices || []);
+  const swapped = new Set(sort.swapIndices || []);
+  const sorted = new Set(sort.sortedIndices || []);
+  const largestMagnitude = Math.max(...sort.values.map((value) => Math.abs(value)), 1);
+  const orderedCount = sorted.size;
+  const changes = sort.algorithm === "insertion" ? sort.writeCount : sort.swapCount;
+
+  return (
+    <motion.div
+      className="visualization-card sort-card"
+      layout
+      transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+    >
+      <div className="visualization-card-heading">
+        <div className="visualization-card-title">
+          <ArrowUpDown size={16} />
+          <span>{labels[sort.algorithm] || "Sorting"}</span>
+        </div>
+
+        <div className="sort-heading-meta">
+          <span className="sort-complexity">O(n²)</span>
+          <span className="structure-name">{sort.arrayName}</span>
+        </div>
+      </div>
+
+      <div className="sort-summary-grid">
+        <div className="sort-summary-item">
+          <span>Pass</span>
+          <strong>{sort.pass || 0}</strong>
+        </div>
+
+        <div className="sort-summary-item">
+          <span>Comparisons</span>
+          <strong>{sort.comparisonCount || 0}</strong>
+        </div>
+
+        <div className="sort-summary-item">
+          <span>{sort.algorithm === "insertion" ? "Writes" : "Swaps"}</span>
+          <strong>{changes || 0}</strong>
+        </div>
+
+        <div className="sort-summary-item">
+          <span>Status</span>
+          <strong className={sort.finished ? "sort-complete-value" : ""}>
+            {sort.finished ? "sorted" : `${orderedCount} / ${sort.values.length}`}
+          </strong>
+        </div>
+      </div>
+
+      <div className="sort-stage" aria-label={`${labels[sort.algorithm] || "Sorting"} visualization`}>
+        <div className="sort-bars">
+          <AnimatePresence initial={false} mode="popLayout">
+            {sort.values.map((value, index) => {
+              const isSwap = swapped.has(index);
+              const isCompare = compared.has(index);
+              const isSorted = sorted.has(index);
+              const isMinimum = sort.minIndex === index;
+              const isKey = sort.keyIndex === index;
+              const barHeight = Math.max(30, Math.round((Math.abs(value) / largestMagnitude) * 128));
+
+              return (
+                <motion.div
+                  key={`sort-position-${index}`}
+                  className={[
+                    "sort-column",
+                    isSorted ? "is-sorted-column" : "",
+                    isCompare ? "is-compared-column" : "",
+                    isSwap ? "is-swapped-column" : "",
+                    isMinimum ? "is-minimum-column" : "",
+                    isKey ? "is-key-column" : ""
+                  ].filter(Boolean).join(" ")}
+                  layout
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+                >
+                  <div className="sort-marker-row">
+                    {isMinimum ? <span className="sort-marker sort-marker-minimum">MIN</span> : null}
+                    {isKey ? <span className="sort-marker sort-marker-key">KEY</span> : null}
+                  </div>
+
+                  <motion.div
+                    className="sort-bar"
+                    animate={{
+                      height: barHeight,
+                      scale: isSwap ? 1.08 : isCompare ? 1.04 : 1
+                    }}
+                    transition={shouldReduceMotion ? { duration: 0 } : SPRING_TRANSITION}
+                  >
+                    <AnimatedValue value={value} className="sort-bar-value" />
+                  </motion.div>
+
+                  <span className="sort-index">{index}</span>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </div>
+      </div>
+
+      <div className="sort-progress">
+        <span>ORDERED</span>
+        <div className="sort-progress-track">
+          <motion.div
+            className="sort-progress-fill"
+            animate={{ width: `${sort.values.length ? (orderedCount / sort.values.length) * 100 : 0}%` }}
+            transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+          />
+        </div>
+        <strong>{orderedCount}/{sort.values.length}</strong>
+      </div>
+
+      <div className="sort-legend">
+        <span><i className="sort-legend-dot is-sort-default-dot" /> unsorted</span>
+        <span><i className="sort-legend-dot is-sort-compare-dot" /> comparing</span>
+        <span><i className="sort-legend-dot is-sort-swap-dot" /> changing</span>
+        <span><i className="sort-legend-dot is-sort-done-dot" /> ordered</span>
+      </div>
+    </motion.div>
+  );
+}
+
 function EventStory({
   step,
   isSql = false
@@ -1697,6 +1832,10 @@ function ProgramVisualization({
       >
         <SearchVisualization
           search={step.search}
+        />
+
+        <SortVisualization
+          sort={step.sort}
         />
 
         <ArrayVisualization

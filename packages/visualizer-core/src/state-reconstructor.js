@@ -54,6 +54,8 @@ function createInitialState(trace) {
 
     searches: {},
 
+    sorts: {},
+
     linkedLists: {},
 
     objects: {},
@@ -1080,6 +1082,72 @@ function handleSearchEvent(state, event) {
   search.lastOperation = event.type;
 }
 
+function handleSortEvent(state, event) {
+  const payload = event.payload || {};
+  const sortId = payload.sortId || `${payload.algorithm || "bubble"}:${payload.arrayName || "values"}`;
+
+  if (!state.sorts[sortId]) {
+    state.sorts[sortId] = {
+      id: sortId,
+      algorithm: payload.algorithm || "bubble",
+      arrayName: payload.arrayName || "values",
+      values: [],
+      initialValues: [],
+      compareIndices: [],
+      swapIndices: [],
+      sortedIndices: [],
+      activeIndex: null,
+      minIndex: null,
+      keyIndex: null,
+      comparisonCount: 0,
+      swapCount: 0,
+      writeCount: 0,
+      pass: 0,
+      finished: false,
+      lastOperation: null
+    };
+  }
+
+  const sort = state.sorts[sortId];
+
+  for (const key of [
+    "algorithm", "arrayName", "activeIndex", "minIndex", "keyIndex",
+    "comparisonCount", "swapCount", "writeCount", "pass"
+  ]) {
+    if (Object.hasOwn(payload, key)) {
+      sort[key] = cloneValue(payload[key]);
+    }
+  }
+
+  for (const key of ["values", "initialValues", "compareIndices", "swapIndices", "sortedIndices"]) {
+    if (Array.isArray(payload[key])) {
+      sort[key] = cloneValue(payload[key]);
+    }
+  }
+
+  if (event.type === EVENT_TYPES.SORT_START) {
+    sort.finished = false;
+    sort.compareIndices = [];
+    sort.swapIndices = [];
+    sort.sortedIndices = [];
+  } else if (event.type === EVENT_TYPES.SORT_END) {
+    sort.finished = true;
+    sort.compareIndices = [];
+    sort.swapIndices = [];
+    sort.activeIndex = null;
+    sort.minIndex = null;
+    sort.keyIndex = null;
+    sort.sortedIndices = sort.values.map((_, index) => index);
+  }
+
+  if (Array.isArray(payload.values) && sort.arrayName !== "values") {
+    state.arrays[sort.arrayName] = cloneValue(payload.values);
+    synchronizeArrayVariable(state, sort.arrayName, event);
+  }
+
+  sort.lastOperation = event.type;
+}
+
 function handleFunctionEnter(state, event) {
   const name = (
     event.payload.name ||
@@ -1712,6 +1780,18 @@ function reduceExecutionEvent(previousState, event) {
     case EVENT_TYPES.SEARCH_NOT_FOUND:
     case EVENT_TYPES.SEARCH_END: {
       handleSearchEvent(state, event);
+
+      break;
+    }
+
+    case EVENT_TYPES.SORT_START:
+    case EVENT_TYPES.SORT_COMPARE:
+    case EVENT_TYPES.SORT_SWAP:
+    case EVENT_TYPES.SORT_WRITE:
+    case EVENT_TYPES.SORT_PASS:
+    case EVENT_TYPES.SORT_MARK_SORTED:
+    case EVENT_TYPES.SORT_END: {
+      handleSortEvent(state, event);
 
       break;
     }

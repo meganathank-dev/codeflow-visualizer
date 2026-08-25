@@ -916,6 +916,67 @@ function testSearchReconstruction() {
   assert.equal(reconstructor.getStateAt(9).searches["search:2"].comparisonCount, 6);
 }
 
+function testSortReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-sort-test"
+  });
+  const base = {
+    sortId: "sort:1",
+    algorithm: "bubble",
+    arrayName: "numbers",
+    initialValues: [4, 2, 3],
+    comparisonCount: 0,
+    swapCount: 0,
+    writeCount: 0,
+    pass: 1,
+    sortedIndices: []
+  };
+
+  recorder.start();
+  recorder.record(EVENT_TYPES.ARRAY_CREATE, { name: "numbers", values: [4, 2, 3] });
+  recorder.record(EVENT_TYPES.SORT_START, { ...base, values: [4, 2, 3] });
+  recorder.record(EVENT_TYPES.SORT_COMPARE, {
+    ...base, values: [4, 2, 3], compareIndices: [0, 1], activeIndex: 1,
+    comparisonCount: 1
+  });
+  recorder.record(EVENT_TYPES.SORT_SWAP, {
+    ...base, values: [2, 4, 3], compareIndices: [0, 1], swapIndices: [0, 1],
+    activeIndex: 1, comparisonCount: 1, swapCount: 1
+  });
+  recorder.record(EVENT_TYPES.SORT_WRITE, {
+    ...base, values: [2, 3, 4], activeIndex: 1, writeIndex: 1,
+    comparisonCount: 2, swapCount: 1, writeCount: 1, action: "shift"
+  });
+  recorder.record(EVENT_TYPES.SORT_MARK_SORTED, {
+    ...base, values: [2, 3, 4], sortedIndices: [2], comparisonCount: 2,
+    swapCount: 1, writeCount: 1
+  });
+  recorder.record(EVENT_TYPES.SORT_PASS, {
+    ...base, values: [2, 3, 4], sortedIndices: [2], comparisonCount: 2,
+    swapCount: 1, writeCount: 1, boundary: 2
+  });
+  recorder.record(EVENT_TYPES.SORT_END, {
+    ...base, values: [2, 3, 4], sortedIndices: [0, 1, 2], comparisonCount: 2,
+    swapCount: 1, writeCount: 1, finished: true
+  });
+  recorder.finish();
+
+  const reconstructor = new StateReconstructor(recorder.toJSON(), {
+    checkpointInterval: 2
+  });
+
+  assert.deepEqual(reconstructor.getStateAt(2).sorts["sort:1"].values, [4, 2, 3]);
+  assert.deepEqual(reconstructor.getStateAt(3).sorts["sort:1"].compareIndices, [0, 1]);
+  assert.deepEqual(reconstructor.getStateAt(4).sorts["sort:1"].swapIndices, [0, 1]);
+  assert.deepEqual(reconstructor.getStateAt(4).arrays.numbers, [2, 4, 3]);
+  assert.equal(reconstructor.getStateAt(5).sorts["sort:1"].writeCount, 1);
+  assert.deepEqual(reconstructor.getStateAt(6).sorts["sort:1"].sortedIndices, [2]);
+  assert.deepEqual(reconstructor.getStateAt(8).sorts["sort:1"].values, [2, 3, 4]);
+  assert.deepEqual(reconstructor.getStateAt(8).sorts["sort:1"].sortedIndices, [0, 1, 2]);
+  assert.equal(reconstructor.getStateAt(8).sorts["sort:1"].finished, true);
+}
+
 function testProgramStateReconstruction(trace) {
   const reconstructor = new StateReconstructor(
     trace,
@@ -1670,6 +1731,8 @@ async function runTests() {
 
   testSearchReconstruction();
 
+  testSortReconstruction();
+
   testTimelineNavigation(
     programTrace
   );
@@ -1746,6 +1809,10 @@ async function runTests() {
 
   console.log(
     "Linear and binary search reconstruction: passed"
+  );
+
+  console.log(
+    "Bubble, selection, and insertion sort reconstruction: passed"
   );
 }
 

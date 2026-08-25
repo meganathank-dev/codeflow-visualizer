@@ -159,6 +159,190 @@ class CodeFlowSearchAlgorithms:
         return self.run("binary", values, target)
 
 
+class CodeFlowSortingAlgorithms:
+    def __init__(self):
+        self.sort_number = 0
+        self.last_steps = []
+
+    def run(self, algorithm, values):
+        if not isinstance(values, list) or any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in values
+        ):
+            raise TypeError("SortingAlgorithms requires a list containing numbers.")
+
+        self.sort_number += 1
+        sort_id = f"sort:{self.sort_number}"
+        initial_values = list(values)
+        sorted_indices = set()
+        comparison_count = 0
+        swap_count = 0
+        write_count = 0
+        current_pass = 0
+        self.last_steps = []
+
+        def append_step(event_type, **extra):
+            self.last_steps.append((event_type, {
+                "sortId": sort_id,
+                "algorithm": algorithm,
+                "values": json_safe(values),
+                "initialValues": json_safe(initial_values),
+                "comparisonCount": comparison_count,
+                "swapCount": swap_count,
+                "writeCount": write_count,
+                "pass": current_pass,
+                "sortedIndices": sorted(sorted_indices),
+                "compareIndices": [],
+                "swapIndices": [],
+                "activeIndex": None,
+                "minIndex": None,
+                "keyIndex": None,
+                **extra,
+            }))
+
+        append_step("SORT_START")
+
+        if algorithm == "bubble":
+            for boundary in range(len(values) - 1, 0, -1):
+                current_pass += 1
+                changed = False
+
+                for index in range(boundary):
+                    comparison_count += 1
+                    append_step(
+                        "SORT_COMPARE",
+                        compareIndices=[index, index + 1],
+                        activeIndex=index + 1,
+                        leftValue=values[index],
+                        rightValue=values[index + 1],
+                    )
+
+                    if values[index] > values[index + 1]:
+                        values[index], values[index + 1] = values[index + 1], values[index]
+                        swap_count += 1
+                        changed = True
+                        append_step(
+                            "SORT_SWAP",
+                            compareIndices=[index, index + 1],
+                            swapIndices=[index, index + 1],
+                            activeIndex=index + 1,
+                        )
+
+                sorted_indices.add(boundary)
+                append_step("SORT_MARK_SORTED", activeIndex=boundary)
+                append_step("SORT_PASS", boundary=boundary, changed=changed)
+
+                if not changed:
+                    break
+
+        elif algorithm == "selection":
+            for start in range(len(values) - 1):
+                current_pass += 1
+                minimum = start
+
+                for index in range(start + 1, len(values)):
+                    comparison_count += 1
+                    append_step(
+                        "SORT_COMPARE",
+                        compareIndices=[minimum, index],
+                        activeIndex=index,
+                        minIndex=minimum,
+                        leftValue=values[minimum],
+                        rightValue=values[index],
+                    )
+
+                    if values[index] < values[minimum]:
+                        minimum = index
+                        append_step(
+                            "SORT_COMPARE",
+                            compareIndices=[start, index],
+                            activeIndex=index,
+                            minIndex=minimum,
+                            candidateChanged=True,
+                        )
+
+                if minimum != start:
+                    values[start], values[minimum] = values[minimum], values[start]
+                    swap_count += 1
+                    append_step(
+                        "SORT_SWAP",
+                        compareIndices=[start, minimum],
+                        swapIndices=[start, minimum],
+                        activeIndex=minimum,
+                        minIndex=minimum,
+                    )
+
+                sorted_indices.add(start)
+                append_step("SORT_MARK_SORTED", activeIndex=start)
+                append_step("SORT_PASS", boundary=start, minIndex=minimum)
+
+        else:
+            if values:
+                sorted_indices.add(0)
+
+            for index in range(1, len(values)):
+                current_pass += 1
+                key = values[index]
+                cursor = index - 1
+
+                while cursor >= 0:
+                    comparison_count += 1
+                    append_step(
+                        "SORT_COMPARE",
+                        compareIndices=[cursor, cursor + 1],
+                        activeIndex=cursor,
+                        keyIndex=cursor + 1,
+                        key=key,
+                        leftValue=values[cursor],
+                        rightValue=key,
+                    )
+
+                    if values[cursor] <= key:
+                        break
+
+                    values[cursor + 1] = values[cursor]
+                    write_count += 1
+                    append_step(
+                        "SORT_WRITE",
+                        compareIndices=[cursor, cursor + 1],
+                        activeIndex=cursor + 1,
+                        keyIndex=cursor + 1,
+                        writeIndex=cursor + 1,
+                        value=values[cursor],
+                        key=key,
+                        action="shift",
+                    )
+                    cursor -= 1
+
+                values[cursor + 1] = key
+                write_count += 1
+                append_step(
+                    "SORT_WRITE",
+                    activeIndex=cursor + 1,
+                    keyIndex=cursor + 1,
+                    writeIndex=cursor + 1,
+                    value=key,
+                    key=key,
+                    action="insert",
+                )
+                sorted_indices.update(range(index + 1))
+                append_step("SORT_MARK_SORTED", activeIndex=index, keyIndex=cursor + 1)
+                append_step("SORT_PASS", boundary=index)
+
+        sorted_indices.update(range(len(values)))
+        append_step("SORT_END", finished=True)
+        return values
+
+    def bubble_sort(self, values):
+        return self.run("bubble", values)
+
+    def selection_sort(self, values):
+        return self.run("selection", values)
+
+    def insertion_sort(self, values):
+        return self.run("insertion", values)
+
+
 class LinkedListNode:
     def __init__(self, identifier, value):
         self.id = identifier
@@ -923,7 +1107,8 @@ class SourceInstrumenter(ast.NodeTransformer):
             "prepend", "remove_at", "get", "to_list", "update", "setdefault",
             "search", "inorder", "peek", "extract", "to_array",
             "add_node", "add_edge", "bfs", "dfs",
-            "linear_search", "binary_search"
+            "linear_search", "binary_search",
+            "bubble_sort", "selection_sort", "insertion_sort"
         }:
             return node
 
@@ -953,6 +1138,7 @@ class PythonExecutionTracer:
         self.frame_number = 0
         self.last_line = 1
         self.search_algorithms = CodeFlowSearchAlgorithms()
+        self.sorting_algorithms = CodeFlowSortingAlgorithms()
 
     def record(self, event_type, line, payload=None, scope_id=None):
         if len(self.events) >= self.maximum_events - 2:
@@ -1397,7 +1583,7 @@ class PythonExecutionTracer:
     def trace_method(self, line, name, collection, method_name, *args, **kwargs):
         method = getattr(collection, method_name)
 
-        if isinstance(collection, CodeFlowSearchAlgorithms):
+        if isinstance(collection, (CodeFlowSearchAlgorithms, CodeFlowSortingAlgorithms)):
             result = method(*args, **kwargs)
             caller = sys._getframe(1)
             array_name = next(
@@ -1795,6 +1981,7 @@ class PythonExecutionTracer:
             "MinHeap": CodeFlowMinHeap,
             "Graph": CodeFlowGraph,
             "SearchAlgorithms": self.search_algorithms,
+            "SortingAlgorithms": self.sorting_algorithms,
             "max": max,
             "min": min,
             "print": self.traced_print,

@@ -645,6 +645,16 @@ function testDomainRestrictions() {
   );
 
   assert.equal(
+    isEventAllowedForDomain(EVENT_TYPES.SORT_COMPARE, TRACE_DOMAINS.PROGRAM),
+    true
+  );
+
+  assert.equal(
+    isEventAllowedForDomain(EVENT_TYPES.SORT_SWAP, TRACE_DOMAINS.QUERY),
+    false
+  );
+
+  assert.equal(
     isEventAllowedForDomain(
       EVENT_TYPES.LINKED_LIST_CREATE,
       TRACE_DOMAINS.PROGRAM

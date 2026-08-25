@@ -3535,3 +3535,206 @@ input:focus-visible {
     justify-content: flex-start;
   }
 }
+
+.sort-card {
+  grid-column: 1 / -1;
+  overflow: hidden;
+}
+
+.sort-heading-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.sort-complexity {
+  color: var(--accent-purple);
+  font-size: 11px;
+}
+
+.sort-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  padding: 14px 14px 0;
+}
+
+.sort-summary-item {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid rgba(141, 163, 196, 0.13);
+  border-radius: 9px;
+  background: rgba(10, 15, 25, 0.33);
+}
+
+.sort-summary-item span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.sort-summary-item strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.sort-summary-item .sort-complete-value {
+  color: var(--accent-green);
+}
+
+.sort-stage {
+  overflow-x: auto;
+  padding: 12px 18px 4px;
+}
+
+.sort-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: clamp(8px, 2vw, 17px);
+  min-width: max-content;
+  min-height: 168px;
+  margin: 0 auto;
+}
+
+.sort-column {
+  display: flex;
+  flex: 0 0 clamp(41px, 7vw, 61px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.sort-marker-row {
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  min-height: 14px;
+}
+
+.sort-marker {
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 7px;
+  font-weight: 700;
+}
+
+.sort-marker-minimum {
+  background: rgba(243, 189, 122, 0.14);
+  color: var(--accent-orange);
+}
+
+.sort-marker-key {
+  background: rgba(169, 145, 255, 0.14);
+  color: var(--accent-purple);
+}
+
+.sort-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border: 1px solid rgba(120, 169, 255, 0.3);
+  border-radius: 9px 9px 5px 5px;
+  background: linear-gradient(180deg, rgba(120, 169, 255, 0.21), rgba(120, 169, 255, 0.055));
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.sort-bar-value {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sort-index {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.is-sorted-column .sort-bar {
+  border-color: rgba(103, 220, 162, 0.53);
+  background: linear-gradient(180deg, rgba(103, 220, 162, 0.22), rgba(103, 220, 162, 0.055));
+}
+
+.is-compared-column .sort-bar {
+  border-color: rgba(169, 145, 255, 0.74);
+  background: linear-gradient(180deg, rgba(169, 145, 255, 0.31), rgba(169, 145, 255, 0.08));
+  box-shadow: 0 0 18px rgba(169, 145, 255, 0.12);
+}
+
+.is-swapped-column .sort-bar,
+.is-key-column .sort-bar {
+  border-color: rgba(243, 189, 122, 0.8);
+  background: linear-gradient(180deg, rgba(243, 189, 122, 0.28), rgba(243, 189, 122, 0.075));
+  box-shadow: 0 0 18px rgba(243, 189, 122, 0.12);
+}
+
+.sort-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 17px 5px;
+}
+
+.sort-progress > span,
+.sort-progress > strong {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.sort-progress > strong {
+  color: var(--accent-green);
+}
+
+.sort-progress-track {
+  flex: 1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(141, 163, 196, 0.16);
+}
+
+.sort-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+}
+
+.sort-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  padding: 9px 12px 14px;
+}
+
+.sort-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.sort-legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.is-sort-default-dot { background: var(--accent-blue); }
+.is-sort-compare-dot { background: var(--accent-purple); }
+.is-sort-swap-dot { background: var(--accent-orange); }
+.is-sort-done-dot { background: var(--accent-green); }
+
+@media (max-width: 600px) {
+  .sort-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sort-bars {
+    justify-content: flex-start;
+  }
+}

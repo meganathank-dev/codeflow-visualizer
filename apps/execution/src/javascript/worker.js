@@ -183,6 +183,7 @@ function executeSource(payload) {
     sandbox.MinHeap = runtime.createMinHeapConstructor();
     sandbox.Graph = runtime.createGraphConstructor();
     sandbox.SearchAlgorithms = runtime.createSearchAlgorithms();
+    sandbox.SortingAlgorithms = runtime.createSortingAlgorithms();
 
     const context = vm.createContext(
       sandbox,

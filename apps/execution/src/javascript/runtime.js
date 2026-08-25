@@ -308,6 +308,8 @@ function createJavaScriptRuntime(options = {}) {
 
   let nextSearchNumber = 0;
 
+  let nextSortNumber = 0;
+
   let lastRecordedLine = 1;
 
   function currentScopeId() {
@@ -1177,6 +1179,185 @@ function createJavaScriptRuntime(options = {}) {
     }));
 
     return -1;
+  }
+
+  function runSortAlgorithm(algorithm, values) {
+    if (!Array.isArray(values) || values.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
+      throw new TypeError("SortingAlgorithms requires an array containing finite numbers.");
+    }
+
+    const arrayName = [...references.entries()].find(([, value]) => value === values)?.[0] || "values";
+    const sortId = `sort:${++nextSortNumber}`;
+    const line = lastRecordedLine;
+    const initialValues = Array.from(values);
+    const sorted = new Set();
+    let comparisonCount = 0;
+    let swapCount = 0;
+    let writeCount = 0;
+    let pass = 0;
+
+    function emit(type, extra = {}) {
+      record(type, line, {
+        sortId,
+        algorithm,
+        arrayName,
+        values: Array.from(values),
+        initialValues,
+        comparisonCount,
+        swapCount,
+        writeCount,
+        pass,
+        sortedIndices: [...sorted].sort((left, right) => left - right),
+        compareIndices: [],
+        swapIndices: [],
+        activeIndex: null,
+        minIndex: null,
+        keyIndex: null,
+        ...extra
+      });
+    }
+
+    function mark(index) {
+      sorted.add(index);
+      emit(EVENT_TYPES.SORT_MARK_SORTED, { activeIndex: index });
+    }
+
+    function compare(left, right, extra = {}) {
+      comparisonCount += 1;
+      emit(EVENT_TYPES.SORT_COMPARE, {
+        compareIndices: [left, right],
+        activeIndex: right,
+        leftValue: values[left],
+        rightValue: values[right],
+        ...extra
+      });
+    }
+
+    function swap(left, right, extra = {}) {
+      [values[left], values[right]] = [values[right], values[left]];
+      swapCount += 1;
+      emit(EVENT_TYPES.SORT_SWAP, {
+        compareIndices: [left, right],
+        swapIndices: [left, right],
+        activeIndex: right,
+        ...extra
+      });
+    }
+
+    emit(EVENT_TYPES.SORT_START);
+
+    if (algorithm === "bubble") {
+      for (let boundary = values.length - 1; boundary > 0; boundary -= 1) {
+        pass += 1;
+        let changed = false;
+
+        for (let index = 0; index < boundary; index += 1) {
+          compare(index, index + 1);
+
+          if (values[index] > values[index + 1]) {
+            swap(index, index + 1);
+            changed = true;
+          }
+        }
+
+        mark(boundary);
+        emit(EVENT_TYPES.SORT_PASS, { boundary, changed });
+
+        if (!changed) {
+          break;
+        }
+      }
+    } else if (algorithm === "selection") {
+      for (let start = 0; start < values.length - 1; start += 1) {
+        pass += 1;
+        let minimum = start;
+
+        for (let index = start + 1; index < values.length; index += 1) {
+          compare(minimum, index, { minIndex: minimum });
+
+          if (values[index] < values[minimum]) {
+            minimum = index;
+            emit(EVENT_TYPES.SORT_COMPARE, {
+              compareIndices: [start, index],
+              activeIndex: index,
+              minIndex: minimum,
+              candidateChanged: true
+            });
+          }
+        }
+
+        if (minimum !== start) {
+          swap(start, minimum, { minIndex: minimum });
+        }
+
+        mark(start);
+        emit(EVENT_TYPES.SORT_PASS, { boundary: start, minIndex: minimum });
+      }
+    } else {
+      if (values.length > 0) {
+        sorted.add(0);
+      }
+
+      for (let index = 1; index < values.length; index += 1) {
+        pass += 1;
+        const key = values[index];
+        let cursor = index - 1;
+
+        while (cursor >= 0) {
+          comparisonCount += 1;
+          emit(EVENT_TYPES.SORT_COMPARE, {
+            compareIndices: [cursor, cursor + 1],
+            activeIndex: cursor,
+            keyIndex: cursor + 1,
+            key,
+            leftValue: values[cursor],
+            rightValue: key
+          });
+
+          if (values[cursor] <= key) {
+            break;
+          }
+
+          values[cursor + 1] = values[cursor];
+          writeCount += 1;
+          emit(EVENT_TYPES.SORT_WRITE, {
+            compareIndices: [cursor, cursor + 1],
+            activeIndex: cursor + 1,
+            keyIndex: cursor + 1,
+            writeIndex: cursor + 1,
+            value: values[cursor],
+            key,
+            action: "shift"
+          });
+          cursor -= 1;
+        }
+
+        values[cursor + 1] = key;
+        writeCount += 1;
+        emit(EVENT_TYPES.SORT_WRITE, {
+          activeIndex: cursor + 1,
+          keyIndex: cursor + 1,
+          writeIndex: cursor + 1,
+          value: key,
+          key,
+          action: "insert"
+        });
+
+        for (let sortedIndex = 0; sortedIndex <= index; sortedIndex += 1) {
+          sorted.add(sortedIndex);
+        }
+
+        emit(EVENT_TYPES.SORT_MARK_SORTED, { activeIndex: index, keyIndex: cursor + 1 });
+        emit(EVENT_TYPES.SORT_PASS, { boundary: index });
+      }
+    }
+
+    for (let index = 0; index < values.length; index += 1) {
+      sorted.add(index);
+    }
+
+    emit(EVENT_TYPES.SORT_END, { finished: true });
+    return values;
   }
 
   function recordTreeMethod(name, method, tree, result, line, requestedValue) {
@@ -2481,6 +2662,22 @@ function createJavaScriptRuntime(options = {}) {
 
         binarySearch(values, target) {
           return runSearchAlgorithm("binary", values, target);
+        }
+      };
+    },
+
+    createSortingAlgorithms() {
+      return {
+        bubbleSort(values) {
+          return runSortAlgorithm("bubble", values);
+        },
+
+        selectionSort(values) {
+          return runSortAlgorithm("selection", values);
+        },
+
+        insertionSort(values) {
+          return runSortAlgorithm("insertion", values);
         }
       };
     },

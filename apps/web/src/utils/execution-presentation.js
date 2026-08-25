@@ -227,6 +227,54 @@ function describeEvent(event, state, language) {
           : `Return -1 because ${formatValue(payload.target)} is absent after ${payload.comparisonCount} comparisons.`
       };
 
+    case "SORT_START":
+      return {
+        title: `Start ${payload.algorithm} sort`,
+        description: `${payload.algorithm.charAt(0).toUpperCase() + payload.algorithm.slice(1)} sort begins arranging ${payload.arrayName || "the array"} in ascending order.`
+      };
+
+    case "SORT_COMPARE":
+      return {
+        title: `Compare positions ${(payload.compareIndices || []).join(" and ")}`,
+        description: payload.candidateChanged
+          ? `Position ${payload.minIndex} becomes the new smallest candidate in selection sort.`
+          : `Compare ${formatValue(payload.leftValue)} with ${formatValue(payload.rightValue)} to determine their correct order.`
+      };
+
+    case "SORT_SWAP":
+      return {
+        title: `Swap positions ${(payload.swapIndices || []).join(" and ")}`,
+        description: `${payload.algorithm.charAt(0).toUpperCase() + payload.algorithm.slice(1)} sort exchanges two out-of-order values; ${payload.swapCount} swap${payload.swapCount === 1 ? "" : "s"} so far.`
+      };
+
+    case "SORT_WRITE":
+      return {
+        title: payload.action === "shift"
+          ? `Shift a value into position ${payload.writeIndex}`
+          : `Insert ${formatValue(payload.value)} at position ${payload.writeIndex}`,
+        description: payload.action === "shift"
+          ? `Move ${formatValue(payload.value)} one position right to open space for ${formatValue(payload.key)}.`
+          : `${formatValue(payload.value)} is placed into its ordered position in the sorted prefix.`
+      };
+
+    case "SORT_MARK_SORTED":
+      return {
+        title: `Confirm ${(payload.sortedIndices || []).length} ordered position${(payload.sortedIndices || []).length === 1 ? "" : "s"}`,
+        description: `The highlighted positions now satisfy the ordering established by ${payload.algorithm} sort.`
+      };
+
+    case "SORT_PASS":
+      return {
+        title: `Complete ${payload.algorithm} sort pass ${payload.pass}`,
+        description: `${payload.comparisonCount} comparison${payload.comparisonCount === 1 ? "" : "s"} and ${payload.swapCount || payload.writeCount || 0} array changes have been recorded.`
+      };
+
+    case "SORT_END":
+      return {
+        title: `${payload.algorithm.charAt(0).toUpperCase() + payload.algorithm.slice(1)} sort completed`,
+        description: `${payload.arrayName || "The array"} is sorted after ${payload.comparisonCount} comparisons, ${payload.swapCount} swaps, and ${payload.writeCount} writes.`
+      };
+
     case "STACK_CREATE":
       return {
         title: `Create ${name || "a stack"}`,
@@ -749,6 +797,31 @@ function selectSearch(state, event) {
   };
 }
 
+function selectSort(state, event) {
+  const sorts = state.sorts || {};
+  const eventSortId = event.payload?.sortId;
+  const selectedId = Object.hasOwn(sorts, eventSortId)
+    ? eventSortId
+    : Object.keys(sorts).at(-1);
+
+  if (!selectedId || !Array.isArray(sorts[selectedId]?.values)) {
+    return null;
+  }
+
+  const sort = sorts[selectedId];
+
+  return {
+    ...sort,
+    initialValues: Array.isArray(sort.initialValues) ? sort.initialValues : sort.values,
+    compareIndices: Array.isArray(sort.compareIndices) ? sort.compareIndices : [],
+    swapIndices: Array.isArray(sort.swapIndices) ? sort.swapIndices : [],
+    sortedIndices: Array.isArray(sort.sortedIndices) ? sort.sortedIndices : [],
+    operation: eventSortId === selectedId && event.type.startsWith("SORT_")
+      ? event.type
+      : null
+  };
+}
+
 function selectStack(state, event) {
   const stacks = state.stacks || {};
   const eventStack = event.payload?.name;
@@ -958,6 +1031,7 @@ export function createExecutionPresentation(result) {
     const controlFlow = selectControlFlow(state, event);
     const line = event.source?.line || state.source?.line || null;
     const search = selectSearch(state, event);
+    const sort = selectSort(state, event);
     const array = selectArray(state, event);
 
     return {
@@ -967,8 +1041,9 @@ export function createExecutionPresentation(result) {
       title: narrative.title,
       description: narrative.description,
       variables: selectVariables(state),
-      array: search && array?.name === search.arrayName ? null : array,
+      array: sort || (search && array?.name === search.arrayName) ? null : array,
       search,
+      sort,
       stack: selectStack(state, event),
       queue: selectQueue(state, event),
       linkedList: selectLinkedList(state, event),
@@ -1022,6 +1097,7 @@ export function createIdleExecutionStep(language = "javascript") {
     heap: null,
     graph: null,
     search: null,
+    sort: null,
     callStack: [],
     console: [],
     iteration: null,

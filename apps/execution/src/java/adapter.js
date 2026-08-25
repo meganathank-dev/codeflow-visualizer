@@ -1007,6 +1007,178 @@ function recordSearchAlgorithm(
   }), scopeId);
 }
 
+function recordSortAlgorithm(recorder, algorithm, arrayName, originalValues, line, scopeId, logicalSorts) {
+  logicalSorts.nextId += 1;
+
+  const sortId = `sort:${logicalSorts.nextId}`;
+  const values = structuredClone(originalValues);
+  const initialValues = structuredClone(originalValues);
+  const sorted = new Set();
+  let comparisonCount = 0;
+  let swapCount = 0;
+  let writeCount = 0;
+  let pass = 0;
+
+  function emit(type, extra = {}) {
+    record(recorder, type, line, {
+      sortId,
+      algorithm,
+      arrayName,
+      values: structuredClone(values),
+      initialValues,
+      comparisonCount,
+      swapCount,
+      writeCount,
+      pass,
+      sortedIndices: [...sorted].sort((left, right) => left - right),
+      compareIndices: [],
+      swapIndices: [],
+      activeIndex: null,
+      minIndex: null,
+      keyIndex: null,
+      ...extra
+    }, scopeId);
+  }
+
+  function compare(left, right, extra = {}) {
+    comparisonCount += 1;
+    emit(EVENT_TYPES.SORT_COMPARE, {
+      compareIndices: [left, right],
+      activeIndex: right,
+      leftValue: values[left],
+      rightValue: values[right],
+      ...extra
+    });
+  }
+
+  function swap(left, right, extra = {}) {
+    [values[left], values[right]] = [values[right], values[left]];
+    swapCount += 1;
+    emit(EVENT_TYPES.SORT_SWAP, {
+      compareIndices: [left, right],
+      swapIndices: [left, right],
+      activeIndex: right,
+      ...extra
+    });
+  }
+
+  emit(EVENT_TYPES.SORT_START);
+
+  if (algorithm === "bubble") {
+    for (let boundary = values.length - 1; boundary > 0; boundary -= 1) {
+      pass += 1;
+      let changed = false;
+
+      for (let index = 0; index < boundary; index += 1) {
+        compare(index, index + 1);
+
+        if (values[index] > values[index + 1]) {
+          swap(index, index + 1);
+          changed = true;
+        }
+      }
+
+      sorted.add(boundary);
+      emit(EVENT_TYPES.SORT_MARK_SORTED, { activeIndex: boundary });
+      emit(EVENT_TYPES.SORT_PASS, { boundary, changed });
+
+      if (!changed) {
+        break;
+      }
+    }
+  } else if (algorithm === "selection") {
+    for (let start = 0; start < values.length - 1; start += 1) {
+      pass += 1;
+      let minimum = start;
+
+      for (let index = start + 1; index < values.length; index += 1) {
+        compare(minimum, index, { minIndex: minimum });
+
+        if (values[index] < values[minimum]) {
+          minimum = index;
+          emit(EVENT_TYPES.SORT_COMPARE, {
+            compareIndices: [start, index],
+            activeIndex: index,
+            minIndex: minimum,
+            candidateChanged: true
+          });
+        }
+      }
+
+      if (minimum !== start) {
+        swap(start, minimum, { minIndex: minimum });
+      }
+
+      sorted.add(start);
+      emit(EVENT_TYPES.SORT_MARK_SORTED, { activeIndex: start });
+      emit(EVENT_TYPES.SORT_PASS, { boundary: start, minIndex: minimum });
+    }
+  } else {
+    if (values.length > 0) {
+      sorted.add(0);
+    }
+
+    for (let index = 1; index < values.length; index += 1) {
+      pass += 1;
+      const key = values[index];
+      let cursor = index - 1;
+
+      while (cursor >= 0) {
+        comparisonCount += 1;
+        emit(EVENT_TYPES.SORT_COMPARE, {
+          compareIndices: [cursor, cursor + 1],
+          activeIndex: cursor,
+          keyIndex: cursor + 1,
+          key,
+          leftValue: values[cursor],
+          rightValue: key
+        });
+
+        if (values[cursor] <= key) {
+          break;
+        }
+
+        values[cursor + 1] = values[cursor];
+        writeCount += 1;
+        emit(EVENT_TYPES.SORT_WRITE, {
+          compareIndices: [cursor, cursor + 1],
+          activeIndex: cursor + 1,
+          keyIndex: cursor + 1,
+          writeIndex: cursor + 1,
+          value: values[cursor],
+          key,
+          action: "shift"
+        });
+        cursor -= 1;
+      }
+
+      values[cursor + 1] = key;
+      writeCount += 1;
+      emit(EVENT_TYPES.SORT_WRITE, {
+        activeIndex: cursor + 1,
+        keyIndex: cursor + 1,
+        writeIndex: cursor + 1,
+        value: key,
+        key,
+        action: "insert"
+      });
+
+      for (let sortedIndex = 0; sortedIndex <= index; sortedIndex += 1) {
+        sorted.add(sortedIndex);
+      }
+
+      emit(EVENT_TYPES.SORT_MARK_SORTED, { activeIndex: index, keyIndex: cursor + 1 });
+      emit(EVENT_TYPES.SORT_PASS, { boundary: index });
+    }
+  }
+
+  for (let index = 0; index < values.length; index += 1) {
+    sorted.add(index);
+  }
+
+  emit(EVENT_TYPES.SORT_END, { finished: true });
+}
+
 function processCollectionStatement(
   recorder,
   sourceLine,
@@ -1019,10 +1191,11 @@ function processCollectionStatement(
   logicalTrees,
   logicalHeaps,
   logicalGraphs,
-  logicalSearches
+  logicalSearches,
+  logicalSorts
 ) {
   const match = sourceLine.match(
-    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey|contains|toArray|addNode|addEdge|bfs|dfs|linearSearch|binarySearch)\s*\((.*?)\)\s*;/
+    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey|contains|toArray|addNode|addEdge|bfs|dfs|linearSearch|binarySearch|bubbleSort|selectionSort|insertionSort)\s*\((.*?)\)\s*;/
   );
 
   if (!match) {
@@ -1030,6 +1203,34 @@ function processCollectionStatement(
   }
 
   const [, name, method, expression] = match;
+
+  if (
+    name === "SortingAlgorithms" &&
+    ["bubbleSort", "selectionSort", "insertionSort"].includes(method)
+  ) {
+    const arrayExpression = expression.split(",")[0].trim();
+    const values = locals[arrayExpression]?.value;
+
+    if (Array.isArray(values)) {
+      const algorithms = {
+        bubbleSort: "bubble",
+        selectionSort: "selection",
+        insertionSort: "insertion"
+      };
+
+      recordSortAlgorithm(
+        recorder,
+        algorithms[method],
+        arrayExpression,
+        values,
+        line,
+        scopeId,
+        logicalSorts
+      );
+    }
+
+    return;
+  }
 
   if (
     name === "SearchAlgorithms" &&
@@ -1672,6 +1873,7 @@ function buildJavaTrace(rawObservations, options) {
   const logicalHeaps = new Map();
   const logicalGraphs = new Map();
   const logicalSearches = { nextId: 0 };
+  const logicalSorts = { nextId: 0 };
   const controlFlow = createControlFlowTracker(options.sourceLines);
   const observations = rawObservations.trim().split(/\r?\n/).filter(Boolean);
 
@@ -1765,7 +1967,8 @@ function buildJavaTrace(rawObservations, options) {
         logicalTrees,
         logicalHeaps,
         logicalGraphs,
-        logicalSearches
+        logicalSearches,
+        logicalSorts
       );
 
       controlFlow.observeLine(
@@ -1818,7 +2021,8 @@ function buildJavaTrace(rawObservations, options) {
           logicalTrees,
           logicalHeaps,
           logicalGraphs,
-          logicalSearches
+          logicalSearches,
+          logicalSorts
         );
 
         controlFlow.close(recorder, frameState.lastLine, frameState.scopeId);
@@ -1966,6 +2170,7 @@ async function executeJava(source, options = {}) {
   const debuggerSourcePath = path.join(__dirname, "CodeFlowJavaDebugger.java");
   const graphSourcePath = path.join(__dirname, "CodeFlowGraph.java");
   const searchSourcePath = path.join(__dirname, "CodeFlowSearchAlgorithms.java");
+  const sortSourcePath = path.join(__dirname, "CodeFlowSortingAlgorithms.java");
 
   try {
     await fs.writeFile(sourcePath, source, "utf8");
@@ -1983,6 +2188,7 @@ async function executeJava(source, options = {}) {
         debuggerSourcePath,
         graphSourcePath,
         searchSourcePath,
+        sortSourcePath,
         sourcePath
       ],
       {

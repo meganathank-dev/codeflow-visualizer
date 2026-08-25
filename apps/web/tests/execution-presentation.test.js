@@ -20,6 +20,7 @@ function createState(step, overrides = {}) {
     heaps: {},
     graphs: {},
     searches: {},
+    sorts: {},
     callStack: [],
     console: [],
     errors: [],
@@ -869,6 +870,95 @@ function createSearchResult(language) {
   };
 }
 
+function createSortResult(language) {
+  const sortId = "sort:1";
+  const initialValues = [4, 2, 3];
+  const base = {
+    sortId,
+    algorithm: "bubble",
+    arrayName: "numbers",
+    initialValues
+  };
+  const entries = [
+    ["PROGRAM_START", {}],
+    ["ARRAY_CREATE", { name: "numbers", values: initialValues }],
+    ["SORT_START", { ...base, values: initialValues }],
+    ["SORT_COMPARE", {
+      ...base, values: initialValues, compareIndices: [0, 1], activeIndex: 1,
+      comparisonCount: 1, leftValue: 4, rightValue: 2
+    }],
+    ["SORT_SWAP", {
+      ...base, values: [2, 4, 3], compareIndices: [0, 1], swapIndices: [0, 1],
+      activeIndex: 1, comparisonCount: 1, swapCount: 1
+    }],
+    ["SORT_WRITE", {
+      ...base, values: [2, 3, 4], activeIndex: 1, writeIndex: 1, key: 3,
+      value: 4, action: "shift", comparisonCount: 2, swapCount: 1, writeCount: 1
+    }],
+    ["SORT_MARK_SORTED", {
+      ...base, values: [2, 3, 4], sortedIndices: [2], comparisonCount: 2,
+      swapCount: 1, writeCount: 1
+    }],
+    ["SORT_PASS", {
+      ...base, values: [2, 3, 4], sortedIndices: [2], pass: 1,
+      comparisonCount: 2, swapCount: 1, writeCount: 1
+    }],
+    ["SORT_END", {
+      ...base, values: [2, 3, 4], sortedIndices: [0, 1, 2], pass: 1,
+      comparisonCount: 2, swapCount: 1, writeCount: 1, finished: true
+    }],
+    ["PROGRAM_END", {}]
+  ];
+  const events = entries.map(([type, payload], step) => ({
+    id: `sort-event-${step}`,
+    step,
+    type,
+    source: { line: step > 1 ? 2 : 1 },
+    payload
+  }));
+  const states = events.map((event, step) => {
+    const values = step >= 5 ? [2, 3, 4] : step >= 4 ? [2, 4, 3] : initialValues;
+    const sorts = step >= 2
+      ? {
+        [sortId]: {
+          id: sortId,
+          algorithm: "bubble",
+          arrayName: "numbers",
+          initialValues,
+          values,
+          compareIndices: step === 3 || step === 4 ? [0, 1] : [],
+          swapIndices: step === 4 ? [0, 1] : [],
+          sortedIndices: step >= 8 ? [0, 1, 2] : step >= 6 ? [2] : [],
+          activeIndex: step >= 3 && step <= 5 ? 1 : null,
+          writeIndex: step === 5 ? 1 : null,
+          comparisonCount: step >= 5 ? 2 : step >= 3 ? 1 : 0,
+          swapCount: step >= 4 ? 1 : 0,
+          writeCount: step >= 5 ? 1 : 0,
+          pass: step >= 7 ? 1 : 0,
+          finished: step >= 8,
+          lastOperation: event.type
+        }
+      }
+      : {};
+
+    return createState(step, {
+      status: step === events.length - 1 ? "completed" : "running",
+      variables: step > 0 ? { numbers: values } : {},
+      arrays: step > 0 ? { numbers: values } : {},
+      sorts
+    });
+  });
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: { traceId: `${language}-sort-presentation-test`, status: "completed", events },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
 function runTests() {
   const presentation = createExecutionPresentation(createResult());
 
@@ -1045,6 +1135,21 @@ function runTests() {
     assert.equal(searchPresentation.steps[7].search.finished, true);
     assert.equal(searchPresentation.steps[7].array, null);
     assert.match(searchPresentation.steps[4].description, /LOW 3.*HIGH 5/i);
+
+    const sortPresentation = createExecutionPresentation(
+      createSortResult(language)
+    );
+
+    assert.equal(sortPresentation.steps[2].sort.algorithm, "bubble");
+    assert.deepEqual(sortPresentation.steps[3].sort.compareIndices, [0, 1]);
+    assert.deepEqual(sortPresentation.steps[4].sort.swapIndices, [0, 1]);
+    assert.deepEqual(sortPresentation.steps[4].sort.values, [2, 4, 3]);
+    assert.equal(sortPresentation.steps[5].sort.writeCount, 1);
+    assert.deepEqual(sortPresentation.steps[6].sort.sortedIndices, [2]);
+    assert.deepEqual(sortPresentation.steps[8].sort.values, [2, 3, 4]);
+    assert.equal(sortPresentation.steps[8].sort.finished, true);
+    assert.equal(sortPresentation.steps[8].array, null);
+    assert.match(sortPresentation.steps[4].description, /exchanges/i);
   }
 
   const sqlPresentation = createExecutionPresentation(createSqlResult());
@@ -1120,6 +1225,8 @@ function runTests() {
   console.log("Graph node, direct-edge, BFS, and DFS animation state: passed");
   console.log("Cross-language searching-algorithm presentation: passed");
   console.log("Linear and binary search pointers, comparison, and result state: passed");
+  console.log("Cross-language sorting-algorithm presentation: passed");
+  console.log("Sorting comparisons, swaps, shifts, passes, and sorted positions: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");
