@@ -615,6 +615,16 @@ function testDomainRestrictions() {
   );
 
   assert.equal(
+    isEventAllowedForDomain(EVENT_TYPES.HEAP_INSERT, TRACE_DOMAINS.PROGRAM),
+    true
+  );
+
+  assert.equal(
+    isEventAllowedForDomain(EVENT_TYPES.HEAP_INSERT, TRACE_DOMAINS.QUERY),
+    false
+  );
+
+  assert.equal(
     isEventAllowedForDomain(
       EVENT_TYPES.LINKED_LIST_CREATE,
       TRACE_DOMAINS.PROGRAM

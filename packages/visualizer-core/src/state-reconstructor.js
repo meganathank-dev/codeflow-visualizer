@@ -48,6 +48,8 @@ function createInitialState(trace) {
 
     trees: {},
 
+    heaps: {},
+
     linkedLists: {},
 
     objects: {},
@@ -864,6 +866,61 @@ function handleTreeEvent(state, event) {
   tree.lastOperation = event.type;
 }
 
+function handleHeapEvent(state, event) {
+  const payload = event.payload || {};
+  const name = payload.heapName || payload.name || "heap";
+
+  if (!state.heaps[name]) {
+    state.heaps[name] = {
+      name,
+      heapType: payload.heapType || "min",
+      values: [],
+      activeIndices: [],
+      swap: null,
+      peekedValue: null,
+      extractedValue: null,
+      lastOperation: null
+    };
+  }
+
+  const heap = state.heaps[name];
+
+  if (Array.isArray(payload.values)) {
+    heap.values = cloneValue(payload.values);
+  }
+
+  heap.heapType = payload.heapType || heap.heapType || "min";
+  heap.activeIndices = Array.isArray(payload.activeIndices)
+    ? cloneValue(payload.activeIndices)
+    : [];
+  heap.swap = null;
+
+  if (event.type === EVENT_TYPES.HEAP_CREATE) {
+    heap.peekedValue = null;
+    heap.extractedValue = null;
+  } else if (event.type === EVENT_TYPES.HEAP_INSERT) {
+    heap.activeIndices = Number.isInteger(payload.index)
+      ? [payload.index]
+      : heap.activeIndices;
+  } else if (event.type === EVENT_TYPES.HEAP_SWAP) {
+    const fromIndex = Number(payload.fromIndex);
+    const toIndex = Number(payload.toIndex);
+
+    heap.swap = Number.isInteger(fromIndex) && Number.isInteger(toIndex)
+      ? { fromIndex, toIndex }
+      : null;
+    heap.activeIndices = heap.swap ? [fromIndex, toIndex] : heap.activeIndices;
+  } else if (event.type === EVENT_TYPES.HEAP_PEEK) {
+    heap.peekedValue = cloneValue(payload.value);
+    heap.activeIndices = heap.values.length > 0 ? [0] : [];
+  } else if (event.type === EVENT_TYPES.HEAP_EXTRACT) {
+    heap.extractedValue = cloneValue(payload.value);
+    heap.activeIndices = heap.values.length > 0 ? [0] : [];
+  }
+
+  heap.lastOperation = event.type;
+}
+
 function handleFunctionEnter(state, event) {
   const name = (
     event.payload.name ||
@@ -1464,6 +1521,16 @@ function reduceExecutionEvent(previousState, event) {
     case EVENT_TYPES.TREE_SEARCH:
     case EVENT_TYPES.TREE_TRAVERSE: {
       handleTreeEvent(state, event);
+
+      break;
+    }
+
+    case EVENT_TYPES.HEAP_CREATE:
+    case EVENT_TYPES.HEAP_INSERT:
+    case EVENT_TYPES.HEAP_SWAP:
+    case EVENT_TYPES.HEAP_PEEK:
+    case EVENT_TYPES.HEAP_EXTRACT: {
+      handleHeapEvent(state, event);
 
       break;
     }

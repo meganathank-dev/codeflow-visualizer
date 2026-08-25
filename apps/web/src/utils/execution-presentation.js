@@ -280,6 +280,36 @@ function describeEvent(event, state, language) {
         description: `The traversal visits the tree in order: ${formatValue(payload.order || [])}.`
       };
 
+    case "HEAP_CREATE":
+      return {
+        title: `Create ${name || "a min heap"}`,
+        description: "An empty min heap is ready to keep its smallest value at the root."
+      };
+
+    case "HEAP_INSERT":
+      return {
+        title: `Insert ${formatValue(value)} into ${name || "the heap"}`,
+        description: `${formatValue(value)} enters at the next open position before heap-order restoration.`
+      };
+
+    case "HEAP_SWAP":
+      return {
+        title: `${payload.reason === "bubble-down" ? "Bubble down" : "Bubble up"} through the heap`,
+        description: `Indexes ${payload.fromIndex} and ${payload.toIndex} swap to restore the min-heap property.`
+      };
+
+    case "HEAP_PEEK":
+      return {
+        title: `Peek at the minimum value`,
+        description: `${formatValue(value)} is at the root; the heap remains unchanged.`
+      };
+
+    case "HEAP_EXTRACT":
+      return {
+        title: `Extract minimum ${formatValue(value)}`,
+        description: `The root is removed and the remaining values prepare to restore heap order.`
+      };
+
     case "LINKED_LIST_CREATE":
       return {
         title: `Create ${name || "a linked list"}`,
@@ -399,6 +429,7 @@ function selectArray(state, event) {
   const hashMapNames = new Set(Object.keys(state.hashMaps || {}));
   const linkedListNames = new Set(Object.keys(state.linkedLists || {}));
   const treeNames = new Set(Object.keys(state.trees || {}));
+  const heapNames = new Set(Object.keys(state.heaps || {}));
   const eventArray = event.payload?.arrayName || event.payload?.name;
 
   const visibleNames = Object.keys(arrays).filter(
@@ -408,6 +439,7 @@ function selectArray(state, event) {
       !hashMapNames.has(name) &&
       !linkedListNames.has(name) &&
       !treeNames.has(name) &&
+      !heapNames.has(name) &&
       !(
         ["args", "argv"].includes(name.toLowerCase()) &&
         Array.isArray(arrays[name]) &&
@@ -470,6 +502,10 @@ function selectVariables(state) {
     variables[name] = treeValuesInorder(tree);
   }
 
+  for (const [name, heap] of Object.entries(state.heaps || {})) {
+    variables[name] = Array.isArray(heap.values) ? heap.values : [];
+  }
+
   return variables;
 }
 
@@ -521,6 +557,34 @@ function selectTree(state, event) {
     traversalOrder: Array.isArray(tree.traversalOrder) ? tree.traversalOrder : [],
     searchResult: tree.searchResult,
     operation: isTreeEvent ? event.type : null
+  };
+}
+
+function selectHeap(state, event) {
+  const heaps = state.heaps || {};
+  const eventHeap = event.payload?.heapName || event.payload?.name;
+  const selectedName = Object.hasOwn(heaps, eventHeap)
+    ? eventHeap
+    : Object.keys(heaps)[0];
+
+  if (!selectedName || !Array.isArray(heaps[selectedName]?.values)) {
+    return null;
+  }
+
+  const heap = heaps[selectedName];
+  const isHeapEvent = eventHeap === selectedName && event.type.startsWith("HEAP_");
+
+  return {
+    name: selectedName,
+    heapType: heap.heapType || "min",
+    values: heap.values,
+    activeIndices: isHeapEvent && Array.isArray(heap.activeIndices)
+      ? heap.activeIndices
+      : [],
+    swap: isHeapEvent ? heap.swap : null,
+    peekedValue: heap.peekedValue,
+    extractedValue: heap.extractedValue,
+    operation: isHeapEvent ? event.type : null
   };
 }
 
@@ -746,6 +810,7 @@ export function createExecutionPresentation(result) {
       linkedList: selectLinkedList(state, event),
       hashMap: selectHashMap(state, event),
       tree: selectTree(state, event),
+      heap: selectHeap(state, event),
       callStack: (state.callStack || []).map((frame) => ({
         name: frame.name || frame.functionName || "anonymous",
         line: frame.source?.line || line
@@ -789,6 +854,7 @@ export function createIdleExecutionStep(language = "javascript") {
     linkedList: null,
     hashMap: null,
     tree: null,
+    heap: null,
     callStack: [],
     console: [],
     iteration: null,

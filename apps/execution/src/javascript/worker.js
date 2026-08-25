@@ -180,6 +180,7 @@ function executeSource(payload) {
     sandbox.LinkedList = runtime.createLinkedListConstructor();
     sandbox.Map = runtime.createHashMapConstructor();
     sandbox.BinarySearchTree = runtime.createBinarySearchTreeConstructor();
+    sandbox.MinHeap = runtime.createMinHeapConstructor();
 
     const context = vm.createContext(
       sandbox,

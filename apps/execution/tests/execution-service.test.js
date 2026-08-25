@@ -632,6 +632,87 @@ async function testCrossLanguageBinarySearchTrees(baseUrl) {
   return executions;
 }
 
+async function testCrossLanguageMinHeaps(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "const heap = new MinHeap();",
+      "heap.insert(40);",
+      "heap.insert(10);",
+      "heap.insert(30);",
+      "heap.insert(5);",
+      "heap.insert(20);",
+      "const minimum = heap.peek();",
+      "const removed = heap.extract();",
+      'console.log("Minimum:", minimum, "Removed:", removed);'
+    ].join("\n"),
+    python: [
+      "heap = MinHeap()",
+      "heap.insert(40)",
+      "heap.insert(10)",
+      "heap.insert(30)",
+      "heap.insert(5)",
+      "heap.insert(20)",
+      "minimum = heap.peek()",
+      "removed = heap.extract()",
+      'print("Minimum:", minimum, "Removed:", removed)'
+    ].join("\n"),
+    java: [
+      "import java.util.PriorityQueue;",
+      "",
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        PriorityQueue<Integer> heap = new PriorityQueue<>();",
+      "        heap.offer(40);",
+      "        heap.offer(10);",
+      "        heap.offer(30);",
+      "        heap.offer(5);",
+      "        heap.offer(20);",
+      "        int minimum = heap.peek();",
+      "        int removed = heap.poll();",
+      '        System.out.println("Minimum: " + minimum + " Removed: " + removed);',
+      "    }",
+      "}"
+    ].join("\n")
+  };
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "HEAP_CREATE",
+      "HEAP_INSERT",
+      "HEAP_SWAP",
+      "HEAP_PEEK",
+      "HEAP_EXTRACT"
+    ]);
+
+    const finalState = execution.states.at(-1);
+    const heap = finalState.heaps.heap;
+
+    assert.deepEqual(heap.values, [10, 20, 30, 40]);
+    assert.equal(heap.heapType, "min");
+    assert.equal(finalState.variables.minimum, 5);
+    assert.equal(finalState.variables.removed, 5);
+    assert.equal(
+      heap.values.every((value, index, values) => {
+        const left = index * 2 + 1;
+        const right = index * 2 + 2;
+        return (left >= values.length || value <= values[left]) &&
+          (right >= values.length || value <= values[right]);
+      }),
+      true
+    );
+
+    executions[language] = execution;
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -809,6 +890,7 @@ async function runTests() {
     const linkedLists = await testCrossLanguageLinkedLists(baseUrl);
     const hashMaps = await testCrossLanguageHashMaps(baseUrl);
     const trees = await testCrossLanguageBinarySearchTrees(baseUrl);
+    const heaps = await testCrossLanguageMinHeaps(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -864,6 +946,11 @@ async function runTests() {
     console.log(`JavaScript tree events: ${trees.javascript.trace.events.filter((event) => event.type.startsWith("TREE_")).length}`);
     console.log(`Python tree events: ${trees.python.trace.events.filter((event) => event.type.startsWith("TREE_")).length}`);
     console.log(`Java tree events: ${trees.java.trace.events.filter((event) => event.type.startsWith("TREE_")).length}`);
+    console.log("Cross-language Min Heap execution: passed");
+    console.log("Heap insertion, bubble-up, peek, extraction, and bubble-down: passed");
+    console.log(`JavaScript heap events: ${heaps.javascript.trace.events.filter((event) => event.type.startsWith("HEAP_")).length}`);
+    console.log(`Python heap events: ${heaps.python.trace.events.filter((event) => event.type.startsWith("HEAP_")).length}`);
+    console.log(`Java heap events: ${heaps.java.trace.events.filter((event) => event.type.startsWith("HEAP_")).length}`);
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");

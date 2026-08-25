@@ -309,6 +309,103 @@ class CodeFlowBinarySearchTree:
         return nodes
 
 
+class CodeFlowMinHeap:
+    def __init__(self):
+        self.values = []
+        self.last_requested_value = None
+        self.last_extracted_value = None
+        self.last_peeked_value = None
+        self.last_steps = []
+
+    def validate_value(self, value):
+        if not isinstance(value, (int, float, str)) or isinstance(value, bool):
+            raise TypeError("The current MinHeap visualizer supports number or string values only.")
+
+        if self.values and type(value) is not type(self.values[0]):
+            raise TypeError("All MinHeap values must use the same primitive type.")
+
+    def insert(self, value):
+        self.validate_value(value)
+        self.last_requested_value = value
+        self.last_steps = []
+        self.values.append(value)
+        index = len(self.values) - 1
+        self.last_steps.append({"kind": "insert", "index": index, "values": self.to_array()})
+
+        while index > 0:
+            parent_index = (index - 1) // 2
+
+            if self.values[parent_index] <= self.values[index]:
+                break
+
+            self.values[parent_index], self.values[index] = (
+                self.values[index],
+                self.values[parent_index],
+            )
+            self.last_steps.append({
+                "kind": "swap",
+                "fromIndex": index,
+                "toIndex": parent_index,
+                "values": self.to_array(),
+            })
+            index = parent_index
+
+        return len(self.values)
+
+    def peek(self):
+        self.last_peeked_value = self.values[0] if self.values else None
+        self.last_steps = []
+        return self.last_peeked_value
+
+    def extract(self):
+        self.last_steps = []
+
+        if not self.values:
+            self.last_extracted_value = None
+            return None
+
+        minimum = self.values[0]
+        last = self.values.pop()
+
+        if self.values:
+            self.values[0] = last
+
+        self.last_extracted_value = minimum
+        self.last_steps.append({"kind": "extract", "index": 0, "values": self.to_array()})
+        index = 0
+
+        while index < len(self.values):
+            left_index = index * 2 + 1
+            right_index = index * 2 + 2
+            smallest_index = index
+
+            if left_index < len(self.values) and self.values[left_index] < self.values[smallest_index]:
+                smallest_index = left_index
+
+            if right_index < len(self.values) and self.values[right_index] < self.values[smallest_index]:
+                smallest_index = right_index
+
+            if smallest_index == index:
+                break
+
+            self.values[index], self.values[smallest_index] = (
+                self.values[smallest_index],
+                self.values[index],
+            )
+            self.last_steps.append({
+                "kind": "swap",
+                "fromIndex": index,
+                "toIndex": smallest_index,
+                "values": self.to_array(),
+            })
+            index = smallest_index
+
+        return minimum
+
+    def to_array(self):
+        return list(self.values)
+
+
 def json_safe(value, depth=0, ancestors=None):
     if depth > 12:
         return {"$type": type(value).__name__, "display": "<maximum depth reached>"}
@@ -321,6 +418,9 @@ def json_safe(value, depth=0, ancestors=None):
 
     if isinstance(value, CodeFlowBinarySearchTree):
         return [json_safe(item, depth + 1, ancestors) for item in value.inorder_values()]
+
+    if isinstance(value, CodeFlowMinHeap):
+        return [json_safe(item, depth + 1, ancestors) for item in value.to_array()]
 
     if isinstance(value, float):
         if math.isfinite(value):
@@ -391,6 +491,9 @@ def get_value_type(value):
 
     if isinstance(value, CodeFlowBinarySearchTree):
         return "binary-search-tree"
+
+    if isinstance(value, CodeFlowMinHeap):
+        return "min-heap"
 
     if isinstance(value, tuple):
         return "tuple"
@@ -571,7 +674,7 @@ class SourceInstrumenter(ast.NodeTransformer):
         if node.func.attr not in {
             "append", "pop", "insert", "remove", "extend", "clear",
             "prepend", "remove_at", "get", "to_list", "update", "setdefault",
-            "search", "inorder"
+            "search", "inorder", "peek", "extract", "to_array"
         }:
             return node
 
@@ -671,6 +774,19 @@ class PythonExecutionTracer:
                     "treeName": name,
                     "nodes": [],
                     "rootId": None,
+                },
+                scope_id,
+            )
+
+        if variable["valueType"] == "min-heap":
+            self.record(
+                "HEAP_CREATE",
+                line,
+                {
+                    "name": name,
+                    "heapName": name,
+                    "heapType": "min",
+                    "values": value,
                 },
                 scope_id,
             )
@@ -1182,6 +1298,89 @@ class PythonExecutionTracer:
 
             return result
 
+        if isinstance(collection, CodeFlowMinHeap):
+            result = method(*args, **kwargs)
+            scope_id = self.caller_scope()
+            base_payload = {
+                "name": name,
+                "heapName": name,
+                "heapType": "min",
+            }
+
+            if method_name == "insert":
+                insert_step = collection.last_steps[0] if collection.last_steps else {
+                    "index": len(collection.values) - 1,
+                    "values": collection.to_array(),
+                }
+                self.record(
+                    "HEAP_INSERT",
+                    line,
+                    {
+                        **base_payload,
+                        "value": json_safe(collection.last_requested_value),
+                        "index": insert_step["index"],
+                        "values": json_safe(insert_step["values"]),
+                    },
+                    scope_id,
+                )
+
+                for step in collection.last_steps[1:]:
+                    self.record(
+                        "HEAP_SWAP",
+                        line,
+                        {
+                            **base_payload,
+                            "fromIndex": step["fromIndex"],
+                            "toIndex": step["toIndex"],
+                            "values": json_safe(step["values"]),
+                            "reason": "bubble-up",
+                        },
+                        scope_id,
+                    )
+            elif method_name == "peek":
+                self.record(
+                    "HEAP_PEEK",
+                    line,
+                    {
+                        **base_payload,
+                        "value": json_safe(result),
+                        "values": json_safe(collection.to_array()),
+                        "activeIndices": [0] if collection.values else [],
+                    },
+                    scope_id,
+                )
+            elif method_name == "extract":
+                extract_step = collection.last_steps[0] if collection.last_steps else {
+                    "values": collection.to_array(),
+                }
+                self.record(
+                    "HEAP_EXTRACT",
+                    line,
+                    {
+                        **base_payload,
+                        "value": json_safe(result),
+                        "values": json_safe(extract_step["values"]),
+                        "activeIndices": [0] if extract_step["values"] else [],
+                    },
+                    scope_id,
+                )
+
+                for step in collection.last_steps[1:]:
+                    self.record(
+                        "HEAP_SWAP",
+                        line,
+                        {
+                            **base_payload,
+                            "fromIndex": step["fromIndex"],
+                            "toIndex": step["toIndex"],
+                            "values": json_safe(step["values"]),
+                            "reason": "bubble-down",
+                        },
+                        scope_id,
+                    )
+
+            return result
+
         if not isinstance(collection, list):
             return method(*args, **kwargs)
 
@@ -1276,6 +1475,7 @@ class PythonExecutionTracer:
             "list": list,
             "LinkedList": CodeFlowLinkedList,
             "BinarySearchTree": CodeFlowBinarySearchTree,
+            "MinHeap": CodeFlowMinHeap,
             "max": max,
             "min": min,
             "print": self.traced_print,

@@ -33,6 +33,7 @@ const ALLOWED_IMPORTS = new Set([
   "java.util.List",
   "java.util.Map",
   "java.util.Queue",
+  "java.util.PriorityQueue",
   "java.util.Stack",
   "java.util.TreeSet"
 ]);
@@ -467,6 +468,18 @@ function emitVariableDeclare(recorder, name, variable, line, scopeId) {
     }, scopeId);
   }
 
+  if (
+    variable.valueType === "object" &&
+    /(?:^|\.)PriorityQueue$/.test(variable.value?.display || "")
+  ) {
+    record(recorder, EVENT_TYPES.HEAP_CREATE, line, {
+      name,
+      heapName: name,
+      heapType: "min",
+      values: []
+    }, scopeId);
+  }
+
   if (/linked.?list/i.test(name)) {
     record(recorder, EVENT_TYPES.LINKED_LIST_CREATE, line, {
       name,
@@ -677,6 +690,109 @@ function traverseLogicalTree(tree) {
   return { order, visitedIds };
 }
 
+function insertLogicalHeap(values, value) {
+  values.push(structuredClone(value));
+  let index = values.length - 1;
+  const steps = [{ kind: "insert", index, values: structuredClone(values) }];
+
+  while (index > 0) {
+    const parentIndex = Math.floor((index - 1) / 2);
+
+    if (compareTreeValues(values[parentIndex], values[index]) <= 0) {
+      break;
+    }
+
+    [values[parentIndex], values[index]] = [values[index], values[parentIndex]];
+    steps.push({
+      kind: "swap",
+      fromIndex: index,
+      toIndex: parentIndex,
+      values: structuredClone(values)
+    });
+    index = parentIndex;
+  }
+
+  return steps;
+}
+
+function extractLogicalHeap(values) {
+  if (values.length === 0) {
+    return { value: null, steps: [{ kind: "extract", values: [] }] };
+  }
+
+  const value = values[0];
+  const last = values.pop();
+
+  if (values.length > 0) {
+    values[0] = last;
+  }
+
+  const steps = [{ kind: "extract", index: 0, values: structuredClone(values) }];
+  let index = 0;
+
+  while (index < values.length) {
+    const leftIndex = index * 2 + 1;
+    const rightIndex = index * 2 + 2;
+    let smallestIndex = index;
+
+    if (
+      leftIndex < values.length &&
+      compareTreeValues(values[leftIndex], values[smallestIndex]) < 0
+    ) {
+      smallestIndex = leftIndex;
+    }
+
+    if (
+      rightIndex < values.length &&
+      compareTreeValues(values[rightIndex], values[smallestIndex]) < 0
+    ) {
+      smallestIndex = rightIndex;
+    }
+
+    if (smallestIndex === index) {
+      break;
+    }
+
+    [values[index], values[smallestIndex]] = [values[smallestIndex], values[index]];
+    steps.push({
+      kind: "swap",
+      fromIndex: index,
+      toIndex: smallestIndex,
+      values: structuredClone(values)
+    });
+    index = smallestIndex;
+  }
+
+  return { value: structuredClone(value), steps };
+}
+
+function recordLogicalHeapSteps(recorder, line, scopeId, name, eventType, value, steps, reason) {
+  const [firstStep, ...swapSteps] = steps;
+  const basePayload = {
+    name,
+    heapName: name,
+    heapType: "min"
+  };
+
+  record(recorder, eventType, line, {
+    ...basePayload,
+    value: structuredClone(value),
+    index: firstStep?.index ?? 0,
+    values: structuredClone(firstStep?.values || []),
+    activeIndices: firstStep?.values?.length ? [firstStep.index ?? 0] : []
+  }, scopeId);
+
+  for (const step of swapSteps) {
+    record(recorder, EVENT_TYPES.HEAP_SWAP, line, {
+      ...basePayload,
+      fromIndex: step.fromIndex,
+      toIndex: step.toIndex,
+      values: structuredClone(step.values),
+      reason
+    }, scopeId);
+  }
+}
+
 function processCollectionStatement(
   recorder,
   sourceLine,
@@ -686,7 +802,8 @@ function processCollectionStatement(
   logicalQueues,
   logicalLinkedLists,
   logicalHashMaps,
-  logicalTrees
+  logicalTrees,
+  logicalHeaps
 ) {
   const match = sourceLine.match(
     /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey|contains|toArray)\s*\((.*?)\)\s*;/
@@ -698,6 +815,53 @@ function processCollectionStatement(
 
   const [, name, method, expression] = match;
   const lowerName = name.toLowerCase();
+
+  if (
+    logicalHeaps.has(name) ||
+    /(?:^|\.)PriorityQueue$/.test(locals[name]?.value?.display || "")
+  ) {
+    const values = logicalHeaps.get(name) || [];
+
+    if (["add", "offer"].includes(method)) {
+      const value = evaluateSimpleExpression(expression.trim(), locals);
+      const steps = insertLogicalHeap(values, value);
+      logicalHeaps.set(name, values);
+      recordLogicalHeapSteps(
+        recorder,
+        line,
+        scopeId,
+        name,
+        EVENT_TYPES.HEAP_INSERT,
+        value,
+        steps,
+        "bubble-up"
+      );
+    } else if (["poll", "remove"].includes(method)) {
+      const extraction = extractLogicalHeap(values);
+      logicalHeaps.set(name, values);
+      recordLogicalHeapSteps(
+        recorder,
+        line,
+        scopeId,
+        name,
+        EVENT_TYPES.HEAP_EXTRACT,
+        extraction.value,
+        extraction.steps,
+        "bubble-down"
+      );
+    } else if (["peek", "element"].includes(method)) {
+      record(recorder, EVENT_TYPES.HEAP_PEEK, line, {
+        name,
+        heapName: name,
+        heapType: "min",
+        value: structuredClone(values[0]),
+        values: structuredClone(values),
+        activeIndices: values.length > 0 ? [0] : []
+      }, scopeId);
+    }
+
+    return;
+  }
 
   if (
     logicalTrees.has(name) ||
@@ -1192,6 +1356,7 @@ function buildJavaTrace(rawObservations, options) {
   const logicalLinkedLists = new Map();
   const logicalHashMaps = new Map();
   const logicalTrees = new Map();
+  const logicalHeaps = new Map();
   const controlFlow = createControlFlowTracker(options.sourceLines);
   const observations = rawObservations.trim().split(/\r?\n/).filter(Boolean);
 
@@ -1282,7 +1447,8 @@ function buildJavaTrace(rawObservations, options) {
         logicalQueues,
         logicalLinkedLists,
         logicalHashMaps,
-        logicalTrees
+        logicalTrees,
+        logicalHeaps
       );
 
       controlFlow.observeLine(
@@ -1332,7 +1498,8 @@ function buildJavaTrace(rawObservations, options) {
           logicalQueues,
           logicalLinkedLists,
           logicalHashMaps,
-          logicalTrees
+          logicalTrees,
+          logicalHeaps
         );
 
         controlFlow.close(recorder, frameState.lastLine, frameState.scopeId);

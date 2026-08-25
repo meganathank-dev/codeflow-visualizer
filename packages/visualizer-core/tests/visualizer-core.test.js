@@ -651,6 +651,78 @@ function testTreeReconstruction() {
   assert.deepEqual(reconstructor.getStateAt(6).trees.tree.traversalOrder, [30, 50, 70]);
 }
 
+function testHeapReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-heap-test"
+  });
+
+  recorder.start();
+  recorder.record(EVENT_TYPES.HEAP_CREATE, {
+    name: "heap",
+    heapName: "heap",
+    heapType: "min",
+    values: []
+  });
+  recorder.record(EVENT_TYPES.HEAP_INSERT, {
+    name: "heap",
+    heapName: "heap",
+    value: 40,
+    index: 0,
+    values: [40]
+  });
+  recorder.record(EVENT_TYPES.HEAP_INSERT, {
+    name: "heap",
+    heapName: "heap",
+    value: 10,
+    index: 1,
+    values: [40, 10]
+  });
+  recorder.record(EVENT_TYPES.HEAP_SWAP, {
+    name: "heap",
+    heapName: "heap",
+    fromIndex: 1,
+    toIndex: 0,
+    values: [10, 40]
+  });
+  recorder.record(EVENT_TYPES.HEAP_INSERT, {
+    name: "heap",
+    heapName: "heap",
+    value: 30,
+    index: 2,
+    values: [10, 40, 30]
+  });
+  recorder.record(EVENT_TYPES.HEAP_PEEK, {
+    name: "heap",
+    heapName: "heap",
+    value: 10,
+    values: [10, 40, 30]
+  });
+  recorder.record(EVENT_TYPES.HEAP_EXTRACT, {
+    name: "heap",
+    heapName: "heap",
+    value: 10,
+    values: [30, 40]
+  });
+  recorder.finish();
+
+  const reconstructor = new StateReconstructor(recorder.toJSON(), {
+    checkpointInterval: 2
+  });
+
+  assert.deepEqual(reconstructor.getStateAt(1).heaps.heap.values, []);
+  assert.deepEqual(reconstructor.getStateAt(3).heaps.heap.values, [40, 10]);
+  assert.deepEqual(reconstructor.getStateAt(4).heaps.heap.values, [10, 40]);
+  assert.deepEqual(reconstructor.getStateAt(4).heaps.heap.activeIndices, [1, 0]);
+  assert.deepEqual(reconstructor.getStateAt(4).heaps.heap.swap, {
+    fromIndex: 1,
+    toIndex: 0
+  });
+  assert.equal(reconstructor.getStateAt(6).heaps.heap.peekedValue, 10);
+  assert.equal(reconstructor.getStateAt(7).heaps.heap.extractedValue, 10);
+  assert.deepEqual(reconstructor.getStateAt(7).heaps.heap.values, [30, 40]);
+}
+
 function testProgramStateReconstruction(trace) {
   const reconstructor = new StateReconstructor(
     trace,
@@ -1399,6 +1471,8 @@ async function runTests() {
 
   testTreeReconstruction();
 
+  testHeapReconstruction();
+
   testTimelineNavigation(
     programTrace
   );
@@ -1463,6 +1537,10 @@ async function runTests() {
 
   console.log(
     "Binary-search-tree reconstruction: passed"
+  );
+
+  console.log(
+    "Min-heap reconstruction and swap replay: passed"
   );
 }
 

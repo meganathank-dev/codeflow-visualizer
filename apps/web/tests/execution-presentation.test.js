@@ -17,6 +17,7 @@ function createState(step, overrides = {}) {
     hashMaps: {},
     linkedLists: {},
     trees: {},
+    heaps: {},
     callStack: [],
     console: [],
     errors: [],
@@ -606,6 +607,90 @@ function createTreeResult(language) {
   };
 }
 
+function createHeapResult(language) {
+  const types = [
+    "PROGRAM_START",
+    "HEAP_CREATE",
+    "HEAP_INSERT",
+    "HEAP_INSERT",
+    "HEAP_SWAP",
+    "HEAP_INSERT",
+    "HEAP_PEEK",
+    "HEAP_EXTRACT",
+    "PROGRAM_END"
+  ];
+  const valuesByStep = [
+    [],
+    [],
+    [40],
+    [40, 10],
+    [10, 40],
+    [10, 40, 30],
+    [10, 40, 30],
+    [30, 40],
+    [30, 40]
+  ];
+  const events = types.map((type, step) => ({
+    id: `heap-event-${step}`,
+    step,
+    type,
+    source: { line: step + 1 },
+    payload: {
+      name: "heap",
+      heapName: "heap",
+      heapType: "min",
+      values: valuesByStep[step],
+      value: type === "HEAP_PEEK" || type === "HEAP_EXTRACT"
+        ? 10
+        : type === "HEAP_INSERT"
+          ? valuesByStep[step].at(-1)
+          : undefined,
+      index: type === "HEAP_INSERT" ? valuesByStep[step].length - 1 : undefined,
+      fromIndex: type === "HEAP_SWAP" ? 1 : undefined,
+      toIndex: type === "HEAP_SWAP" ? 0 : undefined
+    }
+  }));
+  const states = events.map((event, step) => createState(step, {
+    status: step === events.length - 1 ? "completed" : "running",
+    variables: step > 0 ? {
+      heap: language === "java"
+        ? { $type: "object", display: "java.util.PriorityQueue" }
+        : valuesByStep[step]
+    } : {},
+    arrays: step > 0 ? {
+      ...(language === "java" ? { args: [] } : {}),
+      heap: valuesByStep[step]
+    } : {},
+    heaps: step > 0 ? {
+      heap: {
+        name: "heap",
+        heapType: "min",
+        values: valuesByStep[step],
+        activeIndices: event.type === "HEAP_SWAP"
+          ? [1, 0]
+          : event.type === "HEAP_INSERT"
+            ? [Math.max(0, valuesByStep[step].length - 1)]
+            : [0],
+        swap: event.type === "HEAP_SWAP"
+          ? { fromIndex: 1, toIndex: 0 }
+          : null,
+        peekedValue: step >= 6 ? 10 : null,
+        extractedValue: step >= 7 ? 10 : null,
+        lastOperation: event.type
+      }
+    } : {}
+  }));
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: { traceId: `${language}-heap-presentation-test`, status: "completed", events },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
 function runTests() {
   const presentation = createExecutionPresentation(createResult());
 
@@ -725,6 +810,24 @@ function runTests() {
     assert.deepEqual(treePresentation.steps[8].variables[treeName], [20, 30, 40, 50, 70]);
     assert.equal(treePresentation.steps[8].array, null);
     assert.match(treePresentation.steps[7].description, /found.*3 tree nodes/i);
+
+    const heapPresentation = createExecutionPresentation(
+      createHeapResult(language)
+    );
+
+    assert.equal(heapPresentation.steps[1].heap.name, "heap");
+    assert.deepEqual(heapPresentation.steps[4].heap.values, [10, 40]);
+    assert.deepEqual(heapPresentation.steps[4].heap.activeIndices, [1, 0]);
+    assert.deepEqual(heapPresentation.steps[4].heap.swap, {
+      fromIndex: 1,
+      toIndex: 0
+    });
+    assert.equal(heapPresentation.steps[6].heap.peekedValue, 10);
+    assert.equal(heapPresentation.steps[7].heap.extractedValue, 10);
+    assert.deepEqual(heapPresentation.steps[7].heap.values, [30, 40]);
+    assert.deepEqual(heapPresentation.steps[7].variables.heap, [30, 40]);
+    assert.equal(heapPresentation.steps[7].array, null);
+    assert.match(heapPresentation.steps[4].description, /swap/i);
   }
 
   const sqlPresentation = createExecutionPresentation(createSqlResult());
@@ -794,6 +897,8 @@ function runTests() {
   console.log("HashMap key-value animation state: passed");
   console.log("Cross-language binary-search-tree presentation: passed");
   console.log("BST comparison path and inorder animation state: passed");
+  console.log("Cross-language min-heap presentation: passed");
+  console.log("Heap bubble-up, bubble-down, and diagonal-edge animation state: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");

@@ -1011,6 +1011,139 @@ function TreeVisualization({ tree }) {
   );
 }
 
+function getHeapNodePosition(index) {
+  const level = Math.floor(Math.log2(index + 1));
+  const firstIndexAtLevel = (2 ** level) - 1;
+  const positionAtLevel = index - firstIndexAtLevel;
+  const countAtLevel = 2 ** level;
+
+  return {
+    x: ((positionAtLevel + 0.5) / countAtLevel) * 100,
+    y: 18 + level * 76
+  };
+}
+
+function HeapVisualization({ heap }) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (!heap) {
+    return null;
+  }
+
+  const levelCount = heap.values.length > 0
+    ? Math.floor(Math.log2(heap.values.length)) + 1
+    : 1;
+  const stageHeight = Math.max(126, 43 + levelCount * 76);
+  const activeIndices = new Set(heap.activeIndices || []);
+
+  return (
+    <motion.div
+      className="visualization-card heap-card"
+      layout
+      transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+    >
+      <div className="visualization-card-heading">
+        <div className="visualization-card-title">
+          <Layers3 size={16} />
+          <span>Min Heap</span>
+        </div>
+
+        <div className="heap-heading-meta">
+          <span>{heap.values.length} {heap.values.length === 1 ? "item" : "items"}</span>
+          <span className="structure-name">{heap.name}</span>
+        </div>
+      </div>
+
+      <div className="heap-stage" style={{ height: stageHeight }}>
+        <span className="heap-root-label">MIN ROOT</span>
+
+        {heap.values.length > 0 ? (
+          <>
+            <svg
+              className="heap-connector-svg"
+              viewBox={`0 0 100 ${stageHeight}`}
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              {heap.values.slice(1).map((_, indexOffset) => {
+                const childIndex = indexOffset + 1;
+                const parentIndex = Math.floor((childIndex - 1) / 2);
+                const parent = getHeapNodePosition(parentIndex);
+                const child = getHeapNodePosition(childIndex);
+                const isActiveEdge = activeIndices.has(parentIndex) && activeIndices.has(childIndex);
+
+                return (
+                  <line
+                    key={`heap-edge:${parentIndex}:${childIndex}`}
+                    className={`heap-connector-line${isActiveEdge ? " is-active-heap-edge" : ""}`}
+                    x1={parent.x}
+                    y1={parent.y + 39}
+                    x2={child.x}
+                    y2={child.y}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })}
+            </svg>
+
+            <AnimatePresence initial={false} mode="popLayout">
+              {heap.values.map((value, index) => {
+                const position = getHeapNodePosition(index);
+                const isActive = activeIndices.has(index);
+                const isSwapNode = heap.swap && (
+                  heap.swap.fromIndex === index || heap.swap.toIndex === index
+                );
+
+                return (
+                  <motion.div
+                    key={`heap-node:${index}`}
+                    className={[
+                      "heap-node",
+                      index === 0 ? "is-heap-root" : "",
+                      isActive ? "is-active-heap-node" : "",
+                      isSwapNode ? "is-swapping-heap-node" : ""
+                    ].filter(Boolean).join(" ")}
+                    style={{ left: `${position.x}%`, top: position.y, x: "-50%" }}
+                    initial={shouldReduceMotion ? false : { opacity: 0, y: -12, scale: 0.82 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={shouldReduceMotion ? undefined : { opacity: 0, y: 12, scale: 0.78 }}
+                    transition={shouldReduceMotion ? { duration: 0 } : SPRING_TRANSITION}
+                  >
+                    <span className="heap-node-index">{index}</span>
+                    <AnimatedValue value={value} />
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </>
+        ) : (
+          <div className="empty-heap">Waiting for the first inserted value</div>
+        )}
+      </div>
+
+      <div className="heap-array-row">
+        <span>BACKING ARRAY</span>
+        <div>
+          {heap.values.map((value, index) => (
+            <motion.span
+              key={`heap-array:${index}`}
+              className={activeIndices.has(index) ? "is-active-heap-array-value" : ""}
+              layout
+            >
+              <small>{index}</small>
+              {formatVariableValue(value)}
+            </motion.span>
+          ))}
+        </div>
+      </div>
+
+      <div className="heap-caption">
+        Complete binary tree · every parent is less than or equal to its children
+      </div>
+    </motion.div>
+  );
+}
+
 function EventStory({
   step,
   isSql = false
@@ -1257,6 +1390,10 @@ function ProgramVisualization({
 
         <TreeVisualization
           tree={step.tree}
+        />
+
+        <HeapVisualization
+          heap={step.heap}
         />
       </motion.div>
     </>

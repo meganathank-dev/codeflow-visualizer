@@ -99,6 +99,10 @@ function toSerializable(
       return value.inorderValues().map((item) => toSerializable(item, depth + 1, ancestors));
     }
 
+    if (value.__codeflowMinHeap === true) {
+      return value.toArray().map((item) => toSerializable(item, depth + 1, ancestors));
+    }
+
     if (
       ancestors.has(value)
     ) {
@@ -180,6 +184,10 @@ function getValueType(value) {
 
   if (value && value.__codeflowBinarySearchTree === true) {
     return "binary-search-tree";
+  }
+
+  if (value && value.__codeflowMinHeap === true) {
+    return "min-heap";
   }
 
   return typeof value;
@@ -699,6 +707,143 @@ function createJavaScriptRuntime(options = {}) {
     }
   }
 
+  class CodeFlowMinHeap {
+    constructor() {
+      Object.defineProperty(this, "__codeflowMinHeap", {
+        value: true,
+        enumerable: false,
+        configurable: false,
+        writable: false
+      });
+      this.values = [];
+      this.lastRequestedValue = undefined;
+      this.lastExtractedValue = undefined;
+      this.lastPeekedValue = undefined;
+      this.lastSteps = [];
+    }
+
+    validateValue(value) {
+      if (!["number", "string"].includes(typeof value)) {
+        throw new TypeError("The current MinHeap visualizer supports number or string values only.");
+      }
+
+      if (this.values.length > 0 && typeof value !== typeof this.values[0]) {
+        throw new TypeError("All MinHeap values must use the same primitive type.");
+      }
+    }
+
+    insert(value) {
+      this.validateValue(value);
+      this.lastRequestedValue = value;
+      this.lastSteps = [];
+      this.values.push(value);
+
+      let index = this.values.length - 1;
+      this.lastSteps.push({
+        kind: "insert",
+        index,
+        values: this.toArray()
+      });
+
+      while (index > 0) {
+        const parentIndex = Math.floor((index - 1) / 2);
+
+        if (this.values[parentIndex] <= this.values[index]) {
+          break;
+        }
+
+        [this.values[parentIndex], this.values[index]] = [
+          this.values[index],
+          this.values[parentIndex]
+        ];
+
+        this.lastSteps.push({
+          kind: "swap",
+          fromIndex: index,
+          toIndex: parentIndex,
+          values: this.toArray()
+        });
+        index = parentIndex;
+      }
+
+      return this.values.length;
+    }
+
+    peek() {
+      this.lastPeekedValue = this.values[0];
+      this.lastSteps = [];
+      return this.lastPeekedValue;
+    }
+
+    extract() {
+      this.lastSteps = [];
+
+      if (this.values.length === 0) {
+        this.lastExtractedValue = undefined;
+        return undefined;
+      }
+
+      const minimum = this.values[0];
+      const last = this.values.pop();
+
+      if (this.values.length > 0) {
+        this.values[0] = last;
+      }
+
+      this.lastExtractedValue = minimum;
+      this.lastSteps.push({
+        kind: "extract",
+        index: 0,
+        values: this.toArray()
+      });
+
+      let index = 0;
+
+      while (index < this.values.length) {
+        const leftIndex = index * 2 + 1;
+        const rightIndex = index * 2 + 2;
+        let smallestIndex = index;
+
+        if (
+          leftIndex < this.values.length &&
+          this.values[leftIndex] < this.values[smallestIndex]
+        ) {
+          smallestIndex = leftIndex;
+        }
+
+        if (
+          rightIndex < this.values.length &&
+          this.values[rightIndex] < this.values[smallestIndex]
+        ) {
+          smallestIndex = rightIndex;
+        }
+
+        if (smallestIndex === index) {
+          break;
+        }
+
+        [this.values[index], this.values[smallestIndex]] = [
+          this.values[smallestIndex],
+          this.values[index]
+        ];
+
+        this.lastSteps.push({
+          kind: "swap",
+          fromIndex: index,
+          toIndex: smallestIndex,
+          values: this.toArray()
+        });
+        index = smallestIndex;
+      }
+
+      return minimum;
+    }
+
+    toArray() {
+      return Array.from(this.values);
+    }
+  }
+
   function recordTreeMethod(name, method, tree, result, line, requestedValue) {
     const payload = {
       name,
@@ -730,6 +875,61 @@ function createJavaScriptRuntime(options = {}) {
         visitedIds: tree.lastTraversalIds,
         order: toSerializable(result)
       });
+    }
+  }
+
+  function recordHeapMethod(name, method, heap, result, line) {
+    const basePayload = {
+      name,
+      heapName: name,
+      heapType: "min"
+    };
+
+    if (method === "insert") {
+      const [insertStep, ...swapSteps] = heap.lastSteps;
+
+      record(EVENT_TYPES.HEAP_INSERT, line, {
+        ...basePayload,
+        value: toSerializable(heap.lastRequestedValue),
+        index: insertStep?.index ?? heap.values.length - 1,
+        values: toSerializable(insertStep?.values || heap.toArray())
+      });
+
+      for (const step of swapSteps) {
+        record(EVENT_TYPES.HEAP_SWAP, line, {
+          ...basePayload,
+          fromIndex: step.fromIndex,
+          toIndex: step.toIndex,
+          values: toSerializable(step.values),
+          reason: "bubble-up"
+        });
+      }
+    } else if (method === "peek") {
+      record(EVENT_TYPES.HEAP_PEEK, line, {
+        ...basePayload,
+        value: toSerializable(result),
+        values: toSerializable(heap.toArray()),
+        activeIndices: heap.values.length > 0 ? [0] : []
+      });
+    } else if (method === "extract") {
+      const [extractStep, ...swapSteps] = heap.lastSteps;
+
+      record(EVENT_TYPES.HEAP_EXTRACT, line, {
+        ...basePayload,
+        value: toSerializable(result),
+        values: toSerializable(extractStep?.values || heap.toArray()),
+        activeIndices: heap.values.length > 0 ? [0] : []
+      });
+
+      for (const step of swapSteps) {
+        record(EVENT_TYPES.HEAP_SWAP, line, {
+          ...basePayload,
+          fromIndex: step.fromIndex,
+          toIndex: step.toIndex,
+          values: toSerializable(step.values),
+          reason: "bubble-down"
+        });
+      }
     }
   }
 
@@ -1144,6 +1344,17 @@ function createJavaScriptRuntime(options = {}) {
         });
       }
 
+      if (value && value.__codeflowMinHeap === true) {
+        references.set(name, value);
+
+        record(EVENT_TYPES.HEAP_CREATE, line, {
+          name,
+          heapName: name,
+          heapType: "min",
+          values: value.toArray()
+        });
+      }
+
       if (
         Array.isArray(value)
       ) {
@@ -1421,6 +1632,8 @@ function createJavaScriptRuntime(options = {}) {
 
       const isBinarySearchTree = reference?.__codeflowBinarySearchTree === true;
 
+      const isMinHeap = reference?.__codeflowMinHeap === true;
+
       const frameCountBeforeCall = callFrames.length;
 
       const result = invoke();
@@ -1492,6 +1705,16 @@ function createJavaScriptRuntime(options = {}) {
           result,
           line,
           methodName === "inorder" ? undefined : reference.lastRequestedValue
+        );
+      }
+
+      if (isMinHeap) {
+        recordHeapMethod(
+          objectName,
+          methodName,
+          reference,
+          result,
+          line
         );
       }
 
@@ -1889,6 +2112,10 @@ function createJavaScriptRuntime(options = {}) {
 
     createBinarySearchTreeConstructor() {
       return CodeFlowBinarySearchTree;
+    },
+
+    createMinHeapConstructor() {
+      return CodeFlowMinHeap;
     },
 
     getTrace() {
