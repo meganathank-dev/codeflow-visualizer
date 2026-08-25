@@ -1482,14 +1482,25 @@ function SortVisualization({ sort }) {
   const labels = {
     bubble: "Bubble Sort",
     selection: "Selection Sort",
-    insertion: "Insertion Sort"
+    insertion: "Insertion Sort",
+    merge: "Merge Sort",
+    quick: "Quick Sort"
   };
+  const isMergeSort = sort.algorithm === "merge";
+  const isQuickSort = sort.algorithm === "quick";
+  const isDivideAndConquer = isMergeSort || isQuickSort;
   const compared = new Set(sort.compareIndices || []);
   const swapped = new Set(sort.swapIndices || []);
   const sorted = new Set(sort.sortedIndices || []);
   const largestMagnitude = Math.max(...sort.values.map((value) => Math.abs(value)), 1);
   const orderedCount = sorted.size;
-  const changes = sort.algorithm === "insertion" ? sort.writeCount : sort.swapCount;
+  const changes = isMergeSort || sort.algorithm === "insertion"
+    ? sort.writeCount
+    : sort.swapCount;
+  const rangeStart = Number.isInteger(sort.rangeStart) ? sort.rangeStart : 0;
+  const rangeEnd = Number.isInteger(sort.rangeEnd) ? sort.rangeEnd : sort.values.length - 1;
+  const leftRange = Array.isArray(sort.leftRange) ? sort.leftRange : null;
+  const rightRange = Array.isArray(sort.rightRange) ? sort.rightRange : null;
 
   return (
     <motion.div
@@ -1504,15 +1515,15 @@ function SortVisualization({ sort }) {
         </div>
 
         <div className="sort-heading-meta">
-          <span className="sort-complexity">O(n²)</span>
+          <span className="sort-complexity">{isDivideAndConquer ? "O(n log n)" : "O(n²)"}</span>
           <span className="structure-name">{sort.arrayName}</span>
         </div>
       </div>
 
       <div className="sort-summary-grid">
         <div className="sort-summary-item">
-          <span>Pass</span>
-          <strong>{sort.pass || 0}</strong>
+          <span>{isDivideAndConquer ? "Depth" : "Pass"}</span>
+          <strong>{isDivideAndConquer ? sort.depth || 0 : sort.pass || 0}</strong>
         </div>
 
         <div className="sort-summary-item">
@@ -1521,7 +1532,7 @@ function SortVisualization({ sort }) {
         </div>
 
         <div className="sort-summary-item">
-          <span>{sort.algorithm === "insertion" ? "Writes" : "Swaps"}</span>
+          <span>{isMergeSort || sort.algorithm === "insertion" ? "Writes" : "Swaps"}</span>
           <strong>{changes || 0}</strong>
         </div>
 
@@ -1533,6 +1544,20 @@ function SortVisualization({ sort }) {
         </div>
       </div>
 
+      {isDivideAndConquer ? (
+        <div className="sort-strategy-strip">
+          <span className="sort-strategy-title">DIVIDE &amp; CONQUER</span>
+          <span className="sort-range-badge">range [{rangeStart}, {rangeEnd}]</span>
+          {isMergeSort && Number.isInteger(sort.middle) ? (
+            <span className="sort-phase-badge">split at {sort.middle}</span>
+          ) : null}
+          {isQuickSort && sort.pivotValue !== null && sort.pivotValue !== undefined ? (
+            <span className="sort-phase-badge">pivot {sort.pivotValue}</span>
+          ) : null}
+          <span className="sort-phase-badge">{sort.phase || "ready"}</span>
+        </div>
+      ) : null}
+
       <div className="sort-stage" aria-label={`${labels[sort.algorithm] || "Sorting"} visualization`}>
         <div className="sort-bars">
           <AnimatePresence initial={false} mode="popLayout">
@@ -1542,6 +1567,13 @@ function SortVisualization({ sort }) {
               const isSorted = sorted.has(index);
               const isMinimum = sort.minIndex === index;
               const isKey = sort.keyIndex === index;
+              const isOutsideRange = isDivideAndConquer
+                && !sort.finished
+                && (index < rangeStart || index > rangeEnd);
+              const isPivot = isQuickSort && sort.pivotIndex === index;
+              const isMiddle = isMergeSort && sort.middle === index;
+              const isLeftRange = leftRange && index >= leftRange[0] && index <= leftRange[1];
+              const isRightRange = rightRange && index >= rightRange[0] && index <= rightRange[1];
               const barHeight = Math.max(30, Math.round((Math.abs(value) / largestMagnitude) * 128));
 
               return (
@@ -1553,7 +1585,11 @@ function SortVisualization({ sort }) {
                     isCompare ? "is-compared-column" : "",
                     isSwap ? "is-swapped-column" : "",
                     isMinimum ? "is-minimum-column" : "",
-                    isKey ? "is-key-column" : ""
+                    isKey ? "is-key-column" : "",
+                    isOutsideRange ? "is-outside-range-column" : "",
+                    isPivot ? "is-pivot-column" : "",
+                    isLeftRange ? "is-left-partition-column" : "",
+                    isRightRange ? "is-right-partition-column" : ""
                   ].filter(Boolean).join(" ")}
                   layout
                   initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
@@ -1563,6 +1599,10 @@ function SortVisualization({ sort }) {
                   <div className="sort-marker-row">
                     {isMinimum ? <span className="sort-marker sort-marker-minimum">MIN</span> : null}
                     {isKey ? <span className="sort-marker sort-marker-key">KEY</span> : null}
+                    {isPivot ? <span className="sort-marker sort-marker-pivot">PIVOT</span> : null}
+                    {isMiddle ? <span className="sort-marker sort-marker-boundary">MID</span> : null}
+                    {isLeftRange && !isMiddle ? <span className="sort-marker sort-marker-left">L</span> : null}
+                    {isRightRange ? <span className="sort-marker sort-marker-right">R</span> : null}
                   </div>
 
                   <motion.div

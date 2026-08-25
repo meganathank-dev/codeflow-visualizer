@@ -1099,6 +1099,17 @@ function handleSortEvent(state, event) {
       activeIndex: null,
       minIndex: null,
       keyIndex: null,
+      rangeStart: null,
+      rangeEnd: null,
+      middle: null,
+      depth: 0,
+      pivotIndex: null,
+      pivotValue: null,
+      leftRange: null,
+      rightRange: null,
+      partitionIndex: null,
+      phase: null,
+      writeIndex: null,
       comparisonCount: 0,
       swapCount: 0,
       writeCount: 0,
@@ -1112,7 +1123,9 @@ function handleSortEvent(state, event) {
 
   for (const key of [
     "algorithm", "arrayName", "activeIndex", "minIndex", "keyIndex",
-    "comparisonCount", "swapCount", "writeCount", "pass"
+    "comparisonCount", "swapCount", "writeCount", "pass", "rangeStart",
+    "rangeEnd", "middle", "depth", "pivotIndex", "pivotValue", "leftRange",
+    "rightRange", "partitionIndex", "phase", "writeIndex"
   ]) {
     if (Object.hasOwn(payload, key)) {
       sort[key] = cloneValue(payload[key]);
@@ -1127,16 +1140,29 @@ function handleSortEvent(state, event) {
 
   if (event.type === EVENT_TYPES.SORT_START) {
     sort.finished = false;
+    sort.phase = "start";
     sort.compareIndices = [];
     sort.swapIndices = [];
     sort.sortedIndices = [];
+  } else if (event.type === EVENT_TYPES.SORT_SPLIT) {
+    sort.phase = "split";
+  } else if (event.type === EVENT_TYPES.SORT_MERGE) {
+    sort.phase = "merge";
+  } else if (event.type === EVENT_TYPES.SORT_PIVOT) {
+    sort.phase = "pivot";
+  } else if (event.type === EVENT_TYPES.SORT_PARTITION) {
+    sort.phase = "partitioned";
   } else if (event.type === EVENT_TYPES.SORT_END) {
     sort.finished = true;
+    sort.phase = "sorted";
     sort.compareIndices = [];
     sort.swapIndices = [];
     sort.activeIndex = null;
     sort.minIndex = null;
     sort.keyIndex = null;
+    sort.middle = null;
+    sort.pivotIndex = null;
+    sort.partitionIndex = null;
     sort.sortedIndices = sort.values.map((_, index) => index);
   }
 
@@ -1788,6 +1814,10 @@ function reduceExecutionEvent(previousState, event) {
     case EVENT_TYPES.SORT_COMPARE:
     case EVENT_TYPES.SORT_SWAP:
     case EVENT_TYPES.SORT_WRITE:
+    case EVENT_TYPES.SORT_SPLIT:
+    case EVENT_TYPES.SORT_MERGE:
+    case EVENT_TYPES.SORT_PIVOT:
+    case EVENT_TYPES.SORT_PARTITION:
     case EVENT_TYPES.SORT_PASS:
     case EVENT_TYPES.SORT_MARK_SORTED:
     case EVENT_TYPES.SORT_END: {

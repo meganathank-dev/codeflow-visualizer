@@ -3583,6 +3583,39 @@ input:focus-visible {
   color: var(--accent-green);
 }
 
+.sort-strategy-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin: 11px 14px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(169, 145, 255, 0.17);
+  border-radius: 8px;
+  background: rgba(169, 145, 255, 0.045);
+}
+
+.sort-strategy-title {
+  color: var(--accent-purple);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.sort-range-badge,
+.sort-phase-badge {
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: rgba(120, 169, 255, 0.09);
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.sort-phase-badge {
+  background: rgba(103, 220, 162, 0.075);
+  color: var(--accent-green);
+}
+
 .sort-stage {
   overflow-x: auto;
   padding: 12px 18px 4px;
@@ -3631,6 +3664,22 @@ input:focus-visible {
   color: var(--accent-purple);
 }
 
+.sort-marker-pivot {
+  background: rgba(243, 189, 122, 0.16);
+  color: var(--accent-orange);
+}
+
+.sort-marker-boundary,
+.sort-marker-left {
+  background: rgba(120, 169, 255, 0.14);
+  color: var(--accent-blue);
+}
+
+.sort-marker-right {
+  background: rgba(169, 145, 255, 0.14);
+  color: var(--accent-purple);
+}
+
 .sort-bar {
   display: flex;
   align-items: center;
@@ -3669,6 +3718,24 @@ input:focus-visible {
   border-color: rgba(243, 189, 122, 0.8);
   background: linear-gradient(180deg, rgba(243, 189, 122, 0.28), rgba(243, 189, 122, 0.075));
   box-shadow: 0 0 18px rgba(243, 189, 122, 0.12);
+}
+
+.is-outside-range-column {
+  opacity: 0.38;
+}
+
+.is-left-partition-column:not(.is-sorted-column) .sort-bar {
+  border-color: rgba(120, 169, 255, 0.45);
+}
+
+.is-right-partition-column:not(.is-sorted-column) .sort-bar {
+  border-color: rgba(169, 145, 255, 0.48);
+}
+
+.is-pivot-column .sort-bar {
+  border-color: rgba(243, 189, 122, 0.82);
+  background: linear-gradient(180deg, rgba(243, 189, 122, 0.3), rgba(243, 189, 122, 0.08));
+  box-shadow: 0 0 19px rgba(243, 189, 122, 0.13);
 }
 
 .sort-progress {

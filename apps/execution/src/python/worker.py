@@ -197,6 +197,16 @@ class CodeFlowSortingAlgorithms:
                 "activeIndex": None,
                 "minIndex": None,
                 "keyIndex": None,
+                "rangeStart": 0,
+                "rangeEnd": len(values) - 1,
+                "middle": None,
+                "depth": 0,
+                "pivotIndex": None,
+                "pivotValue": None,
+                "leftRange": None,
+                "rightRange": None,
+                "partitionIndex": None,
+                "phase": "start",
                 **extra,
             }))
 
@@ -276,7 +286,7 @@ class CodeFlowSortingAlgorithms:
                 append_step("SORT_MARK_SORTED", activeIndex=start)
                 append_step("SORT_PASS", boundary=start, minIndex=minimum)
 
-        else:
+        elif algorithm == "insertion":
             if values:
                 sorted_indices.add(0)
 
@@ -329,6 +339,183 @@ class CodeFlowSortingAlgorithms:
                 append_step("SORT_MARK_SORTED", activeIndex=index, keyIndex=cursor + 1)
                 append_step("SORT_PASS", boundary=index)
 
+        elif algorithm == "merge":
+            def merge_range(start, end, depth):
+                nonlocal comparison_count, write_count, current_pass
+
+                if start >= end:
+                    return
+
+                middle = (start + end) // 2
+                split_context = {
+                    "rangeStart": start,
+                    "rangeEnd": end,
+                    "middle": middle,
+                    "depth": depth,
+                    "leftRange": [start, middle],
+                    "rightRange": [middle + 1, end],
+                    "phase": "split",
+                }
+                append_step("SORT_SPLIT", **split_context)
+                merge_range(start, middle, depth + 1)
+                merge_range(middle + 1, end, depth + 1)
+
+                left = values[start:middle + 1]
+                right = values[middle + 1:end + 1]
+                left_index = 0
+                right_index = 0
+                cursor = start
+                merge_context = {**split_context, "phase": "merge"}
+
+                while left_index < len(left) and right_index < len(right):
+                    comparison_count += 1
+                    append_step(
+                        "SORT_COMPARE",
+                        **merge_context,
+                        compareIndices=[start + left_index, middle + 1 + right_index],
+                        activeIndex=cursor,
+                        leftValue=left[left_index],
+                        rightValue=right[right_index],
+                    )
+
+                    if left[left_index] <= right[right_index]:
+                        next_value = left[left_index]
+                        left_index += 1
+                    else:
+                        next_value = right[right_index]
+                        right_index += 1
+
+                    values[cursor] = next_value
+                    write_count += 1
+                    append_step(
+                        "SORT_WRITE",
+                        **merge_context,
+                        activeIndex=cursor,
+                        writeIndex=cursor,
+                        value=next_value,
+                        action="merge",
+                    )
+                    cursor += 1
+
+                while left_index < len(left):
+                    values[cursor] = left[left_index]
+                    write_count += 1
+                    append_step(
+                        "SORT_WRITE",
+                        **merge_context,
+                        activeIndex=cursor,
+                        writeIndex=cursor,
+                        value=left[left_index],
+                        action="merge",
+                    )
+                    left_index += 1
+                    cursor += 1
+
+                while right_index < len(right):
+                    values[cursor] = right[right_index]
+                    write_count += 1
+                    append_step(
+                        "SORT_WRITE",
+                        **merge_context,
+                        activeIndex=cursor,
+                        writeIndex=cursor,
+                        value=right[right_index],
+                        action="merge",
+                    )
+                    right_index += 1
+                    cursor += 1
+
+                current_pass += 1
+                append_step("SORT_MERGE", **merge_context, activeIndex=end)
+                append_step("SORT_PASS", **merge_context, boundary=end)
+
+            merge_range(0, len(values) - 1, 0)
+
+        elif algorithm == "quick":
+            def quick_range(start, end, depth):
+                nonlocal comparison_count, swap_count, current_pass
+
+                if start > end:
+                    return
+
+                if start == end:
+                    sorted_indices.add(start)
+                    append_step(
+                        "SORT_MARK_SORTED",
+                        rangeStart=start,
+                        rangeEnd=end,
+                        depth=depth,
+                        activeIndex=start,
+                        phase="base",
+                    )
+                    return
+
+                pivot_value = values[end]
+                context = {
+                    "rangeStart": start,
+                    "rangeEnd": end,
+                    "depth": depth,
+                    "pivotIndex": end,
+                    "pivotValue": pivot_value,
+                    "phase": "partition",
+                }
+                append_step("SORT_PIVOT", **context, activeIndex=end)
+
+                boundary = start
+                for index in range(start, end):
+                    comparison_count += 1
+                    append_step(
+                        "SORT_COMPARE",
+                        **context,
+                        compareIndices=[index, end],
+                        activeIndex=index,
+                        leftValue=values[index],
+                        rightValue=pivot_value,
+                    )
+
+                    if values[index] < pivot_value:
+                        if index != boundary:
+                            values[index], values[boundary] = values[boundary], values[index]
+                            swap_count += 1
+                            append_step(
+                                "SORT_SWAP",
+                                **context,
+                                compareIndices=[index, boundary],
+                                swapIndices=[index, boundary],
+                                activeIndex=boundary,
+                            )
+                        boundary += 1
+
+                if boundary != end:
+                    values[boundary], values[end] = values[end], values[boundary]
+                    swap_count += 1
+                    append_step(
+                        "SORT_SWAP",
+                        **{**context, "pivotIndex": boundary},
+                        compareIndices=[boundary, end],
+                        swapIndices=[boundary, end],
+                        activeIndex=boundary,
+                    )
+
+                sorted_indices.add(boundary)
+                partition_context = {
+                    **context,
+                    "pivotIndex": boundary,
+                    "partitionIndex": boundary,
+                    "phase": "partitioned",
+                    "leftRange": [start, boundary - 1] if boundary > start else None,
+                    "rightRange": [boundary + 1, end] if boundary < end else None,
+                }
+                append_step("SORT_PARTITION", **partition_context)
+                append_step("SORT_MARK_SORTED", **partition_context, activeIndex=boundary)
+                current_pass += 1
+                append_step("SORT_PASS", **partition_context, boundary=boundary)
+
+                quick_range(start, boundary - 1, depth + 1)
+                quick_range(boundary + 1, end, depth + 1)
+
+            quick_range(0, len(values) - 1, 0)
+
         sorted_indices.update(range(len(values)))
         append_step("SORT_END", finished=True)
         return values
@@ -341,6 +528,12 @@ class CodeFlowSortingAlgorithms:
 
     def insertion_sort(self, values):
         return self.run("insertion", values)
+
+    def merge_sort(self, values):
+        return self.run("merge", values)
+
+    def quick_sort(self, values):
+        return self.run("quick", values)
 
 
 class LinkedListNode:
@@ -1108,7 +1301,8 @@ class SourceInstrumenter(ast.NodeTransformer):
             "search", "inorder", "peek", "extract", "to_array",
             "add_node", "add_edge", "bfs", "dfs",
             "linear_search", "binary_search",
-            "bubble_sort", "selection_sort", "insertion_sort"
+            "bubble_sort", "selection_sort", "insertion_sort",
+            "merge_sort", "quick_sort"
         }:
             return node
 

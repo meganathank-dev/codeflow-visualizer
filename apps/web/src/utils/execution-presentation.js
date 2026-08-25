@@ -233,6 +233,30 @@ function describeEvent(event, state, language) {
         description: `${payload.algorithm.charAt(0).toUpperCase() + payload.algorithm.slice(1)} sort begins arranging ${payload.arrayName || "the array"} in ascending order.`
       };
 
+    case "SORT_SPLIT":
+      return {
+        title: `Split range ${payload.rangeStart}–${payload.rangeEnd}`,
+        description: `Merge sort divides the active range at index ${payload.middle} before recursively sorting both halves.`
+      };
+
+    case "SORT_MERGE":
+      return {
+        title: `Merge range ${payload.rangeStart}–${payload.rangeEnd}`,
+        description: `The ordered left and right halves are combined into one sorted range.`
+      };
+
+    case "SORT_PIVOT":
+      return {
+        title: `Choose pivot ${formatValue(payload.pivotValue)}`,
+        description: `Quick sort partitions range ${payload.rangeStart}–${payload.rangeEnd} around the pivot at index ${payload.pivotIndex}.`
+      };
+
+    case "SORT_PARTITION":
+      return {
+        title: `Pivot settled at index ${payload.partitionIndex}`,
+        description: `Values smaller than or equal to ${formatValue(payload.pivotValue)} are on the left; larger values remain on the right.`
+      };
+
     case "SORT_COMPARE":
       return {
         title: `Compare positions ${(payload.compareIndices || []).join(" and ")}`,
@@ -249,10 +273,14 @@ function describeEvent(event, state, language) {
 
     case "SORT_WRITE":
       return {
-        title: payload.action === "shift"
+        title: payload.action === "merge"
+          ? `Write ${formatValue(payload.value)} at position ${payload.writeIndex}`
+          : payload.action === "shift"
           ? `Shift a value into position ${payload.writeIndex}`
           : `Insert ${formatValue(payload.value)} at position ${payload.writeIndex}`,
-        description: payload.action === "shift"
+        description: payload.action === "merge"
+          ? "Merge sort writes the next smallest value from the two ordered halves."
+          : payload.action === "shift"
           ? `Move ${formatValue(payload.value)} one position right to open space for ${formatValue(payload.key)}.`
           : `${formatValue(payload.value)} is placed into its ordered position in the sorted prefix.`
       };
@@ -816,6 +844,8 @@ function selectSort(state, event) {
     compareIndices: Array.isArray(sort.compareIndices) ? sort.compareIndices : [],
     swapIndices: Array.isArray(sort.swapIndices) ? sort.swapIndices : [],
     sortedIndices: Array.isArray(sort.sortedIndices) ? sort.sortedIndices : [],
+    leftRange: Array.isArray(sort.leftRange) ? sort.leftRange : null,
+    rightRange: Array.isArray(sort.rightRange) ? sort.rightRange : null,
     operation: eventSortId === selectedId && event.type.startsWith("SORT_")
       ? event.type
       : null

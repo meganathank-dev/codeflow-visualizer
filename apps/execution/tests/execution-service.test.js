@@ -965,6 +965,100 @@ async function testCrossLanguageSortingAlgorithms(baseUrl) {
   return executions;
 }
 
+async function testCrossLanguageAdvancedSortingAlgorithms(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "const mergeNumbers = [42, 18, 35, 9, 27, 12];",
+      "const quickNumbers = [42, 18, 35, 9, 27, 12];",
+      "const mergeSorted = SortingAlgorithms.mergeSort(mergeNumbers);",
+      "const quickSorted = SortingAlgorithms.quickSort(quickNumbers);",
+      'console.log("Merge:", mergeSorted, "Quick:", quickSorted);'
+    ].join("\n"),
+    python: [
+      "merge_numbers = [42, 18, 35, 9, 27, 12]",
+      "quick_numbers = [42, 18, 35, 9, 27, 12]",
+      "merge_sorted = SortingAlgorithms.merge_sort(merge_numbers)",
+      "quick_sorted = SortingAlgorithms.quick_sort(quick_numbers)",
+      'print("Merge:", merge_sorted, "Quick:", quick_sorted)'
+    ].join("\n"),
+    java: [
+      "import java.util.Arrays;",
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        int[] mergeNumbers = {42, 18, 35, 9, 27, 12};",
+      "        int[] quickNumbers = {42, 18, 35, 9, 27, 12};",
+      "        int[] mergeSorted = SortingAlgorithms.mergeSort(mergeNumbers);",
+      "        int[] quickSorted = SortingAlgorithms.quickSort(quickNumbers);",
+      '        System.out.println("Merge: " + Arrays.toString(mergeSorted) + " Quick: " + Arrays.toString(quickSorted));',
+      "    }",
+      "}"
+    ].join("\n")
+  };
+  const expected = [9, 12, 18, 27, 35, 42];
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "SORT_START",
+      "SORT_SPLIT",
+      "SORT_MERGE",
+      "SORT_PIVOT",
+      "SORT_PARTITION",
+      "SORT_COMPARE",
+      "SORT_SWAP",
+      "SORT_WRITE",
+      "SORT_PASS",
+      "SORT_MARK_SORTED",
+      "SORT_END"
+    ]);
+
+    const finalState = execution.states.at(-1);
+    const sorts = Object.values(finalState.sorts);
+    const names = language === "python"
+      ? ["merge_numbers", "quick_numbers", "merge_sorted", "quick_sorted"]
+      : ["mergeNumbers", "quickNumbers", "mergeSorted", "quickSorted"];
+
+    assert.equal(sorts.length, 2);
+    assert.deepEqual(sorts.map((sort) => sort.algorithm), ["merge", "quick"]);
+
+    for (const sort of sorts) {
+      assert.deepEqual(sort.initialValues, [42, 18, 35, 9, 27, 12]);
+      assert.deepEqual(sort.values, expected);
+      assert.deepEqual(sort.sortedIndices, [0, 1, 2, 3, 4, 5]);
+      assert.equal(sort.finished, true);
+      assert.equal(sort.comparisonCount > 0, true);
+    }
+
+    assert.equal(sorts[0].writeCount > 0, true);
+    assert.equal(sorts[1].swapCount > 0, true);
+    assert.equal(
+      execution.trace.events.some((event) => event.type === "SORT_SPLIT" && event.payload.depth > 0),
+      true
+    );
+    assert.equal(
+      execution.trace.events.some((event) => event.type === "SORT_PIVOT" && Number.isInteger(event.payload.pivotIndex)),
+      true
+    );
+    assert.equal(
+      execution.trace.events.some((event) => event.type === "SORT_PARTITION" && Number.isInteger(event.payload.partitionIndex)),
+      true
+    );
+
+    for (const name of names) {
+      assert.deepEqual(finalState.variables[name], expected);
+    }
+
+    executions[language] = execution;
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -1146,6 +1240,7 @@ async function runTests() {
     const graphs = await testCrossLanguageGraphs(baseUrl);
     const searches = await testCrossLanguageSearchAlgorithms(baseUrl);
     const sorts = await testCrossLanguageSortingAlgorithms(baseUrl);
+    const advancedSorts = await testCrossLanguageAdvancedSortingAlgorithms(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -1221,6 +1316,11 @@ async function runTests() {
     console.log(`JavaScript sort events: ${sorts.javascript.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
     console.log(`Python sort events: ${sorts.python.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
     console.log(`Java sort events: ${sorts.java.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
+    console.log("Cross-language advanced sorting algorithms: passed");
+    console.log("Merge splits/writes and Quick pivots/partitions: passed");
+    console.log(`JavaScript advanced sort events: ${advancedSorts.javascript.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
+    console.log(`Python advanced sort events: ${advancedSorts.python.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
+    console.log(`Java advanced sort events: ${advancedSorts.java.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");

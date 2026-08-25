@@ -1213,6 +1213,16 @@ function createJavaScriptRuntime(options = {}) {
         activeIndex: null,
         minIndex: null,
         keyIndex: null,
+        rangeStart: 0,
+        rangeEnd: values.length - 1,
+        middle: null,
+        depth: 0,
+        pivotIndex: null,
+        pivotValue: null,
+        leftRange: null,
+        rightRange: null,
+        partitionIndex: null,
+        phase: "start",
         ...extra
       });
     }
@@ -1293,7 +1303,7 @@ function createJavaScriptRuntime(options = {}) {
         mark(start);
         emit(EVENT_TYPES.SORT_PASS, { boundary: start, minIndex: minimum });
       }
-    } else {
+    } else if (algorithm === "insertion") {
       if (values.length > 0) {
         sorted.add(0);
       }
@@ -1350,6 +1360,163 @@ function createJavaScriptRuntime(options = {}) {
         emit(EVENT_TYPES.SORT_MARK_SORTED, { activeIndex: index, keyIndex: cursor + 1 });
         emit(EVENT_TYPES.SORT_PASS, { boundary: index });
       }
+    } else if (algorithm === "merge") {
+      function mergeRange(start, end, depth) {
+        if (start >= end) {
+          return;
+        }
+
+        const middle = Math.floor((start + end) / 2);
+        const splitContext = {
+          rangeStart: start,
+          rangeEnd: end,
+          middle,
+          depth,
+          leftRange: [start, middle],
+          rightRange: [middle + 1, end],
+          phase: "split"
+        };
+
+        emit(EVENT_TYPES.SORT_SPLIT, splitContext);
+        mergeRange(start, middle, depth + 1);
+        mergeRange(middle + 1, end, depth + 1);
+
+        const left = values.slice(start, middle + 1);
+        const right = values.slice(middle + 1, end + 1);
+        let leftIndex = 0;
+        let rightIndex = 0;
+        let cursor = start;
+        const mergeContext = { ...splitContext, phase: "merge" };
+
+        while (leftIndex < left.length && rightIndex < right.length) {
+          comparisonCount += 1;
+          emit(EVENT_TYPES.SORT_COMPARE, {
+            ...mergeContext,
+            compareIndices: [start + leftIndex, middle + 1 + rightIndex],
+            activeIndex: cursor,
+            leftValue: left[leftIndex],
+            rightValue: right[rightIndex]
+          });
+
+          const nextValue = left[leftIndex] <= right[rightIndex]
+            ? left[leftIndex++]
+            : right[rightIndex++];
+          values[cursor] = nextValue;
+          writeCount += 1;
+          emit(EVENT_TYPES.SORT_WRITE, {
+            ...mergeContext,
+            activeIndex: cursor,
+            writeIndex: cursor,
+            value: nextValue,
+            action: "merge"
+          });
+          cursor += 1;
+        }
+
+        while (leftIndex < left.length) {
+          values[cursor] = left[leftIndex];
+          writeCount += 1;
+          emit(EVENT_TYPES.SORT_WRITE, {
+            ...mergeContext,
+            activeIndex: cursor,
+            writeIndex: cursor,
+            value: left[leftIndex],
+            action: "merge"
+          });
+          leftIndex += 1;
+          cursor += 1;
+        }
+
+        while (rightIndex < right.length) {
+          values[cursor] = right[rightIndex];
+          writeCount += 1;
+          emit(EVENT_TYPES.SORT_WRITE, {
+            ...mergeContext,
+            activeIndex: cursor,
+            writeIndex: cursor,
+            value: right[rightIndex],
+            action: "merge"
+          });
+          rightIndex += 1;
+          cursor += 1;
+        }
+
+        pass += 1;
+        emit(EVENT_TYPES.SORT_MERGE, { ...mergeContext, activeIndex: end });
+        emit(EVENT_TYPES.SORT_PASS, { ...mergeContext, boundary: end });
+      }
+
+      mergeRange(0, values.length - 1, 0);
+    } else if (algorithm === "quick") {
+      function quickRange(start, end, depth) {
+        if (start > end) {
+          return;
+        }
+
+        if (start === end) {
+          sorted.add(start);
+          emit(EVENT_TYPES.SORT_MARK_SORTED, {
+            rangeStart: start,
+            rangeEnd: end,
+            depth,
+            activeIndex: start,
+            phase: "base"
+          });
+          return;
+        }
+
+        const pivotValue = values[end];
+        const context = {
+          rangeStart: start,
+          rangeEnd: end,
+          depth,
+          pivotIndex: end,
+          pivotValue,
+          phase: "partition"
+        };
+        emit(EVENT_TYPES.SORT_PIVOT, { ...context, activeIndex: end });
+
+        let boundary = start;
+        for (let index = start; index < end; index += 1) {
+          compare(index, end, { ...context, activeIndex: index });
+          if (values[index] < pivotValue) {
+            if (index !== boundary) {
+              swap(index, boundary, { ...context, activeIndex: boundary });
+            }
+            boundary += 1;
+          }
+        }
+
+        if (boundary !== end) {
+          swap(boundary, end, {
+            ...context,
+            pivotIndex: boundary,
+            activeIndex: boundary
+          });
+        }
+
+        sorted.add(boundary);
+        const partitionContext = {
+          ...context,
+          pivotIndex: boundary,
+          partitionIndex: boundary,
+          phase: "partitioned",
+          leftRange: boundary > start ? [start, boundary - 1] : null,
+          rightRange: boundary < end ? [boundary + 1, end] : null
+        };
+        emit(EVENT_TYPES.SORT_PARTITION, partitionContext);
+        emit(EVENT_TYPES.SORT_MARK_SORTED, {
+          ...partitionContext,
+          activeIndex: boundary
+        });
+        pass += 1;
+        emit(EVENT_TYPES.SORT_PASS, { ...partitionContext, boundary });
+
+        quickRange(start, boundary - 1, depth + 1);
+        quickRange(boundary + 1, end, depth + 1);
+      }
+
+      quickRange(0, values.length - 1, 0);
     }
 
     for (let index = 0; index < values.length; index += 1) {
@@ -2678,6 +2845,14 @@ function createJavaScriptRuntime(options = {}) {
 
         insertionSort(values) {
           return runSortAlgorithm("insertion", values);
+        },
+
+        mergeSort(values) {
+          return runSortAlgorithm("merge", values);
+        },
+
+        quickSort(values) {
+          return runSortAlgorithm("quick", values);
         }
       };
     },

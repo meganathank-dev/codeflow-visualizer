@@ -959,6 +959,215 @@ function createSortResult(language) {
   };
 }
 
+function createAdvancedSortResult(language) {
+  const initialValues = [4, 1, 3, 2];
+  const sortedValues = [1, 2, 3, 4];
+  const mergeId = "sort:merge";
+  const quickId = "sort:quick";
+  const mergeBase = {
+    sortId: mergeId,
+    algorithm: "merge",
+    arrayName: "mergeNumbers",
+    initialValues
+  };
+  const quickBase = {
+    sortId: quickId,
+    algorithm: "quick",
+    arrayName: "quickNumbers",
+    initialValues
+  };
+  const entries = [
+    ["PROGRAM_START", {}],
+    ["SORT_START", { ...mergeBase, values: initialValues }],
+    ["SORT_SPLIT", {
+      ...mergeBase,
+      values: initialValues,
+      rangeStart: 0,
+      rangeEnd: 3,
+      middle: 1,
+      depth: 0,
+      leftRange: [0, 1],
+      rightRange: [2, 3],
+      phase: "split"
+    }],
+    ["SORT_WRITE", {
+      ...mergeBase,
+      values: [1, 4, 3, 2],
+      rangeStart: 0,
+      rangeEnd: 1,
+      writeIndex: 0,
+      writeCount: 1,
+      value: 1,
+      action: "merge",
+      depth: 1,
+      phase: "merge"
+    }],
+    ["SORT_MERGE", {
+      ...mergeBase,
+      values: sortedValues,
+      rangeStart: 0,
+      rangeEnd: 3,
+      middle: 1,
+      depth: 0,
+      leftRange: [0, 1],
+      rightRange: [2, 3],
+      comparisonCount: 5,
+      writeCount: 8,
+      phase: "merge"
+    }],
+    ["SORT_END", {
+      ...mergeBase,
+      values: sortedValues,
+      sortedIndices: [0, 1, 2, 3],
+      comparisonCount: 5,
+      writeCount: 8,
+      finished: true
+    }],
+    ["SORT_START", { ...quickBase, values: initialValues }],
+    ["SORT_PIVOT", {
+      ...quickBase,
+      values: initialValues,
+      rangeStart: 0,
+      rangeEnd: 3,
+      pivotIndex: 3,
+      pivotValue: 2,
+      depth: 0,
+      phase: "partition"
+    }],
+    ["SORT_COMPARE", {
+      ...quickBase,
+      values: initialValues,
+      rangeStart: 0,
+      rangeEnd: 3,
+      pivotIndex: 3,
+      pivotValue: 2,
+      compareIndices: [0, 3],
+      comparisonCount: 1,
+      leftValue: 4,
+      rightValue: 2,
+      phase: "partition"
+    }],
+    ["SORT_PARTITION", {
+      ...quickBase,
+      values: [1, 2, 3, 4],
+      rangeStart: 0,
+      rangeEnd: 3,
+      pivotIndex: 1,
+      pivotValue: 2,
+      partitionIndex: 1,
+      leftRange: [0, 0],
+      rightRange: [2, 3],
+      comparisonCount: 3,
+      swapCount: 2,
+      depth: 0,
+      phase: "partitioned"
+    }],
+    ["SORT_END", {
+      ...quickBase,
+      values: sortedValues,
+      sortedIndices: [0, 1, 2, 3],
+      comparisonCount: 5,
+      swapCount: 3,
+      finished: true
+    }],
+    ["PROGRAM_END", {}]
+  ];
+  const events = entries.map(([type, payload], step) => ({
+    id: `advanced-sort-event-${step}`,
+    step,
+    type,
+    source: { line: step > 0 ? 4 : 1 },
+    payload
+  }));
+
+  const mergeSort = (step) => ({
+    id: mergeId,
+    algorithm: "merge",
+    arrayName: "mergeNumbers",
+    initialValues,
+    values: step >= 4 ? sortedValues : step >= 3 ? [1, 4, 3, 2] : initialValues,
+    rangeStart: step >= 2 && step <= 4 ? 0 : null,
+    rangeEnd: step >= 2 && step <= 4 ? 3 : null,
+    middle: step === 2 || step === 4 ? 1 : null,
+    depth: step >= 2 && step <= 4 ? (step === 3 ? 1 : 0) : 0,
+    leftRange: step === 2 || step === 4 ? [0, 1] : null,
+    rightRange: step === 2 || step === 4 ? [2, 3] : null,
+    writeIndex: step === 3 ? 0 : null,
+    comparisonCount: step >= 4 ? 5 : 0,
+    swapCount: 0,
+    writeCount: step >= 4 ? 8 : step === 3 ? 1 : 0,
+    sortedIndices: step >= 5 ? [0, 1, 2, 3] : [],
+    phase: step >= 5 ? "sorted" : step >= 3 ? "merge" : "split",
+    finished: step >= 5,
+    lastOperation: events[step].type
+  });
+
+  const quickSort = (step) => ({
+    id: quickId,
+    algorithm: "quick",
+    arrayName: "quickNumbers",
+    initialValues,
+    values: step >= 9 ? sortedValues : initialValues,
+    rangeStart: step >= 7 && step <= 9 ? 0 : null,
+    rangeEnd: step >= 7 && step <= 9 ? 3 : null,
+    pivotIndex: step === 9 ? 1 : step >= 7 && step <= 8 ? 3 : null,
+    pivotValue: step >= 7 && step <= 9 ? 2 : null,
+    partitionIndex: step === 9 ? 1 : null,
+    leftRange: step === 9 ? [0, 0] : null,
+    rightRange: step === 9 ? [2, 3] : null,
+    compareIndices: step === 8 ? [0, 3] : [],
+    comparisonCount: step >= 10 ? 5 : step === 9 ? 3 : step === 8 ? 1 : 0,
+    swapCount: step >= 10 ? 3 : step === 9 ? 2 : 0,
+    writeCount: 0,
+    sortedIndices: step >= 10 ? [0, 1, 2, 3] : [],
+    depth: 0,
+    phase: step >= 10 ? "sorted" : step === 9 ? "partitioned" : "partition",
+    finished: step >= 10,
+    lastOperation: events[step].type
+  });
+
+  const states = events.map((event, step) => {
+    const sorts = {};
+
+    if (step >= 1) {
+      sorts[mergeId] = mergeSort(step);
+    }
+    if (step >= 6) {
+      sorts[quickId] = quickSort(step);
+    }
+
+    return createState(step, {
+      status: step === events.length - 1 ? "completed" : "running",
+      variables: step > 0
+        ? {
+          mergeNumbers: step >= 4 ? sortedValues : initialValues,
+          quickNumbers: step >= 9 ? sortedValues : initialValues
+        }
+        : {},
+      arrays: step > 0
+        ? {
+          mergeNumbers: step >= 4 ? sortedValues : initialValues,
+          quickNumbers: step >= 9 ? sortedValues : initialValues
+        }
+        : {},
+      sorts
+    });
+  });
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: {
+      traceId: `${language}-advanced-sort-presentation-test`,
+      status: "completed",
+      events
+    },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
 function runTests() {
   const presentation = createExecutionPresentation(createResult());
 
@@ -1150,6 +1359,27 @@ function runTests() {
     assert.equal(sortPresentation.steps[8].sort.finished, true);
     assert.equal(sortPresentation.steps[8].array, null);
     assert.match(sortPresentation.steps[4].description, /exchanges/i);
+
+    const advancedSortPresentation = createExecutionPresentation(
+      createAdvancedSortResult(language)
+    );
+
+    assert.equal(advancedSortPresentation.steps[2].sort.algorithm, "merge");
+    assert.equal(advancedSortPresentation.steps[2].sort.middle, 1);
+    assert.deepEqual(advancedSortPresentation.steps[2].sort.leftRange, [0, 1]);
+    assert.deepEqual(advancedSortPresentation.steps[2].sort.rightRange, [2, 3]);
+    assert.equal(advancedSortPresentation.steps[3].sort.writeCount, 1);
+    assert.match(advancedSortPresentation.steps[3].description, /next smallest/i);
+    assert.equal(advancedSortPresentation.steps[4].sort.phase, "merge");
+    assert.equal(advancedSortPresentation.steps[5].sort.finished, true);
+    assert.equal(advancedSortPresentation.steps[7].sort.algorithm, "quick");
+    assert.equal(advancedSortPresentation.steps[7].sort.pivotValue, 2);
+    assert.match(advancedSortPresentation.steps[7].description, /pivot/i);
+    assert.equal(advancedSortPresentation.steps[9].sort.partitionIndex, 1);
+    assert.deepEqual(advancedSortPresentation.steps[9].sort.leftRange, [0, 0]);
+    assert.deepEqual(advancedSortPresentation.steps[9].sort.rightRange, [2, 3]);
+    assert.deepEqual(advancedSortPresentation.steps[10].sort.values, [1, 2, 3, 4]);
+    assert.equal(advancedSortPresentation.steps[10].sort.finished, true);
   }
 
   const sqlPresentation = createExecutionPresentation(createSqlResult());
@@ -1227,6 +1457,8 @@ function runTests() {
   console.log("Linear and binary search pointers, comparison, and result state: passed");
   console.log("Cross-language sorting-algorithm presentation: passed");
   console.log("Sorting comparisons, swaps, shifts, passes, and sorted positions: passed");
+  console.log("Cross-language Merge Sort and Quick Sort presentation: passed");
+  console.log("Merge ranges, Quick pivots, and partitions: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");

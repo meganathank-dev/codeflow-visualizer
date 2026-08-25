@@ -977,6 +977,79 @@ function testSortReconstruction() {
   assert.equal(reconstructor.getStateAt(8).sorts["sort:1"].finished, true);
 }
 
+function testAdvancedSortReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-advanced-sort-test"
+  });
+  const initialValues = [4, 1, 3, 2];
+
+  recorder.start();
+  recorder.record(EVENT_TYPES.SORT_START, {
+    sortId: "merge:1", algorithm: "merge", arrayName: "mergeNumbers",
+    initialValues, values: initialValues, rangeStart: 0, rangeEnd: 3, depth: 0
+  });
+  recorder.record(EVENT_TYPES.SORT_SPLIT, {
+    sortId: "merge:1", algorithm: "merge", arrayName: "mergeNumbers",
+    initialValues, values: initialValues, rangeStart: 0, rangeEnd: 3,
+    middle: 1, leftRange: [0, 1], rightRange: [2, 3], depth: 0
+  });
+  recorder.record(EVENT_TYPES.SORT_WRITE, {
+    sortId: "merge:1", algorithm: "merge", arrayName: "mergeNumbers",
+    initialValues, values: [1, 2, 3, 4], rangeStart: 0, rangeEnd: 3,
+    writeIndex: 3, value: 4, action: "merge", writeCount: 4, depth: 0
+  });
+  recorder.record(EVENT_TYPES.SORT_MERGE, {
+    sortId: "merge:1", algorithm: "merge", arrayName: "mergeNumbers",
+    initialValues, values: [1, 2, 3, 4], rangeStart: 0, rangeEnd: 3,
+    middle: 1, leftRange: [0, 1], rightRange: [2, 3], writeCount: 4, depth: 0
+  });
+  recorder.record(EVENT_TYPES.SORT_END, {
+    sortId: "merge:1", algorithm: "merge", arrayName: "mergeNumbers",
+    initialValues, values: [1, 2, 3, 4], sortedIndices: [0, 1, 2, 3],
+    comparisonCount: 5, writeCount: 4, swapCount: 0, finished: true
+  });
+  recorder.record(EVENT_TYPES.SORT_START, {
+    sortId: "quick:1", algorithm: "quick", arrayName: "quickNumbers",
+    initialValues, values: initialValues, rangeStart: 0, rangeEnd: 3, depth: 0
+  });
+  recorder.record(EVENT_TYPES.SORT_PIVOT, {
+    sortId: "quick:1", algorithm: "quick", arrayName: "quickNumbers",
+    initialValues, values: initialValues, rangeStart: 0, rangeEnd: 3,
+    pivotIndex: 3, pivotValue: 2, depth: 0
+  });
+  recorder.record(EVENT_TYPES.SORT_PARTITION, {
+    sortId: "quick:1", algorithm: "quick", arrayName: "quickNumbers",
+    initialValues, values: [1, 2, 3, 4], rangeStart: 0, rangeEnd: 3,
+    pivotIndex: 1, pivotValue: 2, partitionIndex: 1,
+    leftRange: [0, 0], rightRange: [2, 3], depth: 0
+  });
+  recorder.record(EVENT_TYPES.SORT_END, {
+    sortId: "quick:1", algorithm: "quick", arrayName: "quickNumbers",
+    initialValues, values: [1, 2, 3, 4], sortedIndices: [0, 1, 2, 3],
+    comparisonCount: 5, writeCount: 0, swapCount: 3, finished: true
+  });
+  recorder.finish();
+
+  const reconstructor = new StateReconstructor(recorder.toJSON(), { checkpointInterval: 2 });
+  const split = reconstructor.getStateAt(2).sorts["merge:1"];
+  const merged = reconstructor.getStateAt(4).sorts["merge:1"];
+  const pivot = reconstructor.getStateAt(7).sorts["quick:1"];
+  const partition = reconstructor.getStateAt(8).sorts["quick:1"];
+
+  assert.deepEqual(split.leftRange, [0, 1]);
+  assert.deepEqual(split.rightRange, [2, 3]);
+  assert.equal(split.middle, 1);
+  assert.equal(split.phase, "split");
+  assert.deepEqual(merged.values, [1, 2, 3, 4]);
+  assert.equal(merged.phase, "merge");
+  assert.equal(pivot.pivotValue, 2);
+  assert.equal(pivot.phase, "pivot");
+  assert.equal(partition.partitionIndex, 1);
+  assert.equal(partition.phase, "partitioned");
+  assert.equal(reconstructor.getStateAt(9).sorts["quick:1"].finished, true);
+}
+
 function testProgramStateReconstruction(trace) {
   const reconstructor = new StateReconstructor(
     trace,
@@ -1733,6 +1806,8 @@ async function runTests() {
 
   testSortReconstruction();
 
+  testAdvancedSortReconstruction();
+
   testTimelineNavigation(
     programTrace
   );
@@ -1813,6 +1888,10 @@ async function runTests() {
 
   console.log(
     "Bubble, selection, and insertion sort reconstruction: passed"
+  );
+
+  console.log(
+    "Merge split/merge and Quick pivot/partition reconstruction: passed"
   );
 }
 

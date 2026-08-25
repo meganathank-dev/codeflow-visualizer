@@ -654,6 +654,16 @@ function testDomainRestrictions() {
     false
   );
 
+  for (const eventType of [
+    EVENT_TYPES.SORT_SPLIT,
+    EVENT_TYPES.SORT_MERGE,
+    EVENT_TYPES.SORT_PIVOT,
+    EVENT_TYPES.SORT_PARTITION
+  ]) {
+    assert.equal(isEventAllowedForDomain(eventType, TRACE_DOMAINS.PROGRAM), true);
+    assert.equal(isEventAllowedForDomain(eventType, TRACE_DOMAINS.QUERY), false);
+  }
+
   assert.equal(
     isEventAllowedForDomain(
       EVENT_TYPES.LINKED_LIST_CREATE,
