@@ -52,6 +52,8 @@ function createInitialState(trace) {
 
     graphs: {},
 
+    searches: {},
+
     linkedLists: {},
 
     objects: {},
@@ -996,6 +998,88 @@ function handleGraphEvent(state, event) {
   graph.lastOperation = event.type;
 }
 
+function handleSearchEvent(state, event) {
+  const payload = event.payload || {};
+  const searchId = payload.searchId || `${payload.algorithm || "linear"}:${payload.arrayName || "values"}`;
+
+  if (!state.searches[searchId]) {
+    state.searches[searchId] = {
+      id: searchId,
+      algorithm: payload.algorithm || "linear",
+      arrayName: payload.arrayName || "values",
+      values: [],
+      target: null,
+      low: null,
+      high: null,
+      middle: null,
+      activeIndex: null,
+      comparedIndices: [],
+      eliminatedIndices: [],
+      comparisonCount: 0,
+      foundIndex: null,
+      found: false,
+      finished: false,
+      lastOperation: null
+    };
+  }
+
+  const search = state.searches[searchId];
+
+  for (const key of ["algorithm", "arrayName", "target", "low", "high", "middle", "comparisonCount"]) {
+    if (Object.hasOwn(payload, key)) {
+      search[key] = cloneValue(payload[key]);
+    }
+  }
+
+  if (Array.isArray(payload.values)) {
+    search.values = cloneValue(payload.values);
+  }
+
+  if (Array.isArray(payload.comparedIndices)) {
+    search.comparedIndices = cloneValue(payload.comparedIndices);
+  }
+
+  if (Array.isArray(payload.eliminatedIndices)) {
+    search.eliminatedIndices = cloneValue(payload.eliminatedIndices);
+  }
+
+  if (Number.isInteger(payload.index)) {
+    search.activeIndex = payload.index;
+  } else if (event.type === EVENT_TYPES.SEARCH_RANGE_UPDATE) {
+    search.activeIndex = Number.isInteger(payload.middle)
+      ? payload.middle
+      : Number.isInteger(payload.low) ? payload.low : null;
+  }
+
+  if (event.type === EVENT_TYPES.SEARCH_START) {
+    search.found = false;
+    search.finished = false;
+    search.foundIndex = null;
+    search.comparedIndices = [];
+    search.eliminatedIndices = [];
+  } else if (event.type === EVENT_TYPES.SEARCH_FOUND) {
+    search.found = true;
+    search.foundIndex = payload.foundIndex ?? payload.index ?? null;
+    search.activeIndex = search.foundIndex;
+  } else if (event.type === EVENT_TYPES.SEARCH_NOT_FOUND) {
+    search.found = false;
+    search.foundIndex = -1;
+    search.activeIndex = null;
+  } else if (event.type === EVENT_TYPES.SEARCH_END) {
+    search.finished = true;
+
+    if (Object.hasOwn(payload, "found")) {
+      search.found = Boolean(payload.found);
+    }
+
+    if (Object.hasOwn(payload, "foundIndex")) {
+      search.foundIndex = payload.foundIndex;
+    }
+  }
+
+  search.lastOperation = event.type;
+}
+
 function handleFunctionEnter(state, event) {
   const name = (
     event.payload.name ||
@@ -1617,6 +1701,17 @@ function reduceExecutionEvent(previousState, event) {
     case EVENT_TYPES.GRAPH_VISIT:
     case EVENT_TYPES.GRAPH_TRAVERSE: {
       handleGraphEvent(state, event);
+
+      break;
+    }
+
+    case EVENT_TYPES.SEARCH_START:
+    case EVENT_TYPES.SEARCH_COMPARE:
+    case EVENT_TYPES.SEARCH_RANGE_UPDATE:
+    case EVENT_TYPES.SEARCH_FOUND:
+    case EVENT_TYPES.SEARCH_NOT_FOUND:
+    case EVENT_TYPES.SEARCH_END: {
+      handleSearchEvent(state, event);
 
       break;
     }

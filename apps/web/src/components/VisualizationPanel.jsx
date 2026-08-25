@@ -12,6 +12,7 @@ import {
   GitBranch,
   KeyRound,
   Layers3,
+  Search,
   Sparkles,
   Table2,
   Workflow
@@ -1337,6 +1338,139 @@ function GraphVisualization({ graph }) {
   );
 }
 
+function SearchVisualization({ search }) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (!search) {
+    return null;
+  }
+
+  const isBinary = search.algorithm === "binary";
+  const compared = new Set(search.comparedIndices || []);
+  const eliminated = new Set(search.eliminatedIndices || []);
+
+  function pointerLabels(index) {
+    if (!isBinary) {
+      return search.activeIndex === index ? ["CHECK"] : [];
+    }
+
+    return [
+      search.low === index ? "LOW" : null,
+      search.middle === index ? "MID" : null,
+      search.high === index ? "HIGH" : null
+    ].filter(Boolean);
+  }
+
+  return (
+    <motion.div
+      className="visualization-card search-card"
+      layout
+      transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+    >
+      <div className="visualization-card-heading">
+        <div className="visualization-card-title">
+          <Search size={16} />
+          <span>{isBinary ? "Binary Search" : "Linear Search"}</span>
+        </div>
+
+        <div className="search-heading-meta">
+          <span className="search-complexity">{isBinary ? "O(log n)" : "O(n)"}</span>
+          <span className="structure-name">{search.arrayName}</span>
+        </div>
+      </div>
+
+      <div className="search-summary-grid">
+        <div className="search-summary-item">
+          <span>Target</span>
+          <strong>{formatVariableValue(search.target)}</strong>
+        </div>
+
+        <div className="search-summary-item">
+          <span>Comparisons</span>
+          <strong>{search.comparisonCount}</strong>
+        </div>
+
+        <div className="search-summary-item">
+          <span>{isBinary ? "Active range" : "Checked"}</span>
+          <strong>
+            {isBinary
+              ? search.low <= search.high
+                ? `[${search.low}, ${search.high}]`
+                : "empty"
+              : `${compared.size} / ${search.values.length}`}
+          </strong>
+        </div>
+
+        <div className="search-summary-item">
+          <span>Result</span>
+          <strong className={search.found ? "search-success-value" : ""}>
+            {search.found
+              ? `index ${search.foundIndex}`
+              : search.finished ? "not found" : "searching"}
+          </strong>
+        </div>
+      </div>
+
+      <div className="search-array-stage" aria-label={`${isBinary ? "Binary" : "Linear"} search visualization`}>
+        <div className="search-cells">
+          <AnimatePresence initial={false} mode="popLayout">
+            {search.values.map((value, index) => {
+              const isFound = search.found && search.foundIndex === index;
+              const isActive = search.activeIndex === index && !isFound;
+              const labels = pointerLabels(index);
+
+              return (
+                <motion.div
+                  key={`search-cell-${index}`}
+                  className={[
+                    "search-cell-column",
+                    eliminated.has(index) ? "is-eliminated-search-cell" : "",
+                    compared.has(index) ? "is-compared-search-cell" : "",
+                    isActive ? "is-active-search-cell" : "",
+                    isFound ? "is-found-search-cell" : ""
+                  ].filter(Boolean).join(" ")}
+                  layout
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+                >
+                  <span className="search-cell-index">{index}</span>
+
+                  <motion.div
+                    className="search-cell-value"
+                    animate={{ scale: isActive || isFound ? 1.07 : 1 }}
+                    transition={shouldReduceMotion ? { duration: 0 } : SPRING_TRANSITION}
+                  >
+                    {formatVariableValue(value)}
+                  </motion.div>
+
+                  <div className="search-pointer-row">
+                    {labels.map((label) => (
+                      <span
+                        key={label}
+                        className={`search-pointer search-pointer-${label.toLowerCase()}`}
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </div>
+      </div>
+
+      <div className="search-legend">
+        <span><i className="search-legend-dot is-active-dot" /> active</span>
+        <span><i className="search-legend-dot is-compared-dot" /> compared</span>
+        <span><i className="search-legend-dot is-eliminated-dot" /> eliminated</span>
+        <span><i className="search-legend-dot is-found-dot" /> found</span>
+      </div>
+    </motion.div>
+  );
+}
+
 function EventStory({
   step,
   isSql = false
@@ -1561,6 +1695,10 @@ function ProgramVisualization({
             : SOFT_SPRING_TRANSITION
         }
       >
+        <SearchVisualization
+          search={step.search}
+        />
+
         <ArrayVisualization
           array={step.array}
         />

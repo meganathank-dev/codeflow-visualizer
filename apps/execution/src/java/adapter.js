@@ -906,6 +906,107 @@ function traverseLogicalGraph(graph, start, traversalType) {
   return { steps, order, visitedIds: steps.filter((step) => step.kind === "visit").map((step) => step.nodeId) };
 }
 
+function recordSearchAlgorithm(
+  recorder,
+  algorithm,
+  arrayName,
+  values,
+  target,
+  line,
+  scopeId,
+  logicalSearches
+) {
+  logicalSearches.nextId += 1;
+
+  const searchId = `search:${logicalSearches.nextId}`;
+  const comparedIndices = [];
+  const eliminatedIndices = [];
+  let low = 0;
+  let high = values.length - 1;
+  let foundIndex = -1;
+
+  function payload(extra = {}) {
+    return {
+      searchId,
+      algorithm,
+      arrayName,
+      values: structuredClone(values),
+      target,
+      low,
+      high,
+      middle: algorithm === "binary" && low <= high
+        ? low + Math.floor((high - low) / 2)
+        : null,
+      comparedIndices: [...comparedIndices],
+      eliminatedIndices: [...eliminatedIndices],
+      comparisonCount: comparedIndices.length,
+      ...extra
+    };
+  }
+
+  record(recorder, EVENT_TYPES.SEARCH_START, line, payload(), scopeId);
+
+  while (low <= high) {
+    const index = algorithm === "binary"
+      ? low + Math.floor((high - low) / 2)
+      : low;
+    const value = values[index];
+
+    comparedIndices.push(index);
+
+    record(recorder, EVENT_TYPES.SEARCH_COMPARE, line, payload({
+      index,
+      value,
+      matched: value === target,
+      middle: algorithm === "binary" ? index : null
+    }), scopeId);
+
+    if (value === target) {
+      foundIndex = index;
+      record(recorder, EVENT_TYPES.SEARCH_FOUND, line, payload({
+        index,
+        value,
+        found: true,
+        foundIndex
+      }), scopeId);
+      break;
+    }
+
+    if (algorithm === "binary") {
+      if (value < target) {
+        for (let eliminated = low; eliminated <= index; eliminated++) {
+          eliminatedIndices.push(eliminated);
+        }
+        low = index + 1;
+      } else {
+        for (let eliminated = index; eliminated <= high; eliminated++) {
+          eliminatedIndices.push(eliminated);
+        }
+        high = index - 1;
+      }
+    } else {
+      eliminatedIndices.push(index);
+      low = index + 1;
+    }
+
+    record(recorder, EVENT_TYPES.SEARCH_RANGE_UPDATE, line, payload({
+      previousIndex: index
+    }), scopeId);
+  }
+
+  if (foundIndex < 0) {
+    record(recorder, EVENT_TYPES.SEARCH_NOT_FOUND, line, payload({
+      found: false,
+      foundIndex: -1
+    }), scopeId);
+  }
+
+  record(recorder, EVENT_TYPES.SEARCH_END, line, payload({
+    found: foundIndex >= 0,
+    foundIndex
+  }), scopeId);
+}
+
 function processCollectionStatement(
   recorder,
   sourceLine,
@@ -917,10 +1018,11 @@ function processCollectionStatement(
   logicalHashMaps,
   logicalTrees,
   logicalHeaps,
-  logicalGraphs
+  logicalGraphs,
+  logicalSearches
 ) {
   const match = sourceLine.match(
-    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey|contains|toArray|addNode|addEdge|bfs|dfs)\s*\((.*?)\)\s*;/
+    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey|contains|toArray|addNode|addEdge|bfs|dfs|linearSearch|binarySearch)\s*\((.*?)\)\s*;/
   );
 
   if (!match) {
@@ -928,6 +1030,32 @@ function processCollectionStatement(
   }
 
   const [, name, method, expression] = match;
+
+  if (
+    name === "SearchAlgorithms" &&
+    ["linearSearch", "binarySearch"].includes(method)
+  ) {
+    const [arrayExpression, targetExpression] = expression
+      .split(",")
+      .map((argument) => argument.trim());
+    const values = locals[arrayExpression]?.value;
+
+    if (Array.isArray(values)) {
+      recordSearchAlgorithm(
+        recorder,
+        method === "linearSearch" ? "linear" : "binary",
+        arrayExpression,
+        values,
+        evaluateSimpleExpression(targetExpression, locals),
+        line,
+        scopeId,
+        logicalSearches
+      );
+    }
+
+    return;
+  }
+
   const lowerName = name.toLowerCase();
 
   if (
@@ -1543,6 +1671,7 @@ function buildJavaTrace(rawObservations, options) {
   const logicalTrees = new Map();
   const logicalHeaps = new Map();
   const logicalGraphs = new Map();
+  const logicalSearches = { nextId: 0 };
   const controlFlow = createControlFlowTracker(options.sourceLines);
   const observations = rawObservations.trim().split(/\r?\n/).filter(Boolean);
 
@@ -1635,7 +1764,8 @@ function buildJavaTrace(rawObservations, options) {
         logicalHashMaps,
         logicalTrees,
         logicalHeaps,
-        logicalGraphs
+        logicalGraphs,
+        logicalSearches
       );
 
       controlFlow.observeLine(
@@ -1687,7 +1817,8 @@ function buildJavaTrace(rawObservations, options) {
           logicalHashMaps,
           logicalTrees,
           logicalHeaps,
-          logicalGraphs
+          logicalGraphs,
+          logicalSearches
         );
 
         controlFlow.close(recorder, frameState.lastLine, frameState.scopeId);
@@ -1834,6 +1965,7 @@ async function executeJava(source, options = {}) {
   const sourcePath = path.join(workspace, sourceFileName);
   const debuggerSourcePath = path.join(__dirname, "CodeFlowJavaDebugger.java");
   const graphSourcePath = path.join(__dirname, "CodeFlowGraph.java");
+  const searchSourcePath = path.join(__dirname, "CodeFlowSearchAlgorithms.java");
 
   try {
     await fs.writeFile(sourcePath, source, "utf8");
@@ -1850,6 +1982,7 @@ async function executeJava(source, options = {}) {
         workspace,
         debuggerSourcePath,
         graphSourcePath,
+        searchSourcePath,
         sourcePath
       ],
       {

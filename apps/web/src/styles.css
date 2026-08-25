@@ -3347,3 +3347,191 @@ input:focus-visible {
   font-family: inherit;
   font-size: 10px;
 }
+
+.search-card {
+  grid-column: 1 / -1;
+  overflow: hidden;
+}
+
+.search-heading-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.search-complexity {
+  color: var(--accent-purple);
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.search-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 14px 14px 9px;
+}
+
+.search-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: rgba(16, 22, 33, 0.7);
+}
+
+.search-summary-item span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-summary-item strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-summary-item strong.search-success-value {
+  color: var(--accent-green);
+}
+
+.search-array-stage {
+  overflow-x: auto;
+  padding: 14px 18px 8px;
+}
+
+.search-cells {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  min-width: max-content;
+}
+
+.search-cell-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  width: 64px;
+}
+
+.search-cell-index {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.search-cell-value {
+  display: grid;
+  width: 58px;
+  height: 46px;
+  place-items: center;
+  border: 1px solid var(--border-medium);
+  border-radius: 10px;
+  background: rgba(16, 22, 33, 0.85);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+  transition: border-color 180ms ease, color 180ms ease, background 180ms ease, opacity 180ms ease;
+}
+
+.is-compared-search-cell .search-cell-value {
+  border-color: rgba(120, 169, 255, 0.58);
+  background: rgba(120, 169, 255, 0.1);
+}
+
+.is-eliminated-search-cell .search-cell-value {
+  border-color: var(--border-subtle);
+  background: rgba(16, 22, 33, 0.35);
+  color: var(--text-muted);
+  opacity: 0.45;
+}
+
+.is-active-search-cell .search-cell-value {
+  border-color: rgba(169, 145, 255, 0.85);
+  background: rgba(169, 145, 255, 0.17);
+  box-shadow: 0 0 18px rgba(169, 145, 255, 0.12);
+  opacity: 1;
+}
+
+.is-found-search-cell .search-cell-value {
+  border-color: rgba(112, 230, 178, 0.86);
+  background: rgba(112, 230, 178, 0.15);
+  box-shadow: 0 0 19px rgba(112, 230, 178, 0.14);
+  color: var(--accent-green);
+  opacity: 1;
+}
+
+.search-pointer-row {
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  min-height: 21px;
+}
+
+.search-pointer {
+  padding: 3px 4px;
+  border-radius: 4px;
+  background: rgba(120, 169, 255, 0.11);
+  color: var(--accent-blue);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.25px;
+}
+
+.search-pointer-mid,
+.search-pointer-check {
+  background: rgba(169, 145, 255, 0.13);
+  color: var(--accent-purple);
+}
+
+.search-pointer-high {
+  background: rgba(243, 189, 122, 0.12);
+  color: var(--accent-orange);
+}
+
+.search-legend {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 4px 12px 14px;
+}
+
+.search-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.search-legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.search-legend-dot.is-active-dot { background: var(--accent-purple); }
+.search-legend-dot.is-compared-dot { background: var(--accent-blue); }
+.search-legend-dot.is-eliminated-dot { opacity: 0.45; }
+.search-legend-dot.is-found-dot { background: var(--accent-green); }
+
+@media (max-width: 600px) {
+  .search-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .search-cells {
+    justify-content: flex-start;
+  }
+}

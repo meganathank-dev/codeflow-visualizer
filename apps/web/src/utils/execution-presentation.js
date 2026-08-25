@@ -185,6 +185,48 @@ function describeEvent(event, state, language) {
         description: `${formatValue(value)} is removed from index ${payload.index}.`
       };
 
+    case "SEARCH_START":
+      return {
+        title: `Start ${payload.algorithm === "binary" ? "binary" : "linear"} search`,
+        description: `${payload.algorithm === "binary" ? "Binary" : "Linear"} search looks for ${formatValue(payload.target)} in ${payload.arrayName || "the array"}.`
+      };
+
+    case "SEARCH_COMPARE":
+      return {
+        title: `Compare ${payload.arrayName || "values"}[${payload.index}] with ${formatValue(payload.target)}`,
+        description: `${formatValue(payload.value)} ${payload.matched ? "matches" : "does not match"} the target ${formatValue(payload.target)}.`
+      };
+
+    case "SEARCH_RANGE_UPDATE":
+      return {
+        title: payload.algorithm === "binary"
+          ? "Narrow the binary search range"
+          : "Advance to the next array index",
+        description: payload.algorithm === "binary"
+          ? `LOW ${payload.low}, HIGH ${payload.high}${Number.isInteger(payload.middle) ? `, MID ${payload.middle}` : ""}; eliminated indices are no longer searched.`
+          : `Move to index ${payload.low} after checking index ${payload.previousIndex}.`
+      };
+
+    case "SEARCH_FOUND":
+      return {
+        title: `Found ${formatValue(payload.target)} at index ${payload.foundIndex ?? payload.index}`,
+        description: `${payload.algorithm === "binary" ? "Binary" : "Linear"} search found its target after ${payload.comparisonCount} comparisons.`
+      };
+
+    case "SEARCH_NOT_FOUND":
+      return {
+        title: `${formatValue(payload.target)} was not found`,
+        description: `The search exhausted its candidate range after ${payload.comparisonCount} comparisons.`
+      };
+
+    case "SEARCH_END":
+      return {
+        title: `${payload.algorithm === "binary" ? "Binary" : "Linear"} search completed`,
+        description: payload.found
+          ? `Return index ${payload.foundIndex} after ${payload.comparisonCount} comparisons.`
+          : `Return -1 because ${formatValue(payload.target)} is absent after ${payload.comparisonCount} comparisons.`
+      };
+
     case "STACK_CREATE":
       return {
         title: `Create ${name || "a stack"}`,
@@ -684,6 +726,29 @@ function selectGraph(state, event) {
   };
 }
 
+function selectSearch(state, event) {
+  const searches = state.searches || {};
+  const eventSearchId = event.payload?.searchId;
+  const selectedId = Object.hasOwn(searches, eventSearchId)
+    ? eventSearchId
+    : Object.keys(searches).at(-1);
+
+  if (!selectedId || !Array.isArray(searches[selectedId]?.values)) {
+    return null;
+  }
+
+  const search = searches[selectedId];
+
+  return {
+    ...search,
+    comparedIndices: Array.isArray(search.comparedIndices) ? search.comparedIndices : [],
+    eliminatedIndices: Array.isArray(search.eliminatedIndices) ? search.eliminatedIndices : [],
+    operation: eventSearchId === selectedId && event.type.startsWith("SEARCH_")
+      ? event.type
+      : null
+  };
+}
+
 function selectStack(state, event) {
   const stacks = state.stacks || {};
   const eventStack = event.payload?.name;
@@ -892,6 +957,8 @@ export function createExecutionPresentation(result) {
     const narrative = describeEvent(event, state, result.language);
     const controlFlow = selectControlFlow(state, event);
     const line = event.source?.line || state.source?.line || null;
+    const search = selectSearch(state, event);
+    const array = selectArray(state, event);
 
     return {
       id: event.id || `${result.trace.traceId || result.language}-${event.step}`,
@@ -900,7 +967,8 @@ export function createExecutionPresentation(result) {
       title: narrative.title,
       description: narrative.description,
       variables: selectVariables(state),
-      array: selectArray(state, event),
+      array: search && array?.name === search.arrayName ? null : array,
+      search,
       stack: selectStack(state, event),
       queue: selectQueue(state, event),
       linkedList: selectLinkedList(state, event),
@@ -953,6 +1021,7 @@ export function createIdleExecutionStep(language = "javascript") {
     tree: null,
     heap: null,
     graph: null,
+    search: null,
     callStack: [],
     console: [],
     iteration: null,

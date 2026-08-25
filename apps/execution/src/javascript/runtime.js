@@ -306,6 +306,8 @@ function createJavaScriptRuntime(options = {}) {
 
   let nextFrameNumber = 0;
 
+  let nextSearchNumber = 0;
+
   let lastRecordedLine = 1;
 
   function currentScopeId() {
@@ -1071,6 +1073,110 @@ function createJavaScriptRuntime(options = {}) {
         order: toSerializable(result)
       });
     }
+  }
+
+  function runSearchAlgorithm(algorithm, values, target) {
+    if (!Array.isArray(values)) {
+      throw new TypeError("SearchAlgorithms requires an array as its first argument.");
+    }
+
+    if (algorithm === "binary" && values.some((value, index) => (
+      index > 0 && values[index - 1] > value
+    ))) {
+      throw new RangeError("Binary search requires an array sorted in ascending order.");
+    }
+
+    const arrayName = [...references.entries()].find(([, value]) => value === values)?.[0] || "values";
+    const searchId = `search:${++nextSearchNumber}`;
+    const line = lastRecordedLine;
+    const comparedIndices = [];
+    let low = 0;
+    let high = values.length - 1;
+    let middle = algorithm === "binary" && high >= 0
+      ? Math.floor((low + high) / 2)
+      : null;
+
+    const payload = (extra = {}) => ({
+      searchId,
+      algorithm,
+      arrayName,
+      values: Array.from(values),
+      target,
+      low,
+      high,
+      middle,
+      comparedIndices: Array.from(comparedIndices),
+      eliminatedIndices: values.map((_, index) => index)
+        .filter((index) => index < low || index > high),
+      comparisonCount: comparedIndices.length,
+      ...extra
+    });
+
+    record(EVENT_TYPES.SEARCH_START, line, payload());
+
+    while (low <= high) {
+      const index = algorithm === "binary"
+        ? Math.floor((low + high) / 2)
+        : low;
+
+      middle = algorithm === "binary" ? index : null;
+      comparedIndices.push(index);
+
+      const matches = values[index] === target;
+
+      record(EVENT_TYPES.SEARCH_COMPARE, line, payload({
+        index,
+        value: values[index],
+        match: matches
+      }));
+
+      if (matches) {
+        record(EVENT_TYPES.SEARCH_FOUND, line, payload({
+          index,
+          foundIndex: index,
+          found: true
+        }));
+        record(EVENT_TYPES.SEARCH_END, line, payload({
+          index,
+          foundIndex: index,
+          found: true
+        }));
+        return index;
+      }
+
+      const previousLow = low;
+      const previousHigh = high;
+      const direction = algorithm === "binary" && values[index] > target
+        ? "left"
+        : "right";
+
+      if (direction === "left") {
+        high = index - 1;
+      } else {
+        low = index + 1;
+      }
+
+      middle = algorithm === "binary" && low <= high
+        ? Math.floor((low + high) / 2)
+        : null;
+
+      record(EVENT_TYPES.SEARCH_RANGE_UPDATE, line, payload({
+        previousLow,
+        previousHigh,
+        direction
+      }));
+    }
+
+    record(EVENT_TYPES.SEARCH_NOT_FOUND, line, payload({
+      foundIndex: -1,
+      found: false
+    }));
+    record(EVENT_TYPES.SEARCH_END, line, payload({
+      foundIndex: -1,
+      found: false
+    }));
+
+    return -1;
   }
 
   function recordTreeMethod(name, method, tree, result, line, requestedValue) {
@@ -2365,6 +2471,18 @@ function createJavaScriptRuntime(options = {}) {
 
     createGraphConstructor() {
       return CodeFlowGraph;
+    },
+
+    createSearchAlgorithms() {
+      return {
+        linearSearch(values, target) {
+          return runSearchAlgorithm("linear", values, target);
+        },
+
+        binarySearch(values, target) {
+          return runSearchAlgorithm("binary", values, target);
+        }
+      };
     },
 
     getTrace() {

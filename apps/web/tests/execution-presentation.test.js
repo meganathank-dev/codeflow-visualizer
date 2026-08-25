@@ -19,6 +19,7 @@ function createState(step, overrides = {}) {
     trees: {},
     heaps: {},
     graphs: {},
+    searches: {},
     callStack: [],
     console: [],
     errors: [],
@@ -783,6 +784,91 @@ function createGraphResult(language) {
   };
 }
 
+function createSearchResult(language) {
+  const values = [4, 8, 15, 16, 23, 42];
+  const searchId = "search:1";
+  const base = {
+    searchId,
+    algorithm: "binary",
+    arrayName: "numbers",
+    values,
+    target: 23
+  };
+  const entries = [
+    ["PROGRAM_START", {}],
+    ["ARRAY_CREATE", { name: "numbers", values }],
+    ["SEARCH_START", { ...base, low: 0, high: 5, middle: 2 }],
+    ["SEARCH_COMPARE", {
+      ...base, low: 0, high: 5, middle: 2, index: 2, value: 15,
+      matched: false, comparedIndices: [2], eliminatedIndices: [], comparisonCount: 1
+    }],
+    ["SEARCH_RANGE_UPDATE", {
+      ...base, low: 3, high: 5, middle: 4, previousIndex: 2,
+      comparedIndices: [2], eliminatedIndices: [0, 1, 2], comparisonCount: 1
+    }],
+    ["SEARCH_COMPARE", {
+      ...base, low: 3, high: 5, middle: 4, index: 4, value: 23,
+      matched: true, comparedIndices: [2, 4], eliminatedIndices: [0, 1, 2], comparisonCount: 2
+    }],
+    ["SEARCH_FOUND", {
+      ...base, low: 3, high: 5, middle: 4, index: 4, found: true, foundIndex: 4,
+      comparedIndices: [2, 4], eliminatedIndices: [0, 1, 2], comparisonCount: 2
+    }],
+    ["SEARCH_END", {
+      ...base, low: 3, high: 5, middle: 4, found: true, foundIndex: 4,
+      comparedIndices: [2, 4], eliminatedIndices: [0, 1, 2], comparisonCount: 2
+    }],
+    ["PROGRAM_END", {}]
+  ];
+  const events = entries.map(([type, payload], step) => ({
+    id: `search-event-${step}`,
+    step,
+    type,
+    source: { line: step > 1 ? 2 : 1 },
+    payload
+  }));
+  const states = events.map((event, step) => {
+    const searches = step >= 2
+      ? {
+        [searchId]: {
+          id: searchId,
+          algorithm: "binary",
+          arrayName: "numbers",
+          values,
+          target: 23,
+          low: step >= 4 ? 3 : 0,
+          high: 5,
+          middle: step >= 4 ? 4 : 2,
+          activeIndex: step >= 5 ? 4 : step >= 3 ? 2 : null,
+          comparedIndices: step >= 5 ? [2, 4] : step >= 3 ? [2] : [],
+          eliminatedIndices: step >= 4 ? [0, 1, 2] : [],
+          comparisonCount: step >= 5 ? 2 : step >= 3 ? 1 : 0,
+          found: step >= 6,
+          foundIndex: step >= 6 ? 4 : null,
+          finished: step >= 7,
+          lastOperation: event.type
+        }
+      }
+      : {};
+
+    return createState(step, {
+      status: step === events.length - 1 ? "completed" : "running",
+      variables: step > 0 ? { numbers: values } : {},
+      arrays: step > 0 ? { numbers: values } : {},
+      searches
+    });
+  });
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: { traceId: `${language}-search-presentation-test`, status: "completed", events },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
 function runTests() {
   const presentation = createExecutionPresentation(createResult());
 
@@ -945,6 +1031,20 @@ function runTests() {
     assert.equal(graphPresentation.steps[10].graph.traversalType, "bfs");
     assert.equal(graphPresentation.steps[10].array, null);
     assert.match(graphPresentation.steps[10].description, /A.*B.*C/);
+
+    const searchPresentation = createExecutionPresentation(
+      createSearchResult(language)
+    );
+
+    assert.equal(searchPresentation.steps[2].search.algorithm, "binary");
+    assert.equal(searchPresentation.steps[3].search.activeIndex, 2);
+    assert.deepEqual(searchPresentation.steps[4].search.eliminatedIndices, [0, 1, 2]);
+    assert.equal(searchPresentation.steps[4].search.low, 3);
+    assert.equal(searchPresentation.steps[4].search.middle, 4);
+    assert.equal(searchPresentation.steps[6].search.foundIndex, 4);
+    assert.equal(searchPresentation.steps[7].search.finished, true);
+    assert.equal(searchPresentation.steps[7].array, null);
+    assert.match(searchPresentation.steps[4].description, /LOW 3.*HIGH 5/i);
   }
 
   const sqlPresentation = createExecutionPresentation(createSqlResult());
@@ -1018,6 +1118,8 @@ function runTests() {
   console.log("Heap bubble-up, bubble-down, and diagonal-edge animation state: passed");
   console.log("Cross-language graph presentation: passed");
   console.log("Graph node, direct-edge, BFS, and DFS animation state: passed");
+  console.log("Cross-language searching-algorithm presentation: passed");
+  console.log("Linear and binary search pointers, comparison, and result state: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");

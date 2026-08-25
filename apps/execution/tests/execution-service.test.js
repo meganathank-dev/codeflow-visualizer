@@ -809,6 +809,77 @@ async function testCrossLanguageGraphs(baseUrl) {
   return executions;
 }
 
+async function testCrossLanguageSearchAlgorithms(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "const numbers = [4, 8, 15, 16, 23, 42];",
+      "const linearIndex = SearchAlgorithms.linearSearch(numbers, 23);",
+      "const missingIndex = SearchAlgorithms.binarySearch(numbers, 99);",
+      "const binaryIndex = SearchAlgorithms.binarySearch(numbers, 23);",
+      'console.log("Linear:", linearIndex, "Binary:", binaryIndex, "Missing:", missingIndex);'
+    ].join("\n"),
+    python: [
+      "numbers = [4, 8, 15, 16, 23, 42]",
+      "linear_index = SearchAlgorithms.linear_search(numbers, 23)",
+      "missing_index = SearchAlgorithms.binary_search(numbers, 99)",
+      "binary_index = SearchAlgorithms.binary_search(numbers, 23)",
+      'print("Linear:", linear_index, "Binary:", binary_index, "Missing:", missing_index)'
+    ].join("\n"),
+    java: [
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        int[] numbers = {4, 8, 15, 16, 23, 42};",
+      "        int linearIndex = SearchAlgorithms.linearSearch(numbers, 23);",
+      "        int missingIndex = SearchAlgorithms.binarySearch(numbers, 99);",
+      "        int binaryIndex = SearchAlgorithms.binarySearch(numbers, 23);",
+      '        System.out.println("Linear: " + linearIndex + " Binary: " + binaryIndex + " Missing: " + missingIndex);',
+      "    }",
+      "}"
+    ].join("\n")
+  };
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "SEARCH_START",
+      "SEARCH_COMPARE",
+      "SEARCH_RANGE_UPDATE",
+      "SEARCH_FOUND",
+      "SEARCH_NOT_FOUND",
+      "SEARCH_END"
+    ]);
+
+    const finalState = execution.states.at(-1);
+    const linearName = language === "python" ? "linear_index" : "linearIndex";
+    const missingName = language === "python" ? "missing_index" : "missingIndex";
+    const binaryName = language === "python" ? "binary_index" : "binaryIndex";
+    const searches = Object.values(finalState.searches);
+
+    assert.equal(finalState.variables[linearName], 4);
+    assert.equal(finalState.variables[missingName], -1);
+    assert.equal(finalState.variables[binaryName], 4);
+    assert.equal(searches.length, 3);
+    assert.equal(searches[0].algorithm, "linear");
+    assert.equal(searches[0].comparisonCount, 5);
+    assert.equal(searches[1].found, false);
+    assert.equal(searches[1].foundIndex, -1);
+    assert.equal(searches[2].algorithm, "binary");
+    assert.equal(searches[2].comparisonCount, 2);
+    assert.equal(searches[2].foundIndex, 4);
+    assert.deepEqual(searches[2].comparedIndices, [2, 4]);
+    assert.deepEqual(searches[2].eliminatedIndices, [0, 1, 2]);
+
+    executions[language] = execution;
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -988,6 +1059,7 @@ async function runTests() {
     const trees = await testCrossLanguageBinarySearchTrees(baseUrl);
     const heaps = await testCrossLanguageMinHeaps(baseUrl);
     const graphs = await testCrossLanguageGraphs(baseUrl);
+    const searches = await testCrossLanguageSearchAlgorithms(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -1053,6 +1125,11 @@ async function runTests() {
     console.log(`JavaScript graph events: ${graphs.javascript.trace.events.filter((event) => event.type.startsWith("GRAPH_")).length}`);
     console.log(`Python graph events: ${graphs.python.trace.events.filter((event) => event.type.startsWith("GRAPH_")).length}`);
     console.log(`Java graph events: ${graphs.java.trace.events.filter((event) => event.type.startsWith("GRAPH_")).length}`);
+    console.log("Cross-language searching algorithms: passed");
+    console.log("Linear search, binary search, bounds, comparisons, and not-found: passed");
+    console.log(`JavaScript search events: ${searches.javascript.trace.events.filter((event) => event.type.startsWith("SEARCH_")).length}`);
+    console.log(`Python search events: ${searches.python.trace.events.filter((event) => event.type.startsWith("SEARCH_")).length}`);
+    console.log(`Java search events: ${searches.java.trace.events.filter((event) => event.type.startsWith("SEARCH_")).length}`);
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");

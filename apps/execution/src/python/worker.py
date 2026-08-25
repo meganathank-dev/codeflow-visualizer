@@ -65,6 +65,100 @@ class OutputLimitError(Exception):
     pass
 
 
+class CodeFlowSearchAlgorithms:
+    def __init__(self):
+        self.search_number = 0
+        self.last_steps = []
+
+    def run(self, algorithm, values, target):
+        if not isinstance(values, list):
+            raise TypeError("SearchAlgorithms requires a list as its first argument.")
+
+        if algorithm == "binary" and any(
+            values[index - 1] > values[index]
+            for index in range(1, len(values))
+        ):
+            raise ValueError("Binary search requires a list sorted in ascending order.")
+
+        self.search_number += 1
+        search_id = f"search:{self.search_number}"
+        compared_indices = []
+        low = 0
+        high = len(values) - 1
+        middle = (low + high) // 2 if algorithm == "binary" and high >= 0 else None
+        self.last_steps = []
+
+        def append_step(event_type, **extra):
+            self.last_steps.append((event_type, {
+                "searchId": search_id,
+                "algorithm": algorithm,
+                "values": json_safe(values),
+                "target": json_safe(target),
+                "low": low,
+                "high": high,
+                "middle": middle,
+                "comparedIndices": list(compared_indices),
+                "eliminatedIndices": [
+                    index for index in range(len(values))
+                    if index < low or index > high
+                ],
+                "comparisonCount": len(compared_indices),
+                **extra,
+            }))
+
+        append_step("SEARCH_START")
+
+        while low <= high:
+            index = (low + high) // 2 if algorithm == "binary" else low
+            middle = index if algorithm == "binary" else None
+            compared_indices.append(index)
+            matches = values[index] == target
+
+            append_step(
+                "SEARCH_COMPARE",
+                index=index,
+                value=json_safe(values[index]),
+                match=matches,
+            )
+
+            if matches:
+                append_step("SEARCH_FOUND", index=index, foundIndex=index, found=True)
+                append_step("SEARCH_END", index=index, foundIndex=index, found=True)
+                return index
+
+            previous_low = low
+            previous_high = high
+            direction = "left" if algorithm == "binary" and values[index] > target else "right"
+
+            if direction == "left":
+                high = index - 1
+            else:
+                low = index + 1
+
+            middle = (
+                (low + high) // 2
+                if algorithm == "binary" and low <= high
+                else None
+            )
+
+            append_step(
+                "SEARCH_RANGE_UPDATE",
+                previousLow=previous_low,
+                previousHigh=previous_high,
+                direction=direction,
+            )
+
+        append_step("SEARCH_NOT_FOUND", foundIndex=-1, found=False)
+        append_step("SEARCH_END", foundIndex=-1, found=False)
+        return -1
+
+    def linear_search(self, values, target):
+        return self.run("linear", values, target)
+
+    def binary_search(self, values, target):
+        return self.run("binary", values, target)
+
+
 class LinkedListNode:
     def __init__(self, identifier, value):
         self.id = identifier
@@ -828,7 +922,8 @@ class SourceInstrumenter(ast.NodeTransformer):
             "append", "pop", "insert", "remove", "extend", "clear",
             "prepend", "remove_at", "get", "to_list", "update", "setdefault",
             "search", "inorder", "peek", "extract", "to_array",
-            "add_node", "add_edge", "bfs", "dfs"
+            "add_node", "add_edge", "bfs", "dfs",
+            "linear_search", "binary_search"
         }:
             return node
 
@@ -857,6 +952,7 @@ class PythonExecutionTracer:
         self.output_bytes = 0
         self.frame_number = 0
         self.last_line = 1
+        self.search_algorithms = CodeFlowSearchAlgorithms()
 
     def record(self, event_type, line, payload=None, scope_id=None):
         if len(self.events) >= self.maximum_events - 2:
@@ -1301,6 +1397,25 @@ class PythonExecutionTracer:
     def trace_method(self, line, name, collection, method_name, *args, **kwargs):
         method = getattr(collection, method_name)
 
+        if isinstance(collection, CodeFlowSearchAlgorithms):
+            result = method(*args, **kwargs)
+            caller = sys._getframe(1)
+            array_name = next(
+                (variable_name for variable_name, value in caller.f_locals.items()
+                 if args and value is args[0]),
+                "values",
+            )
+
+            for event_type, payload in collection.last_steps:
+                self.record(
+                    event_type,
+                    line,
+                    {**payload, "arrayName": array_name},
+                    self.caller_scope(),
+                )
+
+            return result
+
         if isinstance(collection, dict):
             result = method(*args, **kwargs)
 
@@ -1679,6 +1794,7 @@ class PythonExecutionTracer:
             "BinarySearchTree": CodeFlowBinarySearchTree,
             "MinHeap": CodeFlowMinHeap,
             "Graph": CodeFlowGraph,
+            "SearchAlgorithms": self.search_algorithms,
             "max": max,
             "min": min,
             "print": self.traced_print,

@@ -834,6 +834,88 @@ function testGraphReconstruction() {
   assert.equal(reconstructor.getStateAt(10).graphs.graph.traversalType, "bfs");
 }
 
+function testSearchReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-search-test"
+  });
+  const values = [4, 8, 15, 16, 23, 42];
+  const binary = {
+    searchId: "search:1",
+    algorithm: "binary",
+    arrayName: "numbers",
+    values,
+    target: 23
+  };
+
+  recorder.start();
+  recorder.record(EVENT_TYPES.SEARCH_START, {
+    ...binary, low: 0, high: 5, middle: 2, comparedIndices: [], eliminatedIndices: []
+  });
+  recorder.record(EVENT_TYPES.SEARCH_COMPARE, {
+    ...binary, low: 0, high: 5, middle: 2, index: 2, value: 15,
+    comparedIndices: [2], eliminatedIndices: [], comparisonCount: 1
+  });
+  recorder.record(EVENT_TYPES.SEARCH_RANGE_UPDATE, {
+    ...binary, low: 3, high: 5, middle: 4, previousIndex: 2,
+    comparedIndices: [2], eliminatedIndices: [0, 1, 2], comparisonCount: 1
+  });
+  recorder.record(EVENT_TYPES.SEARCH_COMPARE, {
+    ...binary, low: 3, high: 5, middle: 4, index: 4, value: 23,
+    comparedIndices: [2, 4], eliminatedIndices: [0, 1, 2], comparisonCount: 2
+  });
+  recorder.record(EVENT_TYPES.SEARCH_FOUND, {
+    ...binary, low: 3, high: 5, middle: 4, index: 4, foundIndex: 4, found: true,
+    comparedIndices: [2, 4], eliminatedIndices: [0, 1, 2], comparisonCount: 2
+  });
+  recorder.record(EVENT_TYPES.SEARCH_END, {
+    ...binary, low: 3, high: 5, middle: 4, foundIndex: 4, found: true,
+    comparedIndices: [2, 4], eliminatedIndices: [0, 1, 2], comparisonCount: 2
+  });
+
+  const linear = {
+    searchId: "search:2",
+    algorithm: "linear",
+    arrayName: "numbers",
+    values,
+    target: 99,
+    low: 6,
+    high: 5,
+    middle: null,
+    comparedIndices: [0, 1, 2, 3, 4, 5],
+    eliminatedIndices: [0, 1, 2, 3, 4, 5],
+    comparisonCount: 6
+  };
+
+  recorder.record(EVENT_TYPES.SEARCH_START, {
+    ...linear, low: 0, comparedIndices: [], eliminatedIndices: [], comparisonCount: 0
+  });
+  recorder.record(EVENT_TYPES.SEARCH_NOT_FOUND, {
+    ...linear, found: false, foundIndex: -1
+  });
+  recorder.record(EVENT_TYPES.SEARCH_END, {
+    ...linear, found: false, foundIndex: -1
+  });
+  recorder.finish();
+
+  const reconstructor = new StateReconstructor(recorder.toJSON(), {
+    checkpointInterval: 2
+  });
+
+  assert.equal(reconstructor.getStateAt(1).searches["search:1"].middle, 2);
+  assert.equal(reconstructor.getStateAt(2).searches["search:1"].activeIndex, 2);
+  assert.deepEqual(
+    reconstructor.getStateAt(3).searches["search:1"].eliminatedIndices,
+    [0, 1, 2]
+  );
+  assert.equal(reconstructor.getStateAt(3).searches["search:1"].low, 3);
+  assert.equal(reconstructor.getStateAt(5).searches["search:1"].foundIndex, 4);
+  assert.equal(reconstructor.getStateAt(6).searches["search:1"].finished, true);
+  assert.equal(reconstructor.getStateAt(8).searches["search:2"].found, false);
+  assert.equal(reconstructor.getStateAt(9).searches["search:2"].foundIndex, -1);
+  assert.equal(reconstructor.getStateAt(9).searches["search:2"].comparisonCount, 6);
+}
+
 function testProgramStateReconstruction(trace) {
   const reconstructor = new StateReconstructor(
     trace,
@@ -1586,6 +1668,8 @@ async function runTests() {
 
   testGraphReconstruction();
 
+  testSearchReconstruction();
+
   testTimelineNavigation(
     programTrace
   );
@@ -1658,6 +1742,10 @@ async function runTests() {
 
   console.log(
     "Graph node, edge, and traversal reconstruction: passed"
+  );
+
+  console.log(
+    "Linear and binary search reconstruction: passed"
   );
 }
 
