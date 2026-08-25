@@ -713,6 +713,102 @@ async function testCrossLanguageMinHeaps(baseUrl) {
   return executions;
 }
 
+async function testCrossLanguageGraphs(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "const graph = new Graph();",
+      'graph.addNode("A");',
+      'graph.addNode("B");',
+      'graph.addNode("C");',
+      'graph.addNode("D");',
+      'graph.addNode("E");',
+      'graph.addEdge("A", "B");',
+      'graph.addEdge("A", "C");',
+      'graph.addEdge("B", "D");',
+      'graph.addEdge("C", "E");',
+      'const breadthFirst = graph.bfs("A");',
+      'const depthFirst = graph.dfs("A");',
+      'console.log("BFS:", breadthFirst, "DFS:", depthFirst);'
+    ].join("\n"),
+    python: [
+      "graph = Graph()",
+      'graph.add_node("A")',
+      'graph.add_node("B")',
+      'graph.add_node("C")',
+      'graph.add_node("D")',
+      'graph.add_node("E")',
+      'graph.add_edge("A", "B")',
+      'graph.add_edge("A", "C")',
+      'graph.add_edge("B", "D")',
+      'graph.add_edge("C", "E")',
+      'breadth_first = graph.bfs("A")',
+      'depth_first = graph.dfs("A")',
+      'print("BFS:", breadth_first, "DFS:", depth_first)'
+    ].join("\n"),
+    java: [
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        Graph graph = new Graph();",
+      '        graph.addNode("A");',
+      '        graph.addNode("B");',
+      '        graph.addNode("C");',
+      '        graph.addNode("D");',
+      '        graph.addNode("E");',
+      '        graph.addEdge("A", "B");',
+      '        graph.addEdge("A", "C");',
+      '        graph.addEdge("B", "D");',
+      '        graph.addEdge("C", "E");',
+      '        String[] breadthFirst = graph.bfs("A");',
+      '        String[] depthFirst = graph.dfs("A");',
+      '        System.out.println("BFS: " + breadthFirst.length + " DFS: " + depthFirst.length);',
+      "    }",
+      "}"
+    ].join("\n")
+  };
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "GRAPH_CREATE",
+      "GRAPH_NODE_ADD",
+      "GRAPH_EDGE_ADD",
+      "GRAPH_EDGE_TRAVERSE",
+      "GRAPH_VISIT",
+      "GRAPH_TRAVERSE"
+    ]);
+
+    const finalState = execution.states.at(-1);
+    const graph = finalState.graphs.graph;
+    const breadthFirstName = language === "python" ? "breadth_first" : "breadthFirst";
+    const depthFirstName = language === "python" ? "depth_first" : "depthFirst";
+
+    assert.equal(graph.directed, false);
+    assert.deepEqual(graph.nodes.map((node) => node.value), ["A", "B", "C", "D", "E"]);
+    assert.equal(graph.edges.length, 4);
+    assert.deepEqual(finalState.variables[breadthFirstName], ["A", "B", "C", "D", "E"]);
+    assert.deepEqual(finalState.variables[depthFirstName], ["A", "B", "D", "C", "E"]);
+    assert.deepEqual(graph.traversalOrder, ["A", "B", "D", "C", "E"]);
+    assert.equal(graph.traversalType, "dfs");
+    assert.equal(
+      execution.trace.events.filter((event) => event.type === "GRAPH_NODE_ADD").length,
+      5
+    );
+    assert.equal(
+      execution.trace.events.filter((event) => event.type === "GRAPH_EDGE_ADD").length,
+      4
+    );
+
+    executions[language] = execution;
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -891,6 +987,7 @@ async function runTests() {
     const hashMaps = await testCrossLanguageHashMaps(baseUrl);
     const trees = await testCrossLanguageBinarySearchTrees(baseUrl);
     const heaps = await testCrossLanguageMinHeaps(baseUrl);
+    const graphs = await testCrossLanguageGraphs(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -951,6 +1048,11 @@ async function runTests() {
     console.log(`JavaScript heap events: ${heaps.javascript.trace.events.filter((event) => event.type.startsWith("HEAP_")).length}`);
     console.log(`Python heap events: ${heaps.python.trace.events.filter((event) => event.type.startsWith("HEAP_")).length}`);
     console.log(`Java heap events: ${heaps.java.trace.events.filter((event) => event.type.startsWith("HEAP_")).length}`);
+    console.log("Cross-language Graph execution: passed");
+    console.log("Graph nodes, edges, BFS, DFS, and visited paths: passed");
+    console.log(`JavaScript graph events: ${graphs.javascript.trace.events.filter((event) => event.type.startsWith("GRAPH_")).length}`);
+    console.log(`Python graph events: ${graphs.python.trace.events.filter((event) => event.type.startsWith("GRAPH_")).length}`);
+    console.log(`Java graph events: ${graphs.java.trace.events.filter((event) => event.type.startsWith("GRAPH_")).length}`);
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");

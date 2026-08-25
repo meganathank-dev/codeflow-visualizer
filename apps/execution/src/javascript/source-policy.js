@@ -285,7 +285,8 @@ function validateSourcePolicy(ast) {
             t.isIdentifier(path.node.callee, { name: "LinkedList" }) ||
             t.isIdentifier(path.node.callee, { name: "Map" }) ||
             t.isIdentifier(path.node.callee, { name: "BinarySearchTree" }) ||
-            t.isIdentifier(path.node.callee, { name: "MinHeap" })
+            t.isIdentifier(path.node.callee, { name: "MinHeap" }) ||
+            t.isIdentifier(path.node.callee, { name: "Graph" })
           ) &&
           path.node.arguments.length === 0
         ) {

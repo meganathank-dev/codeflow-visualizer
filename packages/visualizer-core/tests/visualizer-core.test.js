@@ -723,6 +723,117 @@ function testHeapReconstruction() {
   assert.deepEqual(reconstructor.getStateAt(7).heaps.heap.values, [30, 40]);
 }
 
+function testGraphReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-graph-test"
+  });
+
+  const first = { id: "graph-node:1", value: "A" };
+  const second = { id: "graph-node:2", value: "B" };
+  const third = { id: "graph-node:3", value: "C" };
+  const firstEdge = {
+    id: "graph-edge:1",
+    sourceId: first.id,
+    targetId: second.id
+  };
+  const secondEdge = {
+    id: "graph-edge:2",
+    sourceId: first.id,
+    targetId: third.id
+  };
+  const base = { name: "graph", graphName: "graph", directed: false };
+
+  recorder.start();
+  recorder.record(EVENT_TYPES.GRAPH_CREATE, { ...base, nodes: [], edges: [] });
+  recorder.record(EVENT_TYPES.GRAPH_NODE_ADD, {
+    ...base,
+    nodeId: first.id,
+    value: first.value,
+    nodes: [first],
+    edges: []
+  });
+  recorder.record(EVENT_TYPES.GRAPH_NODE_ADD, {
+    ...base,
+    nodeId: second.id,
+    value: second.value,
+    nodes: [first, second],
+    edges: []
+  });
+  recorder.record(EVENT_TYPES.GRAPH_NODE_ADD, {
+    ...base,
+    nodeId: third.id,
+    value: third.value,
+    nodes: [first, second, third],
+    edges: []
+  });
+  recorder.record(EVENT_TYPES.GRAPH_EDGE_ADD, {
+    ...base,
+    edgeId: firstEdge.id,
+    sourceId: first.id,
+    targetId: second.id,
+    nodes: [first, second, third],
+    edges: [firstEdge]
+  });
+  recorder.record(EVENT_TYPES.GRAPH_EDGE_ADD, {
+    ...base,
+    edgeId: secondEdge.id,
+    sourceId: first.id,
+    targetId: third.id,
+    nodes: [first, second, third],
+    edges: [firstEdge, secondEdge]
+  });
+  recorder.record(EVENT_TYPES.GRAPH_VISIT, {
+    ...base,
+    traversalType: "bfs",
+    nodeId: first.id,
+    value: first.value,
+    visitedIds: [first.id],
+    nodes: [first, second, third],
+    edges: [firstEdge, secondEdge]
+  });
+  recorder.record(EVENT_TYPES.GRAPH_EDGE_TRAVERSE, {
+    ...base,
+    traversalType: "bfs",
+    edgeId: firstEdge.id,
+    sourceId: first.id,
+    targetId: second.id,
+    nodes: [first, second, third],
+    edges: [firstEdge, secondEdge]
+  });
+  recorder.record(EVENT_TYPES.GRAPH_VISIT, {
+    ...base,
+    traversalType: "bfs",
+    nodeId: second.id,
+    value: second.value,
+    visitedIds: [first.id, second.id],
+    nodes: [first, second, third],
+    edges: [firstEdge, secondEdge]
+  });
+  recorder.record(EVENT_TYPES.GRAPH_TRAVERSE, {
+    ...base,
+    traversalType: "bfs",
+    visitedIds: [first.id, second.id, third.id],
+    order: ["A", "B", "C"],
+    nodes: [first, second, third],
+    edges: [firstEdge, secondEdge]
+  });
+  recorder.finish();
+
+  const reconstructor = new StateReconstructor(recorder.toJSON(), {
+    checkpointInterval: 2
+  });
+
+  assert.deepEqual(reconstructor.getStateAt(1).graphs.graph.nodes, []);
+  assert.equal(reconstructor.getStateAt(4).graphs.graph.nodes.length, 3);
+  assert.equal(reconstructor.getStateAt(6).graphs.graph.edges.length, 2);
+  assert.equal(reconstructor.getStateAt(7).graphs.graph.activeNodeId, first.id);
+  assert.equal(reconstructor.getStateAt(8).graphs.graph.activeEdgeId, firstEdge.id);
+  assert.deepEqual(reconstructor.getStateAt(9).graphs.graph.visitedIds, [first.id, second.id]);
+  assert.deepEqual(reconstructor.getStateAt(10).graphs.graph.traversalOrder, ["A", "B", "C"]);
+  assert.equal(reconstructor.getStateAt(10).graphs.graph.traversalType, "bfs");
+}
+
 function testProgramStateReconstruction(trace) {
   const reconstructor = new StateReconstructor(
     trace,
@@ -1473,6 +1584,8 @@ async function runTests() {
 
   testHeapReconstruction();
 
+  testGraphReconstruction();
+
   testTimelineNavigation(
     programTrace
   );
@@ -1541,6 +1654,10 @@ async function runTests() {
 
   console.log(
     "Min-heap reconstruction and swap replay: passed"
+  );
+
+  console.log(
+    "Graph node, edge, and traversal reconstruction: passed"
   );
 }
 

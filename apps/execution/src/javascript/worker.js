@@ -181,6 +181,7 @@ function executeSource(payload) {
     sandbox.Map = runtime.createHashMapConstructor();
     sandbox.BinarySearchTree = runtime.createBinarySearchTreeConstructor();
     sandbox.MinHeap = runtime.createMinHeapConstructor();
+    sandbox.Graph = runtime.createGraphConstructor();
 
     const context = vm.createContext(
       sandbox,

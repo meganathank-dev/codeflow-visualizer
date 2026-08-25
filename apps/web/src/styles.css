@@ -2093,6 +2093,156 @@ input:focus-visible {
   text-align: center;
 }
 
+.graph-card {
+  grid-column: 1 / -1;
+}
+
+.graph-heading-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.graph-stage {
+  position: relative;
+  min-height: 156px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(120, 169, 255, 0.09), transparent 39%),
+    radial-gradient(circle at 75% 76%, rgba(169, 145, 255, 0.07), transparent 38%),
+    linear-gradient(180deg, rgba(120, 169, 255, 0.028), rgba(112, 230, 178, 0.024));
+}
+
+.graph-kind-label {
+  position: absolute;
+  z-index: 3;
+  top: 13px;
+  left: 15px;
+  color: var(--accent-green);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 8px;
+  font-weight: 740;
+  letter-spacing: 0.075em;
+}
+
+.graph-connector-svg {
+  position: absolute;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.graph-connector-line {
+  fill: none;
+  stroke: rgba(120, 169, 255, 0.55);
+  stroke-width: 1.8px;
+  stroke-linecap: round;
+  transition: stroke 190ms ease, stroke-width 190ms ease, filter 190ms ease;
+}
+
+.graph-connector-line:nth-child(even) {
+  stroke: rgba(169, 145, 255, 0.58);
+}
+
+.graph-connector-line.is-visited-graph-edge {
+  stroke: rgba(112, 230, 178, 0.56);
+}
+
+.graph-connector-line.is-active-graph-edge {
+  stroke: rgba(112, 230, 178, 0.98);
+  stroke-width: 2.65px;
+  filter: drop-shadow(0 0 6px rgba(112, 230, 178, 0.42));
+}
+
+.graph-node {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  min-width: 47px;
+  min-height: 44px;
+  padding: 0 12px;
+  place-items: center;
+  color: var(--text-primary);
+  border: 1px solid rgba(120, 169, 255, 0.38);
+  border-radius: 999px;
+  background: #111925;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 720;
+  box-shadow: 0 7px 19px rgba(0, 0, 0, 0.18);
+}
+
+.graph-node.is-visited-graph-node {
+  color: var(--accent-green);
+  border-color: rgba(112, 230, 178, 0.62);
+  background: rgba(112, 230, 178, 0.085);
+}
+
+.graph-node.is-active-graph-node {
+  color: #eafff5;
+  border-color: rgba(112, 230, 178, 0.98);
+  background: rgba(112, 230, 178, 0.18);
+  box-shadow: 0 0 24px rgba(112, 230, 178, 0.19);
+}
+
+.empty-graph {
+  display: grid;
+  height: 100%;
+  min-height: 156px;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.graph-traversal-row {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 13px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.graph-traversal-row > span {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.085em;
+}
+
+.graph-traversal-row > div {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.graph-traversal-row > div > span {
+  min-width: 34px;
+  padding: 6px 9px;
+  color: var(--accent-green);
+  border: 1px solid rgba(112, 230, 178, 0.28);
+  border-radius: 8px;
+  background: rgba(112, 230, 178, 0.055);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+  text-align: center;
+}
+
+.graph-caption {
+  padding: 0 12px 10px;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-align: center;
+}
+
 .query-metrics {
   display: grid;
 

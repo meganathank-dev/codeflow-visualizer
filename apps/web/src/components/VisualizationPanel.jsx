@@ -1144,6 +1144,199 @@ function HeapVisualization({ heap }) {
   );
 }
 
+function getGraphLayout(graph) {
+  const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+  const adjacency = new Map(nodes.map((node) => [node.id, []]));
+
+  for (const edge of graph.edges || []) {
+    if (!adjacency.has(edge.sourceId) || !adjacency.has(edge.targetId)) {
+      continue;
+    }
+
+    adjacency.get(edge.sourceId).push(edge.targetId);
+
+    if (!graph.directed) {
+      adjacency.get(edge.targetId).push(edge.sourceId);
+    }
+  }
+
+  const levels = new Map();
+  const pending = [];
+
+  for (const node of nodes) {
+    if (levels.has(node.id)) {
+      continue;
+    }
+
+    levels.set(node.id, pending.length === 0 && levels.size === 0 ? 0 : 1);
+    pending.push(node.id);
+
+    while (pending.length > 0) {
+      const currentId = pending.shift();
+
+      for (const adjacentId of adjacency.get(currentId) || []) {
+        if (!levels.has(adjacentId)) {
+          levels.set(adjacentId, levels.get(currentId) + 1);
+          pending.push(adjacentId);
+        }
+      }
+    }
+  }
+
+  const byLevel = new Map();
+
+  for (const node of nodes) {
+    const level = levels.get(node.id) || 0;
+    const group = byLevel.get(level) || [];
+
+    group.push(node);
+    byLevel.set(level, group);
+  }
+
+  const positions = new Map();
+
+  for (const [level, group] of byLevel) {
+    group.forEach((node, index) => {
+      positions.set(node.id, {
+        x: ((index + 1) / (group.length + 1)) * 100,
+        y: 25 + level * 84,
+        level
+      });
+    });
+  }
+
+  return {
+    positions,
+    height: Math.max(156, 92 + Math.max(0, ...levels.values()) * 84)
+  };
+}
+
+function GraphVisualization({ graph }) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (!graph) {
+    return null;
+  }
+
+  const { positions, height } = getGraphLayout(graph);
+  const visitedIds = new Set(graph.visitedIds || []);
+
+  return (
+    <motion.div
+      className="visualization-card graph-card"
+      layout
+      transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+    >
+      <div className="visualization-card-heading">
+        <div className="visualization-card-title">
+          <Workflow size={16} />
+          <span>{graph.directed ? "Directed Graph" : "Graph"}</span>
+        </div>
+
+        <div className="graph-heading-meta">
+          <span>{graph.nodes.length} nodes · {graph.edges.length} edges</span>
+          <span className="structure-name">{graph.name}</span>
+        </div>
+      </div>
+
+      <div className="graph-stage" style={{ height }}>
+        <span className="graph-kind-label">
+          {graph.directed ? "DIRECTED CONNECTIONS" : "UNDIRECTED CONNECTIONS"}
+        </span>
+
+        {graph.nodes.length > 0 ? (
+          <>
+            <svg
+              className="graph-connector-svg"
+              viewBox={`0 0 100 ${height}`}
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              {graph.edges.map((edge) => {
+                const source = positions.get(edge.sourceId);
+                const target = positions.get(edge.targetId);
+
+                if (!source || !target) {
+                  return null;
+                }
+
+                const isActive = edge.id === graph.activeEdgeId;
+                const isVisited = visitedIds.has(edge.sourceId) && visitedIds.has(edge.targetId);
+
+                return (
+                  <line
+                    key={edge.id}
+                    className={[
+                      "graph-connector-line",
+                      isVisited ? "is-visited-graph-edge" : "",
+                      isActive ? "is-active-graph-edge" : ""
+                    ].filter(Boolean).join(" ")}
+                    x1={source.x}
+                    y1={source.y + 22}
+                    x2={target.x}
+                    y2={target.y + 22}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })}
+            </svg>
+
+            <AnimatePresence initial={false} mode="popLayout">
+              {graph.nodes.map((node) => {
+                const position = positions.get(node.id);
+                const isActive = graph.activeNodeId === node.id;
+                const isVisited = visitedIds.has(node.id);
+
+                return (
+                  <motion.div
+                    key={node.id}
+                    className={[
+                      "graph-node",
+                      isVisited ? "is-visited-graph-node" : "",
+                      isActive ? "is-active-graph-node" : ""
+                    ].filter(Boolean).join(" ")}
+                    style={{ left: `${position.x}%`, top: position.y, x: "-50%" }}
+                    initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.65, y: -10 }}
+                    animate={{ opacity: 1, scale: isActive ? 1.09 : 1, y: 0 }}
+                    exit={shouldReduceMotion ? undefined : { opacity: 0, scale: 0.72 }}
+                    transition={shouldReduceMotion ? { duration: 0 } : SPRING_TRANSITION}
+                  >
+                    <span>{String(node.value)}</span>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </>
+        ) : (
+          <div className="empty-graph">Waiting for the first graph vertex</div>
+        )}
+      </div>
+
+      <div className="graph-traversal-row">
+        <span>{graph.traversalType ? graph.traversalType.toUpperCase() : "VISIT ORDER"}</span>
+
+        <div>
+          {(graph.traversalOrder || []).map((value, index) => (
+            <motion.span
+              key={`${graph.name}:visit:${index}:${String(value)}`}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.18 }}
+              layout
+            >
+              {typeof value === "string" ? value : formatVariableValue(value)}
+            </motion.span>
+          ))}
+        </div>
+      </div>
+
+      <div className="graph-caption">
+        Direct node connections · synchronized breadth-first and depth-first traversal
+      </div>
+    </motion.div>
+  );
+}
+
 function EventStory({
   step,
   isSql = false
@@ -1394,6 +1587,10 @@ function ProgramVisualization({
 
         <HeapVisualization
           heap={step.heap}
+        />
+
+        <GraphVisualization
+          graph={step.graph}
         />
       </motion.div>
     </>

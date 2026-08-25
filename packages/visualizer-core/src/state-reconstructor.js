@@ -50,6 +50,8 @@ function createInitialState(trace) {
 
     heaps: {},
 
+    graphs: {},
+
     linkedLists: {},
 
     objects: {},
@@ -369,6 +371,12 @@ function applyStateDelta(state, stateDelta) {
   ) {
     for (const [name, tree] of Object.entries(stateDelta.trees)) {
       state.trees[name] = cloneValue(tree);
+    }
+  }
+
+  if (stateDelta.graphs && typeof stateDelta.graphs === "object") {
+    for (const [name, graph] of Object.entries(stateDelta.graphs)) {
+      state.graphs[name] = cloneValue(graph);
     }
   }
 
@@ -919,6 +927,73 @@ function handleHeapEvent(state, event) {
   }
 
   heap.lastOperation = event.type;
+}
+
+function handleGraphEvent(state, event) {
+  const payload = event.payload || {};
+  const name = payload.graphName || payload.name || "graph";
+
+  if (!state.graphs[name]) {
+    state.graphs[name] = {
+      name,
+      directed: Boolean(payload.directed),
+      nodes: [],
+      edges: [],
+      activeNodeId: null,
+      activeEdgeId: null,
+      visitedIds: [],
+      traversalOrder: [],
+      traversalType: null,
+      lastOperation: null
+    };
+  }
+
+  const graph = state.graphs[name];
+
+  if (Array.isArray(payload.nodes)) {
+    graph.nodes = cloneValue(payload.nodes);
+  }
+
+  if (Array.isArray(payload.edges)) {
+    graph.edges = cloneValue(payload.edges);
+  }
+
+  if (Object.hasOwn(payload, "directed")) {
+    graph.directed = Boolean(payload.directed);
+  }
+
+  if (event.type === EVENT_TYPES.GRAPH_CREATE) {
+    graph.activeNodeId = null;
+    graph.activeEdgeId = null;
+    graph.visitedIds = [];
+    graph.traversalOrder = [];
+    graph.traversalType = null;
+  } else if (event.type === EVENT_TYPES.GRAPH_NODE_ADD) {
+    graph.activeNodeId = payload.nodeId || null;
+    graph.activeEdgeId = null;
+  } else if (event.type === EVENT_TYPES.GRAPH_EDGE_ADD) {
+    graph.activeNodeId = payload.targetId || null;
+    graph.activeEdgeId = payload.edgeId || null;
+  } else if (event.type === EVENT_TYPES.GRAPH_EDGE_TRAVERSE) {
+    graph.activeNodeId = payload.targetId || null;
+    graph.activeEdgeId = payload.edgeId || null;
+    graph.traversalType = payload.traversalType || graph.traversalType;
+  } else if (event.type === EVENT_TYPES.GRAPH_VISIT) {
+    graph.activeNodeId = payload.nodeId || null;
+    graph.activeEdgeId = payload.edgeId || null;
+    graph.visitedIds = Array.isArray(payload.visitedIds)
+      ? cloneValue(payload.visitedIds)
+      : [...graph.visitedIds, payload.nodeId].filter(Boolean);
+    graph.traversalType = payload.traversalType || graph.traversalType;
+  } else if (event.type === EVENT_TYPES.GRAPH_TRAVERSE) {
+    graph.activeNodeId = (payload.visitedIds || []).at(-1) || null;
+    graph.activeEdgeId = null;
+    graph.visitedIds = cloneValue(payload.visitedIds || []);
+    graph.traversalOrder = cloneValue(payload.order || []);
+    graph.traversalType = payload.traversalType || null;
+  }
+
+  graph.lastOperation = event.type;
 }
 
 function handleFunctionEnter(state, event) {
@@ -1531,6 +1606,17 @@ function reduceExecutionEvent(previousState, event) {
     case EVENT_TYPES.HEAP_PEEK:
     case EVENT_TYPES.HEAP_EXTRACT: {
       handleHeapEvent(state, event);
+
+      break;
+    }
+
+    case EVENT_TYPES.GRAPH_CREATE:
+    case EVENT_TYPES.GRAPH_NODE_ADD:
+    case EVENT_TYPES.GRAPH_EDGE_ADD:
+    case EVENT_TYPES.GRAPH_EDGE_TRAVERSE:
+    case EVENT_TYPES.GRAPH_VISIT:
+    case EVENT_TYPES.GRAPH_TRAVERSE: {
+      handleGraphEvent(state, event);
 
       break;
     }

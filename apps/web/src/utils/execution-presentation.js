@@ -35,6 +35,11 @@ function describeEvent(event, state, language) {
   const payload = event.payload || {};
   const name = payload.name || payload.arrayName || payload.functionName;
   const value = payload.newValue ?? payload.value;
+  const graphNodes = payload.nodes || state.graphs?.[payload.graphName || name]?.nodes || [];
+  const graphSourceValue = payload.sourceValue
+    ?? graphNodes.find((node) => node.id === payload.sourceId)?.value;
+  const graphTargetValue = payload.targetValue
+    ?? graphNodes.find((node) => node.id === payload.targetId)?.value;
 
   switch (event.type) {
     case "PROGRAM_START":
@@ -310,6 +315,42 @@ function describeEvent(event, state, language) {
         description: `The root is removed and the remaining values prepare to restore heap order.`
       };
 
+    case "GRAPH_CREATE":
+      return {
+        title: `Create ${name || "a graph"}`,
+        description: `An empty ${payload.directed ? "directed" : "undirected"} graph is ready to connect related nodes.`
+      };
+
+    case "GRAPH_NODE_ADD":
+      return {
+        title: `Add graph node ${formatValue(payload.node?.value ?? value)}`,
+        description: `${formatValue(payload.node?.value ?? value)} joins ${name || "the graph"} as an independent vertex.`
+      };
+
+    case "GRAPH_EDGE_ADD":
+      return {
+        title: `Connect ${formatValue(graphSourceValue)} to ${formatValue(graphTargetValue)}`,
+        description: `A${payload.directed ? " directed" : "n undirected"} edge connects the two graph vertices.`
+      };
+
+    case "GRAPH_EDGE_TRAVERSE":
+      return {
+        title: `Follow ${formatValue(graphSourceValue)} → ${formatValue(graphTargetValue)}`,
+        description: `${String(payload.traversalType || "graph").toUpperCase()} follows an existing connection to discover the next vertex.`
+      };
+
+    case "GRAPH_VISIT":
+      return {
+        title: `Visit node ${formatValue(payload.nodeValue ?? value)}`,
+        description: `${String(payload.traversalType || "graph").toUpperCase()} marks ${formatValue(payload.nodeValue ?? value)} as visited.`
+      };
+
+    case "GRAPH_TRAVERSE":
+      return {
+        title: `${String(payload.traversalType || "graph").toUpperCase()} traversal completed`,
+        description: `The traversal visits connected vertices in this order: ${formatValue(payload.order || [])}.`
+      };
+
     case "LINKED_LIST_CREATE":
       return {
         title: `Create ${name || "a linked list"}`,
@@ -430,6 +471,7 @@ function selectArray(state, event) {
   const linkedListNames = new Set(Object.keys(state.linkedLists || {}));
   const treeNames = new Set(Object.keys(state.trees || {}));
   const heapNames = new Set(Object.keys(state.heaps || {}));
+  const graphNames = new Set(Object.keys(state.graphs || {}));
   const eventArray = event.payload?.arrayName || event.payload?.name;
 
   const visibleNames = Object.keys(arrays).filter(
@@ -440,6 +482,7 @@ function selectArray(state, event) {
       !linkedListNames.has(name) &&
       !treeNames.has(name) &&
       !heapNames.has(name) &&
+      !graphNames.has(name) &&
       !(
         ["args", "argv"].includes(name.toLowerCase()) &&
         Array.isArray(arrays[name]) &&
@@ -504,6 +547,31 @@ function selectVariables(state) {
 
   for (const [name, heap] of Object.entries(state.heaps || {})) {
     variables[name] = Array.isArray(heap.values) ? heap.values : [];
+  }
+
+  for (const [name, graph] of Object.entries(state.graphs || {})) {
+    const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const adjacency = Object.fromEntries(
+      nodes.map((node) => [String(node.value), []])
+    );
+
+    for (const edge of graph.edges || []) {
+      const source = nodeById.get(edge.sourceId);
+      const target = nodeById.get(edge.targetId);
+
+      if (!source || !target) {
+        continue;
+      }
+
+      adjacency[String(source.value)].push(target.value);
+
+      if (!graph.directed && source.id !== target.id) {
+        adjacency[String(target.value)].push(source.value);
+      }
+    }
+
+    variables[name] = adjacency;
   }
 
   return variables;
@@ -585,6 +653,34 @@ function selectHeap(state, event) {
     peekedValue: heap.peekedValue,
     extractedValue: heap.extractedValue,
     operation: isHeapEvent ? event.type : null
+  };
+}
+
+function selectGraph(state, event) {
+  const graphs = state.graphs || {};
+  const eventGraph = event.payload?.graphName || event.payload?.name;
+  const selectedName = Object.hasOwn(graphs, eventGraph)
+    ? eventGraph
+    : Object.keys(graphs)[0];
+
+  if (!selectedName || !Array.isArray(graphs[selectedName]?.nodes)) {
+    return null;
+  }
+
+  const graph = graphs[selectedName];
+  const isGraphEvent = eventGraph === selectedName && event.type.startsWith("GRAPH_");
+
+  return {
+    name: selectedName,
+    directed: Boolean(graph.directed),
+    nodes: graph.nodes,
+    edges: Array.isArray(graph.edges) ? graph.edges : [],
+    activeNodeId: isGraphEvent ? graph.activeNodeId : null,
+    activeEdgeId: isGraphEvent ? graph.activeEdgeId : null,
+    visitedIds: Array.isArray(graph.visitedIds) ? graph.visitedIds : [],
+    traversalOrder: Array.isArray(graph.traversalOrder) ? graph.traversalOrder : [],
+    traversalType: graph.traversalType || null,
+    operation: isGraphEvent ? event.type : null
   };
 }
 
@@ -811,6 +907,7 @@ export function createExecutionPresentation(result) {
       hashMap: selectHashMap(state, event),
       tree: selectTree(state, event),
       heap: selectHeap(state, event),
+      graph: selectGraph(state, event),
       callStack: (state.callStack || []).map((frame) => ({
         name: frame.name || frame.functionName || "anonymous",
         line: frame.source?.line || line
@@ -855,6 +952,7 @@ export function createIdleExecutionStep(language = "javascript") {
     hashMap: null,
     tree: null,
     heap: null,
+    graph: null,
     callStack: [],
     console: [],
     iteration: null,

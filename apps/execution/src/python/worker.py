@@ -176,6 +176,153 @@ class CodeFlowLinkedList:
         return nodes
 
 
+class CodeFlowGraph:
+    def __init__(self):
+        self.directed = False
+        self.nodes = []
+        self.edges = []
+        self.adjacency = {}
+        self.last_added_node_id = None
+        self.last_added_edge_id = None
+        self.last_traversal_steps = []
+        self.last_traversal_ids = []
+
+    def key(self, value):
+        if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+            raise TypeError("Graph nodes must be strings or finite numbers.")
+
+        if isinstance(value, float) and not math.isfinite(value):
+            raise TypeError("Graph node numbers must be finite.")
+
+        return f"{type(value).__name__}:{value}"
+
+    def add_node(self, value):
+        key = self.key(value)
+        existing = next((node for node in self.nodes if node["key"] == key), None)
+
+        if existing is not None:
+            self.last_added_node_id = existing["id"]
+            return False
+
+        node = {"id": f"graph-node:{len(self.nodes) + 1}", "key": key, "value": value}
+        self.nodes.append(node)
+        self.adjacency[key] = []
+        self.last_added_node_id = node["id"]
+        return True
+
+    def add_edge(self, source, target):
+        self.add_node(source)
+        self.add_node(target)
+        source_key = self.key(source)
+        target_key = self.key(target)
+        source_node = next(node for node in self.nodes if node["key"] == source_key)
+        target_node = next(node for node in self.nodes if node["key"] == target_key)
+        existing = next((edge for edge in self.edges if (
+            (edge["sourceId"] == source_node["id"] and edge["targetId"] == target_node["id"])
+            or (edge["sourceId"] == target_node["id"] and edge["targetId"] == source_node["id"])
+        )), None)
+
+        if existing is not None:
+            self.last_added_edge_id = existing["id"]
+            return False
+
+        edge = {
+            "id": f"graph-edge:{len(self.edges) + 1}",
+            "sourceId": source_node["id"],
+            "targetId": target_node["id"],
+        }
+        self.edges.append(edge)
+        self.adjacency[source_key].append(target_key)
+
+        if source_key != target_key:
+            self.adjacency[target_key].append(source_key)
+
+        self.last_added_edge_id = edge["id"]
+        return True
+
+    def traverse(self, start, traversal_type):
+        start_key = self.key(start)
+
+        if start_key not in self.adjacency:
+            raise ValueError(f"Graph does not contain starting node {start}.")
+
+        pending = [{"key": start_key, "fromKey": None}]
+        queued = {start_key}
+        visited = set()
+        order = []
+        self.last_traversal_steps = []
+
+        while pending:
+            current = pending.pop() if traversal_type == "dfs" else pending.pop(0)
+
+            if current["key"] in visited:
+                continue
+
+            node = next(item for item in self.nodes if item["key"] == current["key"])
+
+            if current["fromKey"] is not None:
+                previous = next(item for item in self.nodes if item["key"] == current["fromKey"])
+                edge = next((item for item in self.edges if (
+                    (item["sourceId"] == previous["id"] and item["targetId"] == node["id"])
+                    or (item["sourceId"] == node["id"] and item["targetId"] == previous["id"])
+                )), None)
+
+                if edge is not None:
+                    self.last_traversal_steps.append({
+                        "kind": "edge",
+                        "edgeId": edge["id"],
+                        "sourceId": previous["id"],
+                        "targetId": node["id"],
+                    })
+
+            visited.add(current["key"])
+            order.append(node["value"])
+            visited_ids = [
+                next(item["id"] for item in self.nodes if item["value"] == value)
+                for value in order
+            ]
+            self.last_traversal_steps.append({
+                "kind": "visit",
+                "nodeId": node["id"],
+                "value": node["value"],
+                "visitedIds": visited_ids,
+            })
+            neighbors = self.adjacency[current["key"]]
+            candidates = list(reversed(neighbors)) if traversal_type == "dfs" else neighbors
+
+            for neighbor in candidates:
+                if neighbor not in visited and neighbor not in queued:
+                    pending.append({"key": neighbor, "fromKey": current["key"]})
+                    queued.add(neighbor)
+
+        self.last_traversal_ids = [
+            step["nodeId"] for step in self.last_traversal_steps if step["kind"] == "visit"
+        ]
+        return order
+
+    def bfs(self, start):
+        return self.traverse(start, "bfs")
+
+    def dfs(self, start):
+        return self.traverse(start, "dfs")
+
+    def snapshot(self):
+        return {
+            "directed": self.directed,
+            "nodes": [{"id": node["id"], "value": json_safe(node["value"])} for node in self.nodes],
+            "edges": [dict(edge) for edge in self.edges],
+        }
+
+    def to_adjacency_object(self):
+        return {
+            str(node["value"]): [
+                next(item["value"] for item in self.nodes if item["key"] == key)
+                for key in self.adjacency[node["key"]]
+            ]
+            for node in self.nodes
+        }
+
+
 class BinarySearchTreeNode:
     def __init__(self, identifier, value, parent=None):
         self.id = identifier
@@ -422,6 +569,9 @@ def json_safe(value, depth=0, ancestors=None):
     if isinstance(value, CodeFlowMinHeap):
         return [json_safe(item, depth + 1, ancestors) for item in value.to_array()]
 
+    if isinstance(value, CodeFlowGraph):
+        return json_safe(value.to_adjacency_object(), depth + 1, ancestors)
+
     if isinstance(value, float):
         if math.isfinite(value):
             return value
@@ -494,6 +644,9 @@ def get_value_type(value):
 
     if isinstance(value, CodeFlowMinHeap):
         return "min-heap"
+
+    if isinstance(value, CodeFlowGraph):
+        return "graph"
 
     if isinstance(value, tuple):
         return "tuple"
@@ -674,7 +827,8 @@ class SourceInstrumenter(ast.NodeTransformer):
         if node.func.attr not in {
             "append", "pop", "insert", "remove", "extend", "clear",
             "prepend", "remove_at", "get", "to_list", "update", "setdefault",
-            "search", "inorder", "peek", "extract", "to_array"
+            "search", "inorder", "peek", "extract", "to_array",
+            "add_node", "add_edge", "bfs", "dfs"
         }:
             return node
 
@@ -788,6 +942,14 @@ class PythonExecutionTracer:
                     "heapType": "min",
                     "values": value,
                 },
+                scope_id,
+            )
+
+        if variable["valueType"] == "graph":
+            self.record(
+                "GRAPH_CREATE",
+                line,
+                {"name": name, "graphName": name, "directed": False, "nodes": [], "edges": []},
                 scope_id,
             )
 
@@ -1246,6 +1408,46 @@ class PythonExecutionTracer:
 
             return result
 
+        if isinstance(collection, CodeFlowGraph):
+            result = method(*args, **kwargs)
+            scope_id = self.caller_scope()
+            payload = {"name": name, "graphName": name, **collection.snapshot()}
+
+            if method_name == "add_node":
+                node = next(item for item in collection.nodes if item["id"] == collection.last_added_node_id)
+                self.record("GRAPH_NODE_ADD", line, {
+                    **payload,
+                    "nodeId": node["id"],
+                    "value": json_safe(node["value"]),
+                    "inserted": bool(result),
+                }, scope_id)
+            elif method_name == "add_edge":
+                edge = next(item for item in collection.edges if item["id"] == collection.last_added_edge_id)
+                self.record("GRAPH_EDGE_ADD", line, {
+                    **payload,
+                    "edgeId": edge["id"],
+                    "sourceId": edge["sourceId"],
+                    "targetId": edge["targetId"],
+                    "inserted": bool(result),
+                }, scope_id)
+            elif method_name in {"bfs", "dfs"}:
+                for step in collection.last_traversal_steps:
+                    self.record(
+                        "GRAPH_EDGE_TRAVERSE" if step["kind"] == "edge" else "GRAPH_VISIT",
+                        line,
+                        {**payload, **json_safe(step), "traversalType": method_name},
+                        scope_id,
+                    )
+
+                self.record("GRAPH_TRAVERSE", line, {
+                    **payload,
+                    "traversalType": method_name,
+                    "visitedIds": collection.last_traversal_ids,
+                    "order": json_safe(result),
+                }, scope_id)
+
+            return result
+
         if isinstance(collection, CodeFlowBinarySearchTree):
             result = method(*args, **kwargs)
             nodes = collection.snapshot()
@@ -1476,6 +1678,7 @@ class PythonExecutionTracer:
             "LinkedList": CodeFlowLinkedList,
             "BinarySearchTree": CodeFlowBinarySearchTree,
             "MinHeap": CodeFlowMinHeap,
+            "Graph": CodeFlowGraph,
             "max": max,
             "min": min,
             "print": self.traced_print,

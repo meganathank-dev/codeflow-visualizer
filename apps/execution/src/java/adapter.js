@@ -480,6 +480,19 @@ function emitVariableDeclare(recorder, name, variable, line, scopeId) {
     }, scopeId);
   }
 
+  if (
+    variable.valueType === "object" &&
+    /(?:^|\.)Graph$/.test(variable.value?.display || "")
+  ) {
+    record(recorder, EVENT_TYPES.GRAPH_CREATE, line, {
+      name,
+      graphName: name,
+      directed: false,
+      nodes: [],
+      edges: []
+    }, scopeId);
+  }
+
   if (/linked.?list/i.test(name)) {
     record(recorder, EVENT_TYPES.LINKED_LIST_CREATE, line, {
       name,
@@ -793,6 +806,106 @@ function recordLogicalHeapSteps(recorder, line, scopeId, name, eventType, value,
   }
 }
 
+function addLogicalGraphNode(graph, value) {
+  const existing = graph.nodes.find((node) => node.value === value);
+
+  if (existing) {
+    return { node: existing, inserted: false };
+  }
+
+  const node = { id: `graph-node:${graph.nodes.length + 1}`, value };
+  graph.nodes.push(node);
+  graph.adjacency.set(value, []);
+  return { node, inserted: true };
+}
+
+function addLogicalGraphEdge(graph, source, target) {
+  const sourceNode = addLogicalGraphNode(graph, source).node;
+  const targetNode = addLogicalGraphNode(graph, target).node;
+  const existing = graph.edges.find((edge) => (
+    (edge.sourceId === sourceNode.id && edge.targetId === targetNode.id) ||
+    (edge.sourceId === targetNode.id && edge.targetId === sourceNode.id)
+  ));
+
+  if (existing) {
+    return { edge: existing, inserted: false };
+  }
+
+  const edge = {
+    id: `graph-edge:${graph.edges.length + 1}`,
+    sourceId: sourceNode.id,
+    targetId: targetNode.id
+  };
+  graph.edges.push(edge);
+  graph.adjacency.get(source).push(target);
+
+  if (source !== target) {
+    graph.adjacency.get(target).push(source);
+  }
+
+  return { edge, inserted: true };
+}
+
+function traverseLogicalGraph(graph, start, traversalType) {
+  const pending = [{ value: start, from: null }];
+  const queued = new Set([start]);
+  const visited = new Set();
+  const steps = [];
+  const order = [];
+
+  while (pending.length > 0) {
+    const current = traversalType === "dfs" ? pending.pop() : pending.shift();
+
+    if (visited.has(current.value)) {
+      continue;
+    }
+
+    const node = graph.nodes.find((item) => item.value === current.value);
+
+    if (!node) {
+      continue;
+    }
+
+    if (current.from !== null) {
+      const previous = graph.nodes.find((item) => item.value === current.from);
+      const edge = graph.edges.find((item) => (
+        (item.sourceId === previous.id && item.targetId === node.id) ||
+        (item.sourceId === node.id && item.targetId === previous.id)
+      ));
+
+      if (edge) {
+        steps.push({
+          kind: "edge",
+          edgeId: edge.id,
+          sourceId: previous.id,
+          targetId: node.id
+        });
+      }
+    }
+
+    visited.add(current.value);
+    order.push(node.value);
+    steps.push({
+      kind: "visit",
+      nodeId: node.id,
+      value: node.value,
+      visitedIds: order.map((value) => graph.nodes.find((item) => item.value === value).id)
+    });
+
+    const neighbors = graph.adjacency.get(current.value) || [];
+    const candidates = traversalType === "dfs" ? [...neighbors].reverse() : neighbors;
+
+    for (const neighbor of candidates) {
+      if (!visited.has(neighbor) && !queued.has(neighbor)) {
+        pending.push({ value: neighbor, from: current.value });
+        queued.add(neighbor);
+      }
+    }
+  }
+
+  return { steps, order, visitedIds: steps.filter((step) => step.kind === "visit").map((step) => step.nodeId) };
+}
+
 function processCollectionStatement(
   recorder,
   sourceLine,
@@ -803,10 +916,11 @@ function processCollectionStatement(
   logicalLinkedLists,
   logicalHashMaps,
   logicalTrees,
-  logicalHeaps
+  logicalHeaps,
+  logicalGraphs
 ) {
   const match = sourceLine.match(
-    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey|contains|toArray)\s*\((.*?)\)\s*;/
+    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey|contains|toArray|addNode|addEdge|bfs|dfs)\s*\((.*?)\)\s*;/
   );
 
   if (!match) {
@@ -815,6 +929,77 @@ function processCollectionStatement(
 
   const [, name, method, expression] = match;
   const lowerName = name.toLowerCase();
+
+  if (
+    logicalGraphs.has(name) ||
+    /(?:^|\.)Graph$/.test(locals[name]?.value?.display || "")
+  ) {
+    const graph = logicalGraphs.get(name) || {
+      nodes: [],
+      edges: [],
+      adjacency: new Map()
+    };
+    const argumentsList = expression.trim() === ""
+      ? []
+      : expression.split(",").map((item) => evaluateSimpleExpression(item.trim(), locals));
+
+    if (method === "addNode") {
+      const result = addLogicalGraphNode(graph, argumentsList[0]);
+      logicalGraphs.set(name, graph);
+      record(recorder, EVENT_TYPES.GRAPH_NODE_ADD, line, {
+        name,
+        graphName: name,
+        directed: false,
+        nodes: structuredClone(graph.nodes),
+        edges: structuredClone(graph.edges),
+        nodeId: result.node.id,
+        value: result.node.value,
+        inserted: result.inserted
+      }, scopeId);
+    } else if (method === "addEdge") {
+      const result = addLogicalGraphEdge(graph, argumentsList[0], argumentsList[1]);
+      logicalGraphs.set(name, graph);
+      record(recorder, EVENT_TYPES.GRAPH_EDGE_ADD, line, {
+        name,
+        graphName: name,
+        directed: false,
+        nodes: structuredClone(graph.nodes),
+        edges: structuredClone(graph.edges),
+        edgeId: result.edge.id,
+        sourceId: result.edge.sourceId,
+        targetId: result.edge.targetId,
+        inserted: result.inserted
+      }, scopeId);
+    } else if (method === "bfs" || method === "dfs") {
+      const result = traverseLogicalGraph(graph, argumentsList[0], method);
+      const payload = {
+        name,
+        graphName: name,
+        directed: false,
+        nodes: structuredClone(graph.nodes),
+        edges: structuredClone(graph.edges),
+        traversalType: method
+      };
+
+      for (const step of result.steps) {
+        record(
+          recorder,
+          step.kind === "edge" ? EVENT_TYPES.GRAPH_EDGE_TRAVERSE : EVENT_TYPES.GRAPH_VISIT,
+          line,
+          { ...payload, ...step },
+          scopeId
+        );
+      }
+
+      record(recorder, EVENT_TYPES.GRAPH_TRAVERSE, line, {
+        ...payload,
+        visitedIds: result.visitedIds,
+        order: result.order
+      }, scopeId);
+    }
+
+    return;
+  }
 
   if (
     logicalHeaps.has(name) ||
@@ -1357,6 +1542,7 @@ function buildJavaTrace(rawObservations, options) {
   const logicalHashMaps = new Map();
   const logicalTrees = new Map();
   const logicalHeaps = new Map();
+  const logicalGraphs = new Map();
   const controlFlow = createControlFlowTracker(options.sourceLines);
   const observations = rawObservations.trim().split(/\r?\n/).filter(Boolean);
 
@@ -1448,7 +1634,8 @@ function buildJavaTrace(rawObservations, options) {
         logicalLinkedLists,
         logicalHashMaps,
         logicalTrees,
-        logicalHeaps
+        logicalHeaps,
+        logicalGraphs
       );
 
       controlFlow.observeLine(
@@ -1499,7 +1686,8 @@ function buildJavaTrace(rawObservations, options) {
           logicalLinkedLists,
           logicalHashMaps,
           logicalTrees,
-          logicalHeaps
+          logicalHeaps,
+          logicalGraphs
         );
 
         controlFlow.close(recorder, frameState.lastLine, frameState.scopeId);
@@ -1645,6 +1833,7 @@ async function executeJava(source, options = {}) {
   const sourceFileName = `${sourceInfo.className}.java`;
   const sourcePath = path.join(workspace, sourceFileName);
   const debuggerSourcePath = path.join(__dirname, "CodeFlowJavaDebugger.java");
+  const graphSourcePath = path.join(__dirname, "CodeFlowGraph.java");
 
   try {
     await fs.writeFile(sourcePath, source, "utf8");
@@ -1660,6 +1849,7 @@ async function executeJava(source, options = {}) {
         "-d",
         workspace,
         debuggerSourcePath,
+        graphSourcePath,
         sourcePath
       ],
       {

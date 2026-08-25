@@ -103,6 +103,10 @@ function toSerializable(
       return value.toArray().map((item) => toSerializable(item, depth + 1, ancestors));
     }
 
+    if (value.__codeflowGraph === true) {
+      return value.toAdjacencyObject();
+    }
+
     if (
       ancestors.has(value)
     ) {
@@ -188,6 +192,10 @@ function getValueType(value) {
 
   if (value && value.__codeflowMinHeap === true) {
     return "min-heap";
+  }
+
+  if (value && value.__codeflowGraph === true) {
+    return "graph";
   }
 
   return typeof value;
@@ -844,6 +852,227 @@ function createJavaScriptRuntime(options = {}) {
     }
   }
 
+  class CodeFlowGraph {
+    constructor() {
+      Object.defineProperty(this, "__codeflowGraph", {
+        value: true,
+        enumerable: false,
+        configurable: false,
+        writable: false
+      });
+      this.directed = false;
+      this.nodes = [];
+      this.edges = [];
+      this.adjacency = new Map();
+      this.lastAddedNodeId = null;
+      this.lastAddedEdgeId = null;
+      this.lastTraversalSteps = [];
+      this.lastTraversalIds = [];
+      this.lastTraversalType = null;
+    }
+
+    key(value) {
+      if (!["string", "number"].includes(typeof value)) {
+        throw new TypeError("Graph nodes must be strings or finite numbers.");
+      }
+
+      if (typeof value === "number" && !Number.isFinite(value)) {
+        throw new TypeError("Graph node numbers must be finite.");
+      }
+
+      return `${typeof value}:${String(value)}`;
+    }
+
+    addNode(value) {
+      const key = this.key(value);
+      const existing = this.nodes.find((node) => node.key === key);
+
+      if (existing) {
+        this.lastAddedNodeId = existing.id;
+        return false;
+      }
+
+      const node = { id: `graph-node:${this.nodes.length + 1}`, key, value };
+      this.nodes.push(node);
+      this.adjacency.set(key, []);
+      this.lastAddedNodeId = node.id;
+      return true;
+    }
+
+    addEdge(source, target) {
+      this.addNode(source);
+      this.addNode(target);
+
+      const sourceKey = this.key(source);
+      const targetKey = this.key(target);
+      const sourceNode = this.nodes.find((node) => node.key === sourceKey);
+      const targetNode = this.nodes.find((node) => node.key === targetKey);
+      const existing = this.edges.find((edge) => (
+        (edge.sourceId === sourceNode.id && edge.targetId === targetNode.id) ||
+        (!this.directed && edge.sourceId === targetNode.id && edge.targetId === sourceNode.id)
+      ));
+
+      if (existing) {
+        this.lastAddedEdgeId = existing.id;
+        return false;
+      }
+
+      const edge = {
+        id: `graph-edge:${this.edges.length + 1}`,
+        sourceId: sourceNode.id,
+        targetId: targetNode.id
+      };
+      this.edges.push(edge);
+      this.adjacency.get(sourceKey).push(targetKey);
+
+      if (sourceKey !== targetKey) {
+        this.adjacency.get(targetKey).push(sourceKey);
+      }
+
+      this.lastAddedEdgeId = edge.id;
+      return true;
+    }
+
+    traverse(start, traversalType) {
+      const startKey = this.key(start);
+
+      if (!this.adjacency.has(startKey)) {
+        throw new RangeError(`Graph does not contain starting node ${String(start)}.`);
+      }
+
+      const pending = [{ key: startKey, fromKey: null }];
+      const queued = new Set([startKey]);
+      const visited = new Set();
+      const order = [];
+      this.lastTraversalSteps = [];
+      this.lastTraversalType = traversalType;
+
+      while (pending.length > 0) {
+        const current = traversalType === "dfs" ? pending.pop() : pending.shift();
+
+        if (visited.has(current.key)) {
+          continue;
+        }
+
+        const node = this.nodes.find((item) => item.key === current.key);
+
+        if (current.fromKey !== null) {
+          const previous = this.nodes.find((item) => item.key === current.fromKey);
+          const edge = this.edges.find((item) => (
+            (item.sourceId === previous.id && item.targetId === node.id) ||
+            (item.sourceId === node.id && item.targetId === previous.id)
+          ));
+
+          if (edge) {
+            this.lastTraversalSteps.push({
+              kind: "edge",
+              edgeId: edge.id,
+              sourceId: previous.id,
+              targetId: node.id
+            });
+          }
+        }
+
+        visited.add(current.key);
+        order.push(node.value);
+        this.lastTraversalSteps.push({
+          kind: "visit",
+          nodeId: node.id,
+          value: node.value,
+          visitedIds: this.nodes.filter((item) => visited.has(item.key))
+            .sort((left, right) => order.indexOf(left.value) - order.indexOf(right.value))
+            .map((item) => item.id)
+        });
+
+        const neighbors = this.adjacency.get(current.key) || [];
+        const candidates = traversalType === "dfs" ? [...neighbors].reverse() : neighbors;
+
+        for (const neighbor of candidates) {
+          if (!visited.has(neighbor) && !queued.has(neighbor)) {
+            pending.push({ key: neighbor, fromKey: current.key });
+            queued.add(neighbor);
+          }
+        }
+      }
+
+      this.lastTraversalIds = this.lastTraversalSteps
+        .filter((step) => step.kind === "visit")
+        .map((step) => step.nodeId);
+      return order;
+    }
+
+    bfs(start) {
+      return this.traverse(start, "bfs");
+    }
+
+    dfs(start) {
+      return this.traverse(start, "dfs");
+    }
+
+    snapshot() {
+      return {
+        directed: this.directed,
+        nodes: this.nodes.map(({ id, value }) => ({ id, value: toSerializable(value) })),
+        edges: this.edges.map((edge) => ({ ...edge }))
+      };
+    }
+
+    toAdjacencyObject() {
+      return Object.fromEntries(this.nodes.map((node) => [
+        String(node.value),
+        (this.adjacency.get(node.key) || []).map((key) => (
+          this.nodes.find((item) => item.key === key)?.value
+        ))
+      ]));
+    }
+  }
+
+  function recordGraphMethod(name, method, graph, result, line) {
+    const payload = {
+      name,
+      graphName: name,
+      ...graph.snapshot()
+    };
+
+    if (method === "addNode") {
+      const node = graph.nodes.find((item) => item.id === graph.lastAddedNodeId);
+      record(EVENT_TYPES.GRAPH_NODE_ADD, line, {
+        ...payload,
+        nodeId: node?.id || null,
+        value: toSerializable(node?.value),
+        inserted: Boolean(result)
+      });
+    } else if (method === "addEdge") {
+      const edge = graph.edges.find((item) => item.id === graph.lastAddedEdgeId);
+      record(EVENT_TYPES.GRAPH_EDGE_ADD, line, {
+        ...payload,
+        edgeId: edge?.id || null,
+        sourceId: edge?.sourceId || null,
+        targetId: edge?.targetId || null,
+        inserted: Boolean(result)
+      });
+    } else if (method === "bfs" || method === "dfs") {
+      for (const step of graph.lastTraversalSteps) {
+        record(
+          step.kind === "edge" ? EVENT_TYPES.GRAPH_EDGE_TRAVERSE : EVENT_TYPES.GRAPH_VISIT,
+          line,
+          {
+            ...payload,
+            ...toSerializable(step),
+            traversalType: method
+          }
+        );
+      }
+
+      record(EVENT_TYPES.GRAPH_TRAVERSE, line, {
+        ...payload,
+        traversalType: method,
+        visitedIds: graph.lastTraversalIds,
+        order: toSerializable(result)
+      });
+    }
+  }
+
   function recordTreeMethod(name, method, tree, result, line, requestedValue) {
     const payload = {
       name,
@@ -1355,6 +1584,16 @@ function createJavaScriptRuntime(options = {}) {
         });
       }
 
+      if (value && value.__codeflowGraph === true) {
+        references.set(name, value);
+
+        record(EVENT_TYPES.GRAPH_CREATE, line, {
+          name,
+          graphName: name,
+          ...value.snapshot()
+        });
+      }
+
       if (
         Array.isArray(value)
       ) {
@@ -1634,6 +1873,8 @@ function createJavaScriptRuntime(options = {}) {
 
       const isMinHeap = reference?.__codeflowMinHeap === true;
 
+      const isGraph = reference?.__codeflowGraph === true;
+
       const frameCountBeforeCall = callFrames.length;
 
       const result = invoke();
@@ -1716,6 +1957,10 @@ function createJavaScriptRuntime(options = {}) {
           result,
           line
         );
+      }
+
+      if (isGraph) {
+        recordGraphMethod(objectName, methodName, reference, result, line);
       }
 
       if (
@@ -2116,6 +2361,10 @@ function createJavaScriptRuntime(options = {}) {
 
     createMinHeapConstructor() {
       return CodeFlowMinHeap;
+    },
+
+    createGraphConstructor() {
+      return CodeFlowGraph;
     },
 
     getTrace() {

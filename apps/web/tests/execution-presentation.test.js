@@ -18,6 +18,7 @@ function createState(step, overrides = {}) {
     linkedLists: {},
     trees: {},
     heaps: {},
+    graphs: {},
     callStack: [],
     console: [],
     errors: [],
@@ -691,6 +692,97 @@ function createHeapResult(language) {
   };
 }
 
+function createGraphResult(language) {
+  const nodes = [
+    { id: "graph-node:1", value: "A" },
+    { id: "graph-node:2", value: "B" },
+    { id: "graph-node:3", value: "C" }
+  ];
+  const edges = [
+    { id: "graph-edge:1", sourceId: nodes[0].id, targetId: nodes[1].id },
+    { id: "graph-edge:2", sourceId: nodes[0].id, targetId: nodes[2].id }
+  ];
+  const types = [
+    "PROGRAM_START",
+    "GRAPH_CREATE",
+    "GRAPH_NODE_ADD",
+    "GRAPH_NODE_ADD",
+    "GRAPH_NODE_ADD",
+    "GRAPH_EDGE_ADD",
+    "GRAPH_EDGE_ADD",
+    "GRAPH_VISIT",
+    "GRAPH_EDGE_TRAVERSE",
+    "GRAPH_VISIT",
+    "GRAPH_TRAVERSE",
+    "PROGRAM_END"
+  ];
+  const events = types.map((type, step) => ({
+    id: `graph-event-${step}`,
+    step,
+    type,
+    source: { line: step + 1 },
+    payload: {
+      name: "graph",
+      graphName: "graph",
+      directed: false,
+      nodes: step < 2 ? [] : nodes.slice(0, Math.min(step - 1, nodes.length)),
+      edges: step < 5 ? [] : edges.slice(0, Math.min(step - 4, edges.length)),
+      nodeId: type === "GRAPH_VISIT"
+        ? step === 7 ? nodes[0].id : nodes[1].id
+        : type === "GRAPH_NODE_ADD" ? nodes[step - 2].id : undefined,
+      value: type === "GRAPH_VISIT"
+        ? step === 7 ? "A" : "B"
+        : type === "GRAPH_NODE_ADD" ? nodes[step - 2].value : undefined,
+      edgeId: type === "GRAPH_EDGE_TRAVERSE"
+        ? edges[0].id
+        : type === "GRAPH_EDGE_ADD" ? edges[step - 5].id : undefined,
+      sourceId: type === "GRAPH_EDGE_TRAVERSE" || type === "GRAPH_EDGE_ADD"
+        ? nodes[0].id
+        : undefined,
+      targetId: type === "GRAPH_EDGE_TRAVERSE"
+        ? nodes[1].id
+        : type === "GRAPH_EDGE_ADD" ? edges[step - 5].targetId : undefined,
+      traversalType: step >= 7 ? "bfs" : undefined,
+      visitedIds: step >= 10
+        ? nodes.map((node) => node.id)
+        : step >= 9 ? [nodes[0].id, nodes[1].id] : step >= 7 ? [nodes[0].id] : [],
+      order: step >= 10 ? ["A", "B", "C"] : []
+    }
+  }));
+  const states = events.map((event, step) => createState(step, {
+    status: step === events.length - 1 ? "completed" : "running",
+    variables: step > 0 ? {
+      graph: language === "java"
+        ? { $type: "object", display: "Graph" }
+        : {}
+    } : {},
+    arrays: step > 0 && language === "java" ? { args: [] } : {},
+    graphs: step > 0 ? {
+      graph: {
+        name: "graph",
+        directed: false,
+        nodes: event.payload.nodes,
+        edges: event.payload.edges,
+        activeNodeId: event.payload.nodeId || event.payload.targetId || null,
+        activeEdgeId: event.payload.edgeId || null,
+        visitedIds: event.payload.visitedIds,
+        traversalOrder: event.payload.order,
+        traversalType: event.payload.traversalType || null,
+        lastOperation: event.type
+      }
+    } : {}
+  }));
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: { traceId: `${language}-graph-presentation-test`, status: "completed", events },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
 function runTests() {
   const presentation = createExecutionPresentation(createResult());
 
@@ -828,6 +920,31 @@ function runTests() {
     assert.deepEqual(heapPresentation.steps[7].variables.heap, [30, 40]);
     assert.equal(heapPresentation.steps[7].array, null);
     assert.match(heapPresentation.steps[4].description, /swap/i);
+
+    const graphPresentation = createExecutionPresentation(
+      createGraphResult(language)
+    );
+
+    assert.equal(graphPresentation.steps[1].graph.name, "graph");
+    assert.equal(graphPresentation.steps[4].graph.nodes.length, 3);
+    assert.equal(graphPresentation.steps[6].graph.edges.length, 2);
+    assert.match(graphPresentation.steps[5].title, /A.*B/);
+    assert.equal(graphPresentation.steps[7].graph.activeNodeId, "graph-node:1");
+    assert.equal(graphPresentation.steps[8].graph.activeEdgeId, "graph-edge:1");
+    assert.match(graphPresentation.steps[8].title, /A.*B/);
+    assert.deepEqual(graphPresentation.steps[9].graph.visitedIds, [
+      "graph-node:1",
+      "graph-node:2"
+    ]);
+    assert.deepEqual(graphPresentation.steps[10].graph.traversalOrder, ["A", "B", "C"]);
+    assert.deepEqual(graphPresentation.steps[10].variables.graph, {
+      A: ["B", "C"],
+      B: ["A"],
+      C: ["A"]
+    });
+    assert.equal(graphPresentation.steps[10].graph.traversalType, "bfs");
+    assert.equal(graphPresentation.steps[10].array, null);
+    assert.match(graphPresentation.steps[10].description, /A.*B.*C/);
   }
 
   const sqlPresentation = createExecutionPresentation(createSqlResult());
@@ -899,6 +1016,8 @@ function runTests() {
   console.log("BST comparison path and inorder animation state: passed");
   console.log("Cross-language min-heap presentation: passed");
   console.log("Heap bubble-up, bubble-down, and diagonal-edge animation state: passed");
+  console.log("Cross-language graph presentation: passed");
+  console.log("Graph node, direct-edge, BFS, and DFS animation state: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");
