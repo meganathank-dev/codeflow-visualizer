@@ -1050,6 +1050,82 @@ function testAdvancedSortReconstruction() {
   assert.equal(reconstructor.getStateAt(9).sorts["quick:1"].finished, true);
 }
 
+function testRecursionReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-recursion-test"
+  });
+
+  const enter = (frameId, n, recursionDepth, recursive) => recorder.record(
+    EVENT_TYPES.FUNCTION_ENTER,
+    {
+      name: "factorial",
+      functionName: "factorial",
+      frameId,
+      depth: recursionDepth,
+      recursionDepth,
+      recursive,
+      parameters: { n }
+    },
+    {
+      source: { line: 1 },
+      scopeId: frameId
+    }
+  );
+
+  const leave = (frameId, n, recursionDepth, returnValue, baseCase) => recorder.record(
+    EVENT_TYPES.FUNCTION_RETURN,
+    {
+      name: "factorial",
+      functionName: "factorial",
+      frameId,
+      depth: recursionDepth,
+      recursionDepth,
+      recursive: recursionDepth > 1,
+      baseCase,
+      unwinding: true,
+      parameters: { n },
+      value: returnValue,
+      returnValue
+    },
+    {
+      source: { line: baseCase ? 2 : 3 },
+      scopeId: frameId
+    }
+  );
+
+  recorder.start();
+  enter("factorial:1", 3, 1, false);
+  enter("factorial:2", 2, 2, true);
+  enter("factorial:3", 1, 3, true);
+  leave("factorial:3", 1, 3, 1, true);
+  leave("factorial:2", 2, 2, 2, false);
+  leave("factorial:1", 3, 1, 6, false);
+  recorder.finish();
+
+  const reconstructor = new StateReconstructor(recorder.toJSON(), {
+    checkpointInterval: 2
+  });
+  const deepestState = reconstructor.getStateAt(3);
+  const baseReturnState = reconstructor.getStateAt(4);
+  const finalReturnState = reconstructor.getStateAt(6);
+
+  assert.equal(deepestState.callStack.length, 3);
+  assert.equal(deepestState.recursion.active, true);
+  assert.equal(deepestState.recursion.depth, 3);
+  assert.equal(deepestState.recursion.maxDepth, 3);
+  assert.deepEqual(deepestState.recursion.frames.map((frame) => frame.parameters.n), [3, 2, 1]);
+  assert.equal(baseReturnState.callStack.length, 2);
+  assert.equal(baseReturnState.recursion.baseCase.returnValue, 1);
+  assert.equal(baseReturnState.recursion.baseCase.recursionDepth, 3);
+  assert.equal(baseReturnState.recursion.unwinding, true);
+  assert.equal(finalReturnState.callStack.length, 0);
+  assert.equal(finalReturnState.recursion.active, false);
+  assert.equal(finalReturnState.recursion.maxDepth, 3);
+  assert.equal(finalReturnState.recursion.lastReturn.returnValue, 6);
+  assert.equal(reconstructor.getStateAt(3).recursion.depth, 3);
+}
+
 function testProgramStateReconstruction(trace) {
   const reconstructor = new StateReconstructor(
     trace,
@@ -1808,6 +1884,8 @@ async function runTests() {
 
   testAdvancedSortReconstruction();
 
+  testRecursionReconstruction();
+
   testTimelineNavigation(
     programTrace
   );
@@ -1892,6 +1970,10 @@ async function runTests() {
 
   console.log(
     "Merge split/merge and Quick pivot/partition reconstruction: passed"
+  );
+
+  console.log(
+    "Recursion depth, base case, and call-stack unwind reconstruction: passed"
   );
 }
 

@@ -5,6 +5,11 @@ import {
   createIdleExecutionStep
 } from "../src/utils/execution-presentation.js";
 
+import {
+  ApiResponseError,
+  readJsonResponse
+} from "../src/utils/http-response.js";
+
 function createState(step, overrides = {}) {
   return {
     step,
@@ -1168,7 +1173,93 @@ function createAdvancedSortResult(language) {
   };
 }
 
-function runTests() {
+function createRecursionResult(language) {
+  const frame = (depth, n) => ({
+    id: `factorial:${depth}`,
+    scopeId: `factorial:${depth}`,
+    name: "factorial",
+    depth,
+    recursionDepth: depth,
+    recursive: depth > 1,
+    parameters: { n },
+    source: { line: 1 }
+  });
+  const allFrames = [frame(1, 3), frame(2, 2), frame(3, 1)];
+  const entries = [
+    ["PROGRAM_START", {}],
+    ["FUNCTION_ENTER", { ...allFrames[0], functionName: "factorial" }],
+    ["FUNCTION_ENTER", { ...allFrames[1], functionName: "factorial" }],
+    ["FUNCTION_ENTER", { ...allFrames[2], functionName: "factorial" }],
+    ["FUNCTION_RETURN", {
+      ...allFrames[2], functionName: "factorial", returnValue: 1,
+      value: 1, baseCase: true, unwinding: true
+    }],
+    ["FUNCTION_RETURN", {
+      ...allFrames[1], functionName: "factorial", returnValue: 2,
+      value: 2, baseCase: false, unwinding: true
+    }],
+    ["FUNCTION_RETURN", {
+      ...allFrames[0], functionName: "factorial", returnValue: 6,
+      value: 6, baseCase: false, unwinding: true
+    }],
+    ["PROGRAM_END", {}]
+  ];
+  const events = entries.map(([type, payload], step) => ({
+    id: `${language}-recursion-event-${step}`,
+    step,
+    type,
+    source: { line: type === "FUNCTION_RETURN" ? 3 : 1 },
+    payload
+  }));
+  const states = events.map((event, step) => {
+    const activeFrames = step < 1
+      ? []
+      : step <= 3
+        ? allFrames.slice(0, step)
+        : step === 4
+          ? allFrames.slice(0, 2)
+          : step === 5
+            ? allFrames.slice(0, 1)
+            : [];
+    const lastReturn = step >= 4
+      ? {
+        ...allFrames[Math.max(0, 7 - step - 1)],
+        returnValue: step === 4 ? 1 : step === 5 ? 2 : 6,
+        baseCase: step === 4
+      }
+      : null;
+
+    return createState(step, {
+      status: step === events.length - 1 ? "completed" : "running",
+      callStack: activeFrames,
+      recursion: {
+        active: activeFrames.length > 0,
+        functionName: step >= 2 ? "factorial" : null,
+        depth: activeFrames.length,
+        maxDepth: step >= 3 ? 3 : Math.max(1, activeFrames.length),
+        frames: step >= 2 ? activeFrames : [],
+        baseCase: step >= 4 ? { ...allFrames[2], returnValue: 1, baseCase: true } : null,
+        lastReturn,
+        unwinding: step >= 4
+      }
+    });
+  });
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: {
+      traceId: `${language}-recursion-presentation-test`,
+      status: "completed",
+      events
+    },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
+async function runTests() {
   const presentation = createExecutionPresentation(createResult());
 
   assert.equal(presentation.language, "javascript");
@@ -1380,6 +1471,25 @@ function runTests() {
     assert.deepEqual(advancedSortPresentation.steps[9].sort.rightRange, [2, 3]);
     assert.deepEqual(advancedSortPresentation.steps[10].sort.values, [1, 2, 3, 4]);
     assert.equal(advancedSortPresentation.steps[10].sort.finished, true);
+
+    const recursionPresentation = createExecutionPresentation(
+      createRecursionResult(language)
+    );
+
+    assert.equal(recursionPresentation.steps[3].recursion.functionName, "factorial");
+    assert.equal(recursionPresentation.steps[3].recursion.depth, 3);
+    assert.equal(recursionPresentation.steps[3].recursion.maxDepth, 3);
+    assert.deepEqual(
+      recursionPresentation.steps[3].recursion.frames.map((frame) => frame.parameters.n),
+      [3, 2, 1]
+    );
+    assert.equal(recursionPresentation.steps[4].recursion.baseCase.returnValue, 1);
+    assert.equal(recursionPresentation.steps[4].recursion.lastReturn.baseCase, true);
+    assert.equal(recursionPresentation.steps[4].recursion.unwinding, true);
+    assert.match(recursionPresentation.steps[4].title, /base case/i);
+    assert.equal(recursionPresentation.steps[6].recursion.depth, 0);
+    assert.equal(recursionPresentation.steps[6].recursion.lastReturn.returnValue, 6);
+    assert.match(recursionPresentation.steps[6].description, /unwinds/i);
   }
 
   const sqlPresentation = createExecutionPresentation(createSqlResult());
@@ -1430,6 +1540,33 @@ function runTests() {
     /not synchronized/
   );
 
+  const validResponse = new Response(
+    JSON.stringify({ status: "ok" }),
+    {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    }
+  );
+
+  assert.deepEqual(
+    await readJsonResponse(validResponse, "Test service"),
+    { status: "ok" }
+  );
+
+  await assert.rejects(
+    readJsonResponse(new Response("", { status: 502 }), "Test service"),
+    (error) => error instanceof ApiResponseError &&
+      error.code === "EMPTY_RESPONSE" &&
+      /empty response/i.test(error.message)
+  );
+
+  await assert.rejects(
+    readJsonResponse(new Response("proxy error", { status: 502 }), "Test service"),
+    (error) => error instanceof ApiResponseError &&
+      error.code === "INVALID_JSON_RESPONSE" &&
+      /HTTP 502/.test(error.message)
+  );
+
   console.log("Frontend execution presentation tests passed.");
   console.log(`Presented execution steps: ${presentation.steps.length}`);
   console.log("Array highlighting: passed");
@@ -1459,9 +1596,16 @@ function runTests() {
   console.log("Sorting comparisons, swaps, shifts, passes, and sorted positions: passed");
   console.log("Cross-language Merge Sort and Quick Sort presentation: passed");
   console.log("Merge ranges, Quick pivots, and partitions: passed");
+  console.log("Cross-language recursion and call-stack presentation: passed");
+  console.log("Recursive frames, base case, parameters, and unwind returns: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");
+  console.log("Empty and invalid API response handling: passed");
 }
 
-runTests();
+runTests().catch((error) => {
+  console.error("Frontend execution presentation tests failed.");
+  console.error(error);
+  process.exitCode = 1;
+});

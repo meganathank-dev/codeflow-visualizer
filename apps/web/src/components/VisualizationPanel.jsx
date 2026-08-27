@@ -1646,6 +1646,124 @@ function SortVisualization({ sort }) {
   );
 }
 
+function RecursionVisualization({ recursion }) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (!recursion) {
+    return null;
+  }
+
+  const frames = [...recursion.frames].reverse();
+  const returnValue = recursion.lastReturn?.returnValue;
+
+  return (
+    <motion.div
+      className="visualization-card recursion-card"
+      layout
+      initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={shouldReduceMotion ? undefined : { opacity: 0, y: -6 }}
+    >
+      <div className="visualization-card-heading recursion-heading">
+        <div>
+          <span className="recursion-kicker">RECURSION & CALL STACK</span>
+          <h3>{recursion.functionName}</h3>
+        </div>
+
+        <div className="recursion-metrics">
+          <span>Depth {recursion.depth}</span>
+          <span>Max {recursion.maxDepth}</span>
+        </div>
+      </div>
+
+      <div className="recursion-flow-status">
+        <span className={recursion.unwinding ? "is-unwinding" : "is-growing"}>
+          <Workflow size={15} />
+          {recursion.unwinding ? "Stack unwinding" : "Stack growing"}
+        </span>
+
+        {recursion.baseCase && (
+          <span className="base-case-badge">
+            Base case: depth {recursion.baseCase.recursionDepth}
+          </span>
+        )}
+      </div>
+
+      <div className="recursion-stack" aria-label={`${recursion.functionName} recursive call stack`}>
+        <AnimatePresence initial={false} mode="popLayout">
+          {frames.map((frame, index) => {
+            const parameterEntries = Object.entries(frame.parameters || {});
+            const localEntries = Object.entries(frame.locals || {}).filter(
+              ([name]) => !Object.hasOwn(frame.parameters || {}, name)
+            );
+
+            return (
+              <motion.div
+                className={`recursion-frame${index === 0 ? " is-stack-top" : ""}`}
+                key={frame.id || `${frame.name}-${frame.recursionDepth}`}
+                layout
+                initial={shouldReduceMotion ? false : { opacity: 0, x: 18, scale: 0.98 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0, x: -18, scale: 0.98 }}
+                transition={shouldReduceMotion ? { duration: 0 } : SPRING_TRANSITION}
+              >
+                <div className="recursion-frame-index">
+                  {frame.recursionDepth}
+                </div>
+
+                <div className="recursion-frame-body">
+                  <div className="recursion-frame-title">
+                    <code>{frame.name}()</code>
+                    {index === 0 && <span>STACK TOP</span>}
+                  </div>
+
+                  <div className="recursion-frame-values">
+                    {parameterEntries.length > 0 ? parameterEntries.map(([name, value]) => (
+                      <span key={`parameter-${name}`}>
+                        <small>{name}</small>
+                        <strong>{formatVariableValue(value)}</strong>
+                      </span>
+                    )) : <em>No parameters</em>}
+
+                    {localEntries.slice(0, 3).map(([name, value]) => (
+                      <span className="is-local" key={`local-${name}`}>
+                        <small>{name}</small>
+                        <strong>{formatVariableValue(value)}</strong>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+
+        {frames.length === 0 && (
+          <div className="recursion-stack-empty">
+            All recursive frames returned.
+          </div>
+        )}
+      </div>
+
+      {recursion.lastReturn && (
+        <motion.div
+          className={`recursion-return-strip${recursion.lastReturn.baseCase ? " is-base-case" : ""}`}
+          key={`return-${recursion.lastReturn.id}-${String(returnValue)}`}
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <ArrowRight size={15} />
+          <span>
+            {recursion.lastReturn.baseCase ? "Base return" : "Returned"}
+          </span>
+          <code>{formatVariableValue(returnValue)}</code>
+          <small>from depth {recursion.lastReturn.recursionDepth}</small>
+        </motion.div>
+      )}
+    </motion.div>
+  );
+}
+
 function EventStory({
   step,
   isSql = false
@@ -1870,6 +1988,10 @@ function ProgramVisualization({
             : SOFT_SPRING_TRANSITION
         }
       >
+        <RecursionVisualization
+          recursion={step.recursion}
+        />
+
         <SearchVisualization
           search={step.search}
         />

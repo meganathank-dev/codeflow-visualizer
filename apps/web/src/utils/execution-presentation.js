@@ -545,20 +545,30 @@ function describeEvent(event, state, language) {
 
     case "FUNCTION_CALL":
       return {
-        title: `Call ${name || "a function"}`,
-        description: `The program invokes ${name || "the selected function"}.`
+        title: payload.recursive
+          ? `Recurse into ${name || "the function"}`
+          : `Call ${name || "a function"}`,
+        description: payload.recursive
+          ? `${name || "The function"} calls itself at recursion depth ${payload.recursionDepth ?? "unknown"}.`
+          : `The program invokes ${name || "the selected function"}.`
       };
 
     case "FUNCTION_ENTER":
       return {
-        title: `Enter ${name || "a function"}`,
-        description: `A new call-stack frame is created for ${name || "the function"}.`
+        title: payload.recursive
+          ? `Push recursive frame ${payload.recursionDepth ?? ""}`.trim()
+          : `Enter ${name || "a function"}`,
+        description: `A new call-stack frame is created for ${name || "the function"}${payload.recursive ? ` with depth ${payload.recursionDepth}` : ""}.`
       };
 
     case "FUNCTION_RETURN":
       return {
-        title: `Return from ${name || "a function"}`,
-        description: `${name || "The function"} returns ${formatValue(payload.returnValue ?? value)}.`
+        title: payload.baseCase
+          ? `Base case returns ${formatValue(payload.returnValue ?? value)}`
+          : `Return from ${name || "a function"}`,
+        description: payload.baseCase
+          ? `${name || "The function"} reaches the deepest recursive frame and starts stack unwinding.`
+          : `${name || "The function"} returns ${formatValue(payload.returnValue ?? value)}${payload.unwinding ? " while the recursive call stack unwinds" : ""}.`
       };
 
     case "OUTPUT":
@@ -961,6 +971,48 @@ function selectControlFlow(state, event) {
   };
 }
 
+function selectRecursion(state, event) {
+  const recursion = state.recursion || {};
+  const payload = event.payload || {};
+  const isRecursiveExecution = (
+    (recursion.maxDepth || 0) > 1 ||
+    payload.recursive === true ||
+    payload.baseCase === true ||
+    payload.unwinding === true
+  );
+
+  if (!isRecursiveExecution) {
+    return null;
+  }
+
+  const mapFrame = (frame) => ({
+    id: frame.id || frame.frameId || frame.scopeId,
+    name: frame.name || frame.functionName || "anonymous",
+    depth: frame.depth ?? null,
+    recursionDepth: frame.recursionDepth ?? 1,
+    parameters: frame.parameters || {},
+    locals: state.scopes?.[frame.scopeId]?.variables || {},
+    sourceLine: frame.source?.line || null,
+    recursive: Boolean(frame.recursive),
+    returnValue: frame.returnValue,
+    baseCase: Boolean(frame.baseCase)
+  });
+
+  return {
+    functionName: recursion.functionName || payload.functionName || payload.name || "recursive function",
+    active: Boolean(recursion.active),
+    depth: recursion.depth || 0,
+    maxDepth: recursion.maxDepth || payload.recursionDepth || 1,
+    frames: Array.isArray(recursion.frames)
+      ? recursion.frames.map(mapFrame)
+      : [],
+    baseCase: recursion.baseCase ? mapFrame(recursion.baseCase) : null,
+    lastReturn: recursion.lastReturn ? mapFrame(recursion.lastReturn) : null,
+    unwinding: Boolean(recursion.unwinding || payload.unwinding),
+    operation: event.type
+  };
+}
+
 function selectSql(state, event, context) {
   const payload = event.payload || {};
   const query = state.query || {};
@@ -1082,9 +1134,16 @@ export function createExecutionPresentation(result) {
       heap: selectHeap(state, event),
       graph: selectGraph(state, event),
       callStack: (state.callStack || []).map((frame) => ({
+        id: frame.id || frame.scopeId,
         name: frame.name || frame.functionName || "anonymous",
-        line: frame.source?.line || line
+        line: frame.source?.line || line,
+        depth: frame.depth ?? null,
+        recursionDepth: frame.recursionDepth ?? 1,
+        recursive: Boolean(frame.recursive),
+        parameters: frame.parameters || {},
+        locals: state.scopes?.[frame.scopeId]?.variables || {}
       })),
+      recursion: selectRecursion(state, event),
       console: Array.isArray(state.console) ? state.console : [],
       iteration: controlFlow.iteration,
       condition: controlFlow.condition,
@@ -1129,6 +1188,7 @@ export function createIdleExecutionStep(language = "javascript") {
     search: null,
     sort: null,
     callStack: [],
+    recursion: null,
     console: [],
     iteration: null,
     condition: null,

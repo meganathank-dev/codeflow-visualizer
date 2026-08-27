@@ -18,7 +18,7 @@ export default defineConfig({
 
     port: 5173,
 
-    strictPort: false,
+    strictPort: true,
 
     proxy: {
       "/api": {

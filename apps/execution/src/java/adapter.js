@@ -2034,6 +2034,7 @@ function buildJavaTrace(rawObservations, options) {
   );
 
   const frameStates = new Map();
+  const activeFrames = [];
   const logicalQueues = new Map();
   const logicalLinkedLists = new Map();
   const logicalHashMaps = new Map();
@@ -2066,25 +2067,46 @@ function buildJavaTrace(rawObservations, options) {
       const functionName = decode(fields[4]);
       const locals = decodeLocals(fields[5]);
       const scopeId = functionName === "main" ? null : frameId;
+      const callerFrame = activeFrames.at(-1) || null;
+      const recursionDepth = 1 + activeFrames.filter(
+        (frame) => frame.functionName === functionName
+      ).length;
+      const recursive = recursionDepth > 1;
+      const parameters = Object.fromEntries(
+        Object.entries(locals).map(([name, variable]) => [
+          name,
+          structuredClone(variable.value)
+        ])
+      );
+
+      if (
+        callerFrame &&
+        callerFrame.functionName === functionName
+      ) {
+        callerFrame.recursiveChildren += 1;
+      }
 
       if (functionName !== "main") {
         record(recorder, EVENT_TYPES.FUNCTION_CALL, callerLine, {
           name: functionName,
           functionName,
-          arguments: Object.values(locals).map((variable) => structuredClone(variable.value))
-        }, frameStates.get(fields[1])?.scopeId || null);
+          arguments: Object.values(locals).map((variable) => structuredClone(variable.value)),
+          callerFrameId: callerFrame?.scopeId || null,
+          depth: activeFrames.length + 1,
+          recursionDepth,
+          recursive
+        }, callerFrame?.scopeId || null);
       }
 
       record(recorder, EVENT_TYPES.FUNCTION_ENTER, methodLine, {
         name: functionName,
         functionName,
         frameId,
-        parameters: Object.fromEntries(
-          Object.entries(locals).map(([name, variable]) => [
-            name,
-            structuredClone(variable.value)
-          ])
-        )
+        callerFrameId: callerFrame?.scopeId || null,
+        depth: activeFrames.length + 1,
+        recursionDepth,
+        recursive,
+        parameters
       }, scopeId);
 
       for (const [name, variable] of Object.entries(locals)) {
@@ -2095,8 +2117,15 @@ function buildJavaTrace(rawObservations, options) {
         functionName,
         locals,
         lastLine: methodLine,
-        scopeId
+        scopeId,
+        parameters,
+        depth: activeFrames.length + 1,
+        recursionDepth,
+        recursive,
+        recursiveChildren: 0
       });
+
+      activeFrames.push(frameStates.get(frameId));
 
       lastObservedLine = methodLine;
       continue;
@@ -2167,6 +2196,16 @@ function buildJavaTrace(rawObservations, options) {
       const returnValue = decodeValue(returnType, fields[5]);
       const locals = decodeLocals(fields[6]);
       const frameState = frameStates.get(frameId);
+      const activeFrameIndex = activeFrames.findLastIndex(
+        (activeFrame) => activeFrame.scopeId === frameState?.scopeId &&
+          activeFrame.functionName === functionName
+      );
+      const activeFrame = activeFrameIndex === -1
+        ? frameState
+        : activeFrames[activeFrameIndex];
+      const callerFrame = activeFrameIndex > 0
+        ? activeFrames[activeFrameIndex - 1]
+        : null;
 
       if (frameState) {
         emitLocalChanges(
@@ -2199,9 +2238,27 @@ function buildJavaTrace(rawObservations, options) {
       record(recorder, EVENT_TYPES.FUNCTION_RETURN, line, {
         name: functionName,
         functionName,
+        frameId: activeFrame?.scopeId || frameId,
+        callerFrameId: callerFrame?.scopeId || null,
+        depth: activeFrame?.depth || activeFrames.length,
+        recursionDepth: activeFrame?.recursionDepth || 1,
+        recursive: Boolean(activeFrame?.recursive),
+        baseCase: Boolean(
+          activeFrame?.recursive &&
+          activeFrame?.recursiveChildren === 0
+        ),
+        unwinding: Boolean(
+          activeFrame?.recursive ||
+          activeFrame?.recursiveChildren > 0
+        ),
         value: returnValue,
-        returnValue
+        returnValue,
+        parameters: activeFrame?.parameters || {}
       }, frameId);
+
+      if (activeFrameIndex !== -1) {
+        activeFrames.splice(activeFrameIndex, 1);
+      }
 
       frameStates.delete(frameId);
       lastObservedLine = line;

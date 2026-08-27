@@ -62,6 +62,24 @@ function createInitialState(trace) {
 
     callStack: [],
 
+    recursion: {
+      active: false,
+
+      functionName: null,
+
+      depth: 0,
+
+      maxDepth: 0,
+
+      frames: [],
+
+      baseCase: null,
+
+      lastReturn: null,
+
+      unwinding: false
+    },
+
     controlFlow: {
       lastCondition: null,
       branches: [],
@@ -1202,6 +1220,18 @@ function handleFunctionEnter(state, event) {
 
     name,
 
+    callerFrameId: event.payload.callerFrameId || null,
+
+    depth: Number.isInteger(event.payload.depth)
+      ? event.payload.depth
+      : state.callStack.length + 1,
+
+    recursionDepth: Number.isInteger(event.payload.recursionDepth)
+      ? event.payload.recursionDepth
+      : 1,
+
+    recursive: Boolean(event.payload.recursive),
+
     arguments: Array.isArray(
       event.payload.arguments
     )
@@ -1223,6 +1253,24 @@ function handleFunctionEnter(state, event) {
   state.callStack.push(
     frame
   );
+
+  if (frame.recursive) {
+    state.recursion.functionName = name;
+  }
+
+  const recursionName = state.recursion.functionName;
+
+  state.recursion.frames = recursionName
+    ? state.callStack.filter((item) => item.name === recursionName).map(cloneValue)
+    : [];
+
+  state.recursion.active = state.recursion.frames.length > 1;
+  state.recursion.depth = state.recursion.frames.length;
+  state.recursion.maxDepth = Math.max(
+    state.recursion.maxDepth,
+    frame.recursionDepth
+  );
+  state.recursion.unwinding = false;
 
   for (const [parameterName, value] of Object.entries(
     frame.parameters
@@ -1265,11 +1313,48 @@ function handleFunctionReturn(state, event) {
   );
 
   if (frame) {
+    const returnedFrame = {
+      ...cloneValue(frame),
+
+      returnValue: cloneValue(
+        event.payload.returnValue ?? event.payload.value
+      ),
+
+      baseCase: Boolean(event.payload.baseCase),
+
+      unwinding: Boolean(event.payload.unwinding),
+
+      returnStep: event.step
+    };
+
+    if (
+      frame.recursive ||
+      event.payload.unwinding ||
+      state.recursion.functionName === frame.name
+    ) {
+      state.recursion.functionName = frame.name;
+      state.recursion.lastReturn = returnedFrame;
+      state.recursion.unwinding = Boolean(event.payload.unwinding);
+
+      if (event.payload.baseCase) {
+        state.recursion.baseCase = returnedFrame;
+      }
+    }
+
     removeScope(
       state,
       frame.scopeId
     );
   }
+
+  const recursionName = state.recursion.functionName;
+
+  state.recursion.frames = recursionName
+    ? state.callStack.filter((item) => item.name === recursionName).map(cloneValue)
+    : [];
+
+  state.recursion.active = state.recursion.frames.length > 0;
+  state.recursion.depth = state.recursion.frames.length;
 }
 
 function handleLoopEvent(state, event) {

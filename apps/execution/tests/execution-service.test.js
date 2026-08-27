@@ -1059,6 +1059,121 @@ async function testCrossLanguageAdvancedSortingAlgorithms(baseUrl) {
   return executions;
 }
 
+async function testCrossLanguageRecursion(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "function factorial(n) {",
+      "  if (n <= 1) return 1;",
+      "  return n * factorial(n - 1);",
+      "}",
+      "function fibonacci(n) {",
+      "  if (n <= 1) return n;",
+      "  return fibonacci(n - 1) + fibonacci(n - 2);",
+      "}",
+      "function recursiveSum(values, index) {",
+      "  if (index >= values.length) return 0;",
+      "  return values[index] + recursiveSum(values, index + 1);",
+      "}",
+      "const factorialResult = factorial(5);",
+      "const fibonacciResult = fibonacci(6);",
+      "const sumResult = recursiveSum([4, 8, 12], 0);",
+      'console.log("Factorial:", factorialResult, "Fibonacci:", fibonacciResult, "Sum:", sumResult);'
+    ].join("\n"),
+    python: [
+      "def factorial(n):",
+      "    if n <= 1:",
+      "        return 1",
+      "    return n * factorial(n - 1)",
+      "",
+      "def fibonacci(n):",
+      "    if n <= 1:",
+      "        return n",
+      "    return fibonacci(n - 1) + fibonacci(n - 2)",
+      "",
+      "def recursive_sum(values, index):",
+      "    if index >= len(values):",
+      "        return 0",
+      "    return values[index] + recursive_sum(values, index + 1)",
+      "",
+      "factorial_result = factorial(5)",
+      "fibonacci_result = fibonacci(6)",
+      "sum_result = recursive_sum([4, 8, 12], 0)",
+      'print("Factorial:", factorial_result, "Fibonacci:", fibonacci_result, "Sum:", sum_result)'
+    ].join("\n"),
+    java: [
+      "public class Main {",
+      "    static int factorial(int n) {",
+      "        if (n <= 1) return 1;",
+      "        return n * factorial(n - 1);",
+      "    }",
+      "    static int fibonacci(int n) {",
+      "        if (n <= 1) return n;",
+      "        return fibonacci(n - 1) + fibonacci(n - 2);",
+      "    }",
+      "    static int recursiveSum(int[] values, int index) {",
+      "        if (index >= values.length) return 0;",
+      "        return values[index] + recursiveSum(values, index + 1);",
+      "    }",
+      "    public static void main(String[] args) {",
+      "        int factorialResult = factorial(5);",
+      "        int fibonacciResult = fibonacci(6);",
+      "        int sumResult = recursiveSum(new int[]{4, 8, 12}, 0);",
+      '        System.out.println("Factorial: " + factorialResult + " Fibonacci: " + fibonacciResult + " Sum: " + sumResult);',
+      "    }",
+      "}"
+    ].join("\n")
+  };
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "FUNCTION_CALL",
+      "FUNCTION_ENTER",
+      "FUNCTION_RETURN"
+    ]);
+
+    const functionEvents = execution.trace.events.filter(
+      (event) => event.type.startsWith("FUNCTION_")
+    );
+    const recursiveEnters = functionEvents.filter(
+      (event) => event.type === "FUNCTION_ENTER" && event.payload.recursive
+    );
+    const baseReturns = functionEvents.filter(
+      (event) => event.type === "FUNCTION_RETURN" && event.payload.baseCase
+    );
+    const unwindReturns = functionEvents.filter(
+      (event) => event.type === "FUNCTION_RETURN" && event.payload.unwinding
+    );
+    const maxDepth = Math.max(...recursiveEnters.map((event) => event.payload.recursionDepth));
+    const finalState = execution.states.at(-1);
+    const resultNames = language === "python"
+      ? ["factorial_result", "fibonacci_result", "sum_result"]
+      : ["factorialResult", "fibonacciResult", "sumResult"];
+
+    assert.deepEqual(
+      resultNames.map((name) => finalState.variables[name]),
+      [120, 8, 24]
+    );
+    assert.equal(recursiveEnters.length > 0, true);
+    assert.equal(baseReturns.length > 0, true);
+    assert.equal(unwindReturns.length > 0, true);
+    assert.equal(maxDepth >= 5, true);
+    assert.equal(baseReturns.every((event) => event.payload.recursionDepth > 1), true);
+    assert.equal(finalState.recursion.active, false);
+    assert.equal(finalState.recursion.maxDepth >= 4, true);
+    assert.equal(finalState.recursion.lastReturn.unwinding, true);
+
+    executions[language] = execution;
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -1241,6 +1356,7 @@ async function runTests() {
     const searches = await testCrossLanguageSearchAlgorithms(baseUrl);
     const sorts = await testCrossLanguageSortingAlgorithms(baseUrl);
     const advancedSorts = await testCrossLanguageAdvancedSortingAlgorithms(baseUrl);
+    const recursion = await testCrossLanguageRecursion(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -1321,6 +1437,12 @@ async function runTests() {
     console.log(`JavaScript advanced sort events: ${advancedSorts.javascript.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
     console.log(`Python advanced sort events: ${advancedSorts.python.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
     console.log(`Java advanced sort events: ${advancedSorts.java.trace.events.filter((event) => event.type.startsWith("SORT_")).length}`);
+    console.log("Cross-language recursion execution: passed");
+    console.log("Factorial, Fibonacci, and recursive array-sum: passed");
+    console.log("Recursive depth, base case, and stack unwinding: passed");
+    console.log(`JavaScript recursion events: ${recursion.javascript.trace.events.filter((event) => event.type.startsWith("FUNCTION_")).length}`);
+    console.log(`Python recursion events: ${recursion.python.trace.events.filter((event) => event.type.startsWith("FUNCTION_")).length}`);
+    console.log(`Java recursion events: ${recursion.java.trace.events.filter((event) => event.type.startsWith("FUNCTION_")).length}`);
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");

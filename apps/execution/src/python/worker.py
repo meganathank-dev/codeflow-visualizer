@@ -1327,6 +1327,7 @@ class PythonExecutionTracer:
         self.maximum_output_bytes = maximum_output_bytes
         self.events = []
         self.frame_states = {}
+        self.call_stack = []
         self.loop_iterations = {}
         self.output_bytes = 0
         self.frame_number = 0
@@ -1557,19 +1558,37 @@ class PythonExecutionTracer:
         if event == "call":
             current_locals = snapshot_locals(frame.f_locals)
             scope_id = None
+            parent_frame_id = self.call_stack[-1] if self.call_stack else None
+            parent_state = self.frame_states.get(parent_frame_id, {})
+            recursion_depth = 1
+            recursive = False
 
             if function_name != "<module>":
                 self.frame_number += 1
                 scope_id = f"{function_name}:{self.frame_number}"
+                recursion_depth = 1 + sum(
+                    1
+                    for active_frame_id in self.call_stack
+                    if self.frame_states.get(active_frame_id, {}).get("functionName") == function_name
+                )
+                recursive = recursion_depth > 1
 
             self.frame_states[frame_id] = {
                 "locals": current_locals,
                 "lastLine": None,
                 "scopeId": scope_id,
+                "functionName": function_name,
+                "depth": len(self.call_stack) + 1,
+                "recursionDepth": recursion_depth,
+                "recursive": recursive,
+                "recursiveChildren": 0,
             }
 
             if function_name != "<module>":
                 caller_line = frame.f_back.f_lineno if frame.f_back else frame.f_code.co_firstlineno
+
+                if parent_state.get("functionName") == function_name:
+                    parent_state["recursiveChildren"] = parent_state.get("recursiveChildren", 0) + 1
 
                 self.record(
                     "FUNCTION_CALL",
@@ -1578,6 +1597,10 @@ class PythonExecutionTracer:
                         "name": function_name,
                         "functionName": function_name,
                         "arguments": [item["value"] for item in current_locals.values()],
+                        "callerFrameId": parent_state.get("scopeId"),
+                        "depth": len(self.call_stack) + 1,
+                        "recursionDepth": recursion_depth,
+                        "recursive": recursive,
                     },
                     self.frame_states.get(id(frame.f_back), {}).get("scopeId"),
                 )
@@ -1587,6 +1610,8 @@ class PythonExecutionTracer:
                     for name, item in current_locals.items()
                 }
 
+                self.frame_states[frame_id]["parameters"] = parameters
+
                 self.record(
                     "FUNCTION_ENTER",
                     frame.f_code.co_firstlineno,
@@ -1594,6 +1619,10 @@ class PythonExecutionTracer:
                         "name": function_name,
                         "functionName": function_name,
                         "frameId": scope_id,
+                        "callerFrameId": parent_state.get("scopeId"),
+                        "depth": len(self.call_stack) + 1,
+                        "recursionDepth": recursion_depth,
+                        "recursive": recursive,
                         "parameters": parameters,
                     },
                     scope_id,
@@ -1601,6 +1630,8 @@ class PythonExecutionTracer:
 
                 for name, variable in current_locals.items():
                     self.declare_variable(name, variable, frame.f_code.co_firstlineno, scope_id)
+
+                self.call_stack.append(frame_id)
 
             return self.trace_function
 
@@ -1632,17 +1663,34 @@ class PythonExecutionTracer:
             self.flush_variable_changes(frame, last_line)
 
             if function_name != "<module>":
+                recursive = bool(frame_state.get("recursive"))
+                base_case = recursive and frame_state.get("recursiveChildren", 0) == 0
+                unwinding = recursive or frame_state.get("recursiveChildren", 0) > 0
+                caller_frame_id = self.call_stack[-2] if len(self.call_stack) > 1 else None
+                caller_state = self.frame_states.get(caller_frame_id, {})
+
                 self.record(
                     "FUNCTION_RETURN",
                     last_line,
                     {
                         "name": function_name,
                         "functionName": function_name,
+                        "frameId": scope_id,
+                        "callerFrameId": caller_state.get("scopeId"),
+                        "depth": frame_state.get("depth", len(self.call_stack)),
+                        "recursionDepth": frame_state.get("recursionDepth", 1),
+                        "recursive": recursive,
+                        "baseCase": base_case,
+                        "unwinding": unwinding,
                         "value": json_safe(argument),
                         "returnValue": json_safe(argument),
+                        "parameters": frame_state.get("parameters", {}),
                     },
                     scope_id,
                 )
+
+                if frame_id in self.call_stack:
+                    self.call_stack.remove(frame_id)
 
             self.frame_states.pop(frame_id, None)
 

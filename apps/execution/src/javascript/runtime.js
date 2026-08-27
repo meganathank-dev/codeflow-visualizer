@@ -2277,6 +2277,13 @@ function createJavaScriptRuntime(options = {}) {
 
       invoke
     ) {
+      const callerFrame = callFrames.at(-1) ?? null;
+      const sameFunctionDepth = (
+        callFrames.filter(
+          (frame) => frame.functionName === functionName
+        ).length + 1
+      );
+
       record(
         EVENT_TYPES.FUNCTION_CALL,
 
@@ -2285,7 +2292,15 @@ function createJavaScriptRuntime(options = {}) {
         {
           name: functionName,
 
-          functionName
+          functionName,
+
+          callerFrameId: callerFrame?.scopeId ?? null,
+
+          depth: callFrames.length + 1,
+
+          recursionDepth: sameFunctionDepth,
+
+          recursive: sameFunctionDepth > 1
         }
       );
 
@@ -2448,6 +2463,16 @@ function createJavaScriptRuntime(options = {}) {
     ) {
       nextFrameNumber += 1;
 
+      const parentFrame = callFrames.at(-1) ?? null;
+
+      const recursionDepth = (
+        callFrames.filter(
+          (frame) => frame.functionName === functionName
+        ).length + 1
+      );
+
+      const recursive = recursionDepth > 1;
+
       const scopeId = (
         `${functionName}:${nextFrameNumber}`
       );
@@ -2455,8 +2480,25 @@ function createJavaScriptRuntime(options = {}) {
       callFrames.push({
         functionName,
 
-        scopeId
+        scopeId,
+
+        parameters: toSerializable(parameters),
+
+        depth: callFrames.length + 1,
+
+        recursionDepth,
+
+        recursive,
+
+        recursiveChildren: 0
       });
+
+      if (
+        parentFrame &&
+        parentFrame.functionName === functionName
+      ) {
+        parentFrame.recursiveChildren += 1;
+      }
 
       record(
         EVENT_TYPES.FUNCTION_ENTER,
@@ -2469,6 +2511,14 @@ function createJavaScriptRuntime(options = {}) {
           functionName,
 
           frameId: scopeId,
+
+          callerFrameId: parentFrame?.scopeId ?? null,
+
+          depth: callFrames.length,
+
+          recursionDepth,
+
+          recursive,
 
           parameters: toSerializable(
             parameters
@@ -2519,6 +2569,22 @@ function createJavaScriptRuntime(options = {}) {
         null
       );
 
+      const recursive = Boolean(
+        activeFrame?.recursive
+      );
+
+      const baseCase = Boolean(
+        recursive &&
+        activeFrame?.recursiveChildren === 0
+      );
+
+      const unwinding = Boolean(
+        recursive ||
+        activeFrame?.recursiveChildren > 0
+      );
+
+      const callerFrame = callFrames.at(-2) ?? null;
+
       record(
         EVENT_TYPES.FUNCTION_RETURN,
 
@@ -2529,13 +2595,29 @@ function createJavaScriptRuntime(options = {}) {
 
           functionName,
 
+          frameId: scopeId,
+
+          callerFrameId: callerFrame?.scopeId ?? null,
+
+          depth: activeFrame?.depth ?? callFrames.length,
+
+          recursionDepth: activeFrame?.recursionDepth ?? 1,
+
+          recursive,
+
+          baseCase,
+
+          unwinding,
+
           value: toSerializable(
             returnValue
           ),
 
           returnValue: toSerializable(
             returnValue
-          )
+          ),
+
+          parameters: activeFrame?.parameters ?? {}
         },
 
         scopeId

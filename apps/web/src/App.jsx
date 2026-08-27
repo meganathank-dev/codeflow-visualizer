@@ -19,9 +19,15 @@ import {
   createIdleExecutionStep
 } from "./utils/execution-presentation";
 
+import {
+  ApiResponseError,
+  readJsonResponse
+} from "./utils/http-response";
+
 const INITIAL_LANGUAGE = "javascript";
 const BASE_PLAYBACK_INTERVAL = 430;
 const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
+const BACKEND_FAILURE_THRESHOLD = 2;
 const LIVE_EXECUTION_LANGUAGES = Object.freeze([
   "javascript",
   "python",
@@ -47,6 +53,7 @@ export default function App() {
   const [backendStatus, setBackendStatus] = useState("checking");
 
   const activeRequestRef = useRef(null);
+  const healthFailureCountRef = useRef(0);
 
   const language = useMemo(
     () => getLanguageOption(selectedLanguage),
@@ -89,20 +96,35 @@ export default function App() {
           headers: { accept: "application/json" }
         });
 
-        const result = await response.json();
+        const result = await readJsonResponse(
+          response,
+          "Health service"
+        );
 
         if (!isMounted) {
           return;
         }
 
-        setBackendStatus(
-          response.ok && result.executionService?.connected === true
-            ? "connected"
-            : "offline"
+        const connected = (
+          response.ok &&
+          result.executionService?.connected === true
         );
+
+        healthFailureCountRef.current = connected
+          ? 0
+          : BACKEND_FAILURE_THRESHOLD;
+
+        setBackendStatus(connected ? "connected" : "offline");
       } catch {
         if (isMounted) {
-          setBackendStatus("offline");
+          healthFailureCountRef.current += 1;
+
+          if (
+            healthFailureCountRef.current >=
+            BACKEND_FAILURE_THRESHOLD
+          ) {
+            setBackendStatus("offline");
+          }
         }
       } finally {
         requestInProgress = false;
@@ -299,7 +321,10 @@ export default function App() {
         signal: controller.signal
       });
 
-      const result = await response.json();
+      const result = await readJsonResponse(
+        response,
+        `${language.label} execution service`
+      );
 
       if (!response.ok || result.status !== "ok") {
         throw new Error(
@@ -330,6 +355,10 @@ export default function App() {
       setIsPlaying(presentation.steps.length > 1);
     } catch (error) {
       if (error.name !== "AbortError") {
+        if (error instanceof ApiResponseError) {
+          setBackendStatus("offline");
+        }
+
         setNotification(error.message || `${language.label} execution failed.`);
       }
     } finally {
