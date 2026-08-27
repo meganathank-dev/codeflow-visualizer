@@ -303,6 +303,54 @@ function describeEvent(event, state, language) {
         description: `${payload.arrayName || "The array"} is sorted after ${payload.comparisonCount} comparisons, ${payload.swapCount} swaps, and ${payload.writeCount} writes.`
       };
 
+    case "DP_START":
+      return {
+        title: `Start ${String(payload.algorithm || "dynamic programming").replaceAll("-", " ")}`,
+        description: `${payload.dimension === "2d" ? "A two-dimensional" : "A one-dimensional"} table stores solved subproblems for reuse.`
+      };
+
+    case "DP_CACHE_HIT":
+      return {
+        title: `Reuse cached state ${formatValue(payload.stateKey)}`,
+        description: `The memoized value ${formatValue(payload.value)} is returned without recomputing the subproblem.`
+      };
+
+    case "DP_CACHE_MISS":
+      return {
+        title: `Solve uncached state ${formatValue(payload.stateKey)}`,
+        description: "This subproblem is not cached yet, so its dependencies must be evaluated."
+      };
+
+    case "DP_STATE_READ":
+      return {
+        title: `Read ${payload.readCells?.length || 0} previous DP state${payload.readCells?.length === 1 ? "" : "s"}`,
+        description: `Use ${formatValue(payload.values || [])} to calculate cell [${payload.activeRow}, ${payload.activeColumn}].`
+      };
+
+    case "DP_CHOICE":
+      return {
+        title: `Choose ${String(payload.decision || "best transition").replaceAll("-", " ")}`,
+        description: `Compare ${formatValue(payload.candidates || [])} and select ${formatValue(payload.chosenValue)} for the active state.`
+      };
+
+    case "DP_STATE_WRITE":
+      return {
+        title: `Write ${formatValue(payload.value)} to DP cell [${payload.activeRow}, ${payload.activeColumn}]`,
+        description: `The solved subproblem is stored for later transitions; ${payload.writeCount} write${payload.writeCount === 1 ? "" : "s"} recorded.`
+      };
+
+    case "DP_ROW_COMPLETE":
+      return {
+        title: `Complete DP row ${payload.completedRow}`,
+        description: "Every state in this row is now available to later subproblems."
+      };
+
+    case "DP_END":
+      return {
+        title: `${String(payload.algorithm || "Dynamic programming").replaceAll("-", " ")} completed`,
+        description: `The final result is ${formatValue(payload.result)} after ${payload.readCount} reads, ${payload.writeCount} writes, and ${payload.choiceCount} decisions.`
+      };
+
     case "STACK_CREATE":
       return {
         title: `Create ${name || "a stack"}`,
@@ -862,6 +910,34 @@ function selectSort(state, event) {
   };
 }
 
+function selectDynamicProgramming(state, event) {
+  const dynamicPrograms = state.dynamicPrograms || {};
+  const eventDpId = event.payload?.dpId;
+  const selectedId = Object.hasOwn(dynamicPrograms, eventDpId)
+    ? eventDpId
+    : Object.keys(dynamicPrograms).at(-1);
+
+  if (!selectedId || !Array.isArray(dynamicPrograms[selectedId]?.table)) {
+    return null;
+  }
+
+  const dynamicProgram = dynamicPrograms[selectedId];
+  return {
+    ...dynamicProgram,
+    table: dynamicProgram.table.map((row) => Array.isArray(row) ? row : []),
+    rowLabels: Array.isArray(dynamicProgram.rowLabels) ? dynamicProgram.rowLabels : [],
+    columnLabels: Array.isArray(dynamicProgram.columnLabels) ? dynamicProgram.columnLabels : [],
+    readCells: Array.isArray(dynamicProgram.readCells) ? dynamicProgram.readCells : [],
+    writtenCell: Array.isArray(dynamicProgram.writtenCell) ? dynamicProgram.writtenCell : null,
+    completedRows: Array.isArray(dynamicProgram.completedRows) ? dynamicProgram.completedRows : [],
+    resultCell: Array.isArray(dynamicProgram.resultCell) ? dynamicProgram.resultCell : null,
+    candidates: Array.isArray(dynamicProgram.candidates) ? dynamicProgram.candidates : [],
+    operation: eventDpId === selectedId && event.type.startsWith("DP_")
+      ? event.type
+      : null
+  };
+}
+
 function selectStack(state, event) {
   const stacks = state.stacks || {};
   const eventStack = event.payload?.name;
@@ -1114,6 +1190,7 @@ export function createExecutionPresentation(result) {
     const line = event.source?.line || state.source?.line || null;
     const search = selectSearch(state, event);
     const sort = selectSort(state, event);
+    const dynamicProgramming = selectDynamicProgramming(state, event);
     const array = selectArray(state, event);
 
     return {
@@ -1123,9 +1200,12 @@ export function createExecutionPresentation(result) {
       title: narrative.title,
       description: narrative.description,
       variables: selectVariables(state),
-      array: sort || (search && array?.name === search.arrayName) ? null : array,
+      array: dynamicProgramming || sort || (search && array?.name === search.arrayName)
+        ? null
+        : array,
       search,
       sort,
+      dynamicProgramming,
       stack: selectStack(state, event),
       queue: selectQueue(state, event),
       linkedList: selectLinkedList(state, event),
@@ -1187,6 +1267,7 @@ export function createIdleExecutionStep(language = "javascript") {
     graph: null,
     search: null,
     sort: null,
+    dynamicProgramming: null,
     callStack: [],
     recursion: null,
     console: [],

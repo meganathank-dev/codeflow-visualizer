@@ -56,6 +56,8 @@ function createInitialState(trace) {
 
     sorts: {},
 
+    dynamicPrograms: {},
+
     linkedLists: {},
 
     objects: {},
@@ -1192,6 +1194,94 @@ function handleSortEvent(state, event) {
   sort.lastOperation = event.type;
 }
 
+function handleDynamicProgrammingEvent(state, event) {
+  const payload = event.payload || {};
+  const dpId = payload.dpId || `${payload.algorithm || "dynamic-programming"}:1`;
+
+  if (!state.dynamicPrograms[dpId]) {
+    state.dynamicPrograms[dpId] = {
+      id: dpId,
+      algorithm: payload.algorithm || "dynamic-programming",
+      table: [],
+      dimension: "1d",
+      rows: 0,
+      columns: 0,
+      rowLabels: [],
+      columnLabels: [],
+      activeRow: null,
+      activeColumn: null,
+      readCells: [],
+      writtenCell: null,
+      completedRows: [],
+      decision: null,
+      candidates: [],
+      chosenValue: null,
+      result: null,
+      resultCell: null,
+      input: null,
+      phase: null,
+      cacheStatus: null,
+      stateKey: null,
+      value: null,
+      readCount: 0,
+      writeCount: 0,
+      cacheHitCount: 0,
+      cacheMissCount: 0,
+      choiceCount: 0,
+      finished: false,
+      lastOperation: null
+    };
+  }
+
+  const dynamicProgram = state.dynamicPrograms[dpId];
+
+  for (const key of [
+    "algorithm", "dimension", "rows", "columns", "activeRow",
+    "activeColumn", "decision", "chosenValue", "result", "input",
+    "phase", "stateKey", "value", "readCount", "writeCount",
+    "cacheHitCount", "cacheMissCount", "choiceCount"
+  ]) {
+    if (Object.hasOwn(payload, key)) {
+      dynamicProgram[key] = cloneValue(payload[key]);
+    }
+  }
+
+  for (const key of [
+    "table", "rowLabels", "columnLabels", "readCells", "writtenCell",
+    "candidates", "resultCell"
+  ]) {
+    if (Array.isArray(payload[key])) {
+      dynamicProgram[key] = cloneValue(payload[key]);
+    }
+  }
+
+  if (event.type === EVENT_TYPES.DP_START) {
+    dynamicProgram.finished = false;
+    dynamicProgram.completedRows = [];
+    dynamicProgram.cacheStatus = null;
+  } else if (event.type === EVENT_TYPES.DP_CACHE_HIT) {
+    dynamicProgram.cacheStatus = "hit";
+  } else if (event.type === EVENT_TYPES.DP_CACHE_MISS) {
+    dynamicProgram.cacheStatus = "miss";
+  } else if (event.type === EVENT_TYPES.DP_ROW_COMPLETE) {
+    const completedRow = payload.completedRow;
+    if (
+      Number.isInteger(completedRow) &&
+      !dynamicProgram.completedRows.includes(completedRow)
+    ) {
+      dynamicProgram.completedRows.push(completedRow);
+    }
+  } else if (event.type === EVENT_TYPES.DP_END) {
+    dynamicProgram.finished = true;
+    dynamicProgram.activeRow = null;
+    dynamicProgram.activeColumn = null;
+    dynamicProgram.readCells = [];
+    dynamicProgram.writtenCell = null;
+  }
+
+  dynamicProgram.lastOperation = event.type;
+}
+
 function handleFunctionEnter(state, event) {
   const name = (
     event.payload.name ||
@@ -1907,6 +1997,19 @@ function reduceExecutionEvent(previousState, event) {
     case EVENT_TYPES.SORT_MARK_SORTED:
     case EVENT_TYPES.SORT_END: {
       handleSortEvent(state, event);
+
+      break;
+    }
+
+    case EVENT_TYPES.DP_START:
+    case EVENT_TYPES.DP_CACHE_HIT:
+    case EVENT_TYPES.DP_CACHE_MISS:
+    case EVENT_TYPES.DP_STATE_READ:
+    case EVENT_TYPES.DP_CHOICE:
+    case EVENT_TYPES.DP_STATE_WRITE:
+    case EVENT_TYPES.DP_ROW_COMPLETE:
+    case EVENT_TYPES.DP_END: {
+      handleDynamicProgrammingEvent(state, event);
 
       break;
     }

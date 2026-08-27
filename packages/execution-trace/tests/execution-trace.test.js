@@ -654,6 +654,16 @@ function testDomainRestrictions() {
     false
   );
 
+  assert.equal(
+    isEventAllowedForDomain(EVENT_TYPES.DP_STATE_WRITE, TRACE_DOMAINS.PROGRAM),
+    true
+  );
+
+  assert.equal(
+    isEventAllowedForDomain(EVENT_TYPES.DP_STATE_WRITE, TRACE_DOMAINS.QUERY),
+    false
+  );
+
   for (const eventType of [
     EVENT_TYPES.SORT_SPLIT,
     EVENT_TYPES.SORT_MERGE,

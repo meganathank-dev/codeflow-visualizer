@@ -26,6 +26,7 @@ function createState(step, overrides = {}) {
     graphs: {},
     searches: {},
     sorts: {},
+    dynamicPrograms: {},
     callStack: [],
     console: [],
     errors: [],
@@ -1173,6 +1174,117 @@ function createAdvancedSortResult(language) {
   };
 }
 
+function createDynamicProgrammingResult(language) {
+  const dpId = "dp:1";
+  const base = {
+    dpId,
+    algorithm: "fibonacci-tabulation",
+    dimension: "1d",
+    rows: 1,
+    columns: 4,
+    rowLabels: ["table"],
+    columnLabels: ["n=0", "n=1", "n=2", "n=3"],
+    readCount: 0,
+    writeCount: 0,
+    cacheHitCount: 0,
+    cacheMissCount: 0,
+    choiceCount: 0,
+    phase: "tabulation"
+  };
+  const entries = [
+    ["PROGRAM_START", {}],
+    ["DP_START", { ...base, table: [[0, 1, null, null]], input: { n: 3 } }],
+    ["DP_STATE_READ", {
+      ...base,
+      table: [[0, 1, null, null]],
+      activeRow: 0,
+      activeColumn: 2,
+      readCells: [[0, 1], [0, 0]],
+      values: [1, 0],
+      readCount: 2
+    }],
+    ["DP_CHOICE", {
+      ...base,
+      table: [[0, 1, null, null]],
+      activeRow: 0,
+      activeColumn: 2,
+      readCells: [[0, 1], [0, 0]],
+      decision: "sum-previous",
+      candidates: [1, 0],
+      chosenValue: 1,
+      readCount: 2,
+      choiceCount: 1
+    }],
+    ["DP_STATE_WRITE", {
+      ...base,
+      table: [[0, 1, 1, null]],
+      activeRow: 0,
+      activeColumn: 2,
+      writtenCell: [0, 2],
+      value: 1,
+      readCount: 2,
+      writeCount: 1,
+      choiceCount: 1
+    }],
+    ["DP_ROW_COMPLETE", {
+      ...base,
+      table: [[0, 1, 1, 2]],
+      completedRow: 0,
+      readCount: 4,
+      writeCount: 2,
+      choiceCount: 2
+    }],
+    ["DP_END", {
+      ...base,
+      table: [[0, 1, 1, 2]],
+      result: 2,
+      resultCell: [0, 3],
+      readCount: 4,
+      writeCount: 2,
+      choiceCount: 2,
+      finished: true,
+      phase: "complete"
+    }]
+  ];
+  const events = entries.map(([type, payload], step) => ({
+    id: `${language}-dp-event-${step}`,
+    step,
+    type,
+    source: { line: step + 1 },
+    payload
+  }));
+  const states = entries.map(([type, payload], step) => {
+    const dynamicPrograms = {};
+    if (step > 0) {
+      dynamicPrograms[dpId] = {
+        id: dpId,
+        ...payload,
+        completedRows: step >= 5 ? [0] : [],
+        cacheStatus: null,
+        stateKey: null,
+        result: step >= 6 ? 2 : null,
+        resultCell: step >= 6 ? [0, 3] : null,
+        finished: step >= 6,
+        lastOperation: type
+      };
+    }
+
+    return createState(step, {
+      status: step === entries.length - 1 ? "completed" : "running",
+      dynamicPrograms
+    });
+  });
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: { traceId: `${language}-dp-presentation-test`, status: "completed", events },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
 function createRecursionResult(language) {
   const frame = (depth, n) => ({
     id: `factorial:${depth}`,
@@ -1472,6 +1584,35 @@ async function runTests() {
     assert.deepEqual(advancedSortPresentation.steps[10].sort.values, [1, 2, 3, 4]);
     assert.equal(advancedSortPresentation.steps[10].sort.finished, true);
 
+    const dynamicProgrammingPresentation = createExecutionPresentation(
+      createDynamicProgrammingResult(language)
+    );
+
+    assert.equal(
+      dynamicProgrammingPresentation.steps[2].dynamicProgramming.algorithm,
+      "fibonacci-tabulation"
+    );
+    assert.deepEqual(
+      dynamicProgrammingPresentation.steps[2].dynamicProgramming.readCells,
+      [[0, 1], [0, 0]]
+    );
+    assert.equal(
+      dynamicProgrammingPresentation.steps[3].dynamicProgramming.decision,
+      "sum-previous"
+    );
+    assert.deepEqual(
+      dynamicProgrammingPresentation.steps[4].dynamicProgramming.writtenCell,
+      [0, 2]
+    );
+    assert.deepEqual(
+      dynamicProgrammingPresentation.steps[5].dynamicProgramming.completedRows,
+      [0]
+    );
+    assert.equal(dynamicProgrammingPresentation.steps[6].dynamicProgramming.result, 2);
+    assert.equal(dynamicProgrammingPresentation.steps[6].dynamicProgramming.finished, true);
+    assert.equal(dynamicProgrammingPresentation.steps[6].array, null);
+    assert.match(dynamicProgrammingPresentation.steps[3].description, /select 1/i);
+
     const recursionPresentation = createExecutionPresentation(
       createRecursionResult(language)
     );
@@ -1598,6 +1739,8 @@ async function runTests() {
   console.log("Merge ranges, Quick pivots, and partitions: passed");
   console.log("Cross-language recursion and call-stack presentation: passed");
   console.log("Recursive frames, base case, parameters, and unwind returns: passed");
+  console.log("Cross-language dynamic-programming presentation: passed");
+  console.log("DP cells, transitions, cache state, and result highlighting: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");

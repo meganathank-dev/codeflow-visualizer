@@ -1050,6 +1050,108 @@ function testAdvancedSortReconstruction() {
   assert.equal(reconstructor.getStateAt(9).sorts["quick:1"].finished, true);
 }
 
+function testDynamicProgrammingReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-dynamic-programming-test"
+  });
+  const base = {
+    dpId: "dp:1",
+    algorithm: "fibonacci-tabulation",
+    dimension: "1d",
+    rows: 1,
+    columns: 4,
+    rowLabels: ["table"],
+    columnLabels: ["n=0", "n=1", "n=2", "n=3"],
+    readCount: 0,
+    writeCount: 0,
+    cacheHitCount: 0,
+    cacheMissCount: 0,
+    choiceCount: 0
+  };
+
+  recorder.start();
+  recorder.record(EVENT_TYPES.DP_START, {
+    ...base,
+    table: [[0, 1, null, null]],
+    input: { n: 3 },
+    phase: "tabulation"
+  });
+  recorder.record(EVENT_TYPES.DP_STATE_READ, {
+    ...base,
+    table: [[0, 1, null, null]],
+    activeRow: 0,
+    activeColumn: 2,
+    readCells: [[0, 1], [0, 0]],
+    values: [1, 0],
+    readCount: 2,
+    phase: "tabulation"
+  });
+  recorder.record(EVENT_TYPES.DP_CHOICE, {
+    ...base,
+    table: [[0, 1, null, null]],
+    activeRow: 0,
+    activeColumn: 2,
+    readCells: [[0, 1], [0, 0]],
+    decision: "sum-previous",
+    candidates: [1, 0],
+    chosenValue: 1,
+    readCount: 2,
+    choiceCount: 1,
+    phase: "tabulation"
+  });
+  recorder.record(EVENT_TYPES.DP_STATE_WRITE, {
+    ...base,
+    table: [[0, 1, 1, null]],
+    activeRow: 0,
+    activeColumn: 2,
+    writtenCell: [0, 2],
+    value: 1,
+    readCount: 2,
+    writeCount: 1,
+    choiceCount: 1,
+    phase: "tabulation"
+  });
+  recorder.record(EVENT_TYPES.DP_ROW_COMPLETE, {
+    ...base,
+    table: [[0, 1, 1, 2]],
+    completedRow: 0,
+    readCount: 4,
+    writeCount: 2,
+    choiceCount: 2,
+    phase: "tabulation"
+  });
+  recorder.record(EVENT_TYPES.DP_END, {
+    ...base,
+    table: [[0, 1, 1, 2]],
+    result: 2,
+    resultCell: [0, 3],
+    readCount: 4,
+    writeCount: 2,
+    choiceCount: 2,
+    finished: true,
+    phase: "complete"
+  });
+  recorder.finish();
+
+  const reconstructor = new StateReconstructor(recorder.toJSON(), {
+    checkpointInterval: 2
+  });
+  const readState = reconstructor.getStateAt(2).dynamicPrograms["dp:1"];
+  const writeState = reconstructor.getStateAt(4).dynamicPrograms["dp:1"];
+  const finalState = reconstructor.getStateAt(6).dynamicPrograms["dp:1"];
+
+  assert.deepEqual(readState.readCells, [[0, 1], [0, 0]]);
+  assert.equal(readState.activeColumn, 2);
+  assert.deepEqual(writeState.table, [[0, 1, 1, null]]);
+  assert.deepEqual(writeState.writtenCell, [0, 2]);
+  assert.deepEqual(finalState.table, [[0, 1, 1, 2]]);
+  assert.deepEqual(finalState.completedRows, [0]);
+  assert.deepEqual(finalState.resultCell, [0, 3]);
+  assert.equal(finalState.result, 2);
+  assert.equal(finalState.finished, true);
+}
+
 function testRecursionReconstruction() {
   const recorder = new TraceRecorder({
     language: LANGUAGES.JAVASCRIPT,
@@ -1884,6 +1986,8 @@ async function runTests() {
 
   testAdvancedSortReconstruction();
 
+  testDynamicProgrammingReconstruction();
+
   testRecursionReconstruction();
 
   testTimelineNavigation(
@@ -1974,6 +2078,10 @@ async function runTests() {
 
   console.log(
     "Recursion depth, base case, and call-stack unwind reconstruction: passed"
+  );
+
+  console.log(
+    "Dynamic-programming table, transitions, and result reconstruction: passed"
   );
 }
 

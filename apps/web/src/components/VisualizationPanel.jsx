@@ -1646,6 +1646,134 @@ function SortVisualization({ sort }) {
   );
 }
 
+function DynamicProgrammingVisualization({ dynamicProgramming }) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (!dynamicProgramming) {
+    return null;
+  }
+
+  const labels = {
+    "fibonacci-memo": "Fibonacci Memoization",
+    "fibonacci-tabulation": "Fibonacci Tabulation",
+    "knapsack-01": "0/1 Knapsack"
+  };
+  const readCells = new Set(
+    dynamicProgramming.readCells.map(([row, column]) => `${row}:${column}`)
+  );
+  const writtenCell = dynamicProgramming.writtenCell?.join(":");
+  const resultCell = dynamicProgramming.resultCell?.join(":");
+  const completedRows = new Set(dynamicProgramming.completedRows);
+
+  function cellClass(row, column) {
+    const key = `${row}:${column}`;
+    return [
+      "dp-cell",
+      readCells.has(key) ? "is-dp-read" : "",
+      writtenCell === key ? "is-dp-written" : "",
+      resultCell === key ? "is-dp-result" : "",
+      dynamicProgramming.activeRow === row && dynamicProgramming.activeColumn === column
+        ? "is-dp-active"
+        : "",
+      completedRows.has(row) ? "is-dp-row-complete" : ""
+    ].filter(Boolean).join(" ");
+  }
+
+  return (
+    <motion.div
+      className="visualization-card dp-card"
+      layout
+      transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+    >
+      <div className="visualization-card-heading">
+        <div className="visualization-card-title">
+          <Table2 size={16} />
+          <span>{labels[dynamicProgramming.algorithm] || "Dynamic Programming"}</span>
+        </div>
+
+        <div className="dp-heading-meta">
+          <span className="dp-dimension">{dynamicProgramming.dimension?.toUpperCase()}</span>
+          <span className="structure-name">{dynamicProgramming.phase || "ready"}</span>
+        </div>
+      </div>
+
+      <div className="dp-summary-grid">
+        <div><span>Reads</span><strong>{dynamicProgramming.readCount}</strong></div>
+        <div><span>Writes</span><strong>{dynamicProgramming.writeCount}</strong></div>
+        <div><span>Cache hits</span><strong>{dynamicProgramming.cacheHitCount}</strong></div>
+        <div>
+          <span>Result</span>
+          <strong className={dynamicProgramming.finished ? "dp-result-value" : ""}>
+            {dynamicProgramming.finished
+              ? formatVariableValue(dynamicProgramming.result)
+              : "building"}
+          </strong>
+        </div>
+      </div>
+
+      {(dynamicProgramming.decision || dynamicProgramming.cacheStatus) && (
+        <motion.div
+          className={`dp-decision-strip${dynamicProgramming.cacheStatus ? ` is-cache-${dynamicProgramming.cacheStatus}` : ""}`}
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <Workflow size={15} />
+          <span>
+            {dynamicProgramming.cacheStatus
+              ? `Cache ${dynamicProgramming.cacheStatus}: state ${formatVariableValue(dynamicProgramming.stateKey)}`
+              : String(dynamicProgramming.decision).replaceAll("-", " ")}
+          </span>
+          {dynamicProgramming.chosenValue !== null && (
+            <strong>→ {formatVariableValue(dynamicProgramming.chosenValue)}</strong>
+          )}
+        </motion.div>
+      )}
+
+      <div className="dp-table-scroll">
+        <div
+          className="dp-table"
+          style={{
+            gridTemplateColumns: `minmax(92px, auto) repeat(${dynamicProgramming.columns}, minmax(58px, 1fr))`
+          }}
+          aria-label={`${labels[dynamicProgramming.algorithm] || "Dynamic programming"} table`}
+        >
+          <span className="dp-corner-cell">STATE</span>
+          {dynamicProgramming.columnLabels.map((label, column) => (
+            <span className="dp-column-label" key={`dp-column-${column}`}>{label}</span>
+          ))}
+
+          {dynamicProgramming.table.map((rowValues, row) => (
+            <div className="dp-row-contents" key={`dp-row-${row}`}>
+              <span className={`dp-row-label${completedRows.has(row) ? " is-dp-row-complete" : ""}`}>
+                {dynamicProgramming.rowLabels[row] || `row ${row}`}
+              </span>
+              {rowValues.map((value, column) => (
+                <motion.span
+                  className={cellClass(row, column)}
+                  key={`dp-cell-${row}-${column}`}
+                  animate={{
+                    scale: dynamicProgramming.activeRow === row
+                      && dynamicProgramming.activeColumn === column ? 1.06 : 1
+                  }}
+                  transition={shouldReduceMotion ? { duration: 0 } : SPRING_TRANSITION}
+                >
+                  {value === null || value === undefined ? "—" : formatVariableValue(value)}
+                </motion.span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="dp-legend">
+        <span><i className="dp-legend-dot is-dp-read-dot" /> dependency</span>
+        <span><i className="dp-legend-dot is-dp-write-dot" /> written</span>
+        <span><i className="dp-legend-dot is-dp-result-dot" /> result</span>
+      </div>
+    </motion.div>
+  );
+}
+
 function RecursionVisualization({ recursion }) {
   const shouldReduceMotion = useReducedMotion();
 
@@ -1990,6 +2118,10 @@ function ProgramVisualization({
       >
         <RecursionVisualization
           recursion={step.recursion}
+        />
+
+        <DynamicProgrammingVisualization
+          dynamicProgramming={step.dynamicProgramming}
         />
 
         <SearchVisualization

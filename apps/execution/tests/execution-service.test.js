@@ -1174,6 +1174,94 @@ async function testCrossLanguageRecursion(baseUrl) {
   return executions;
 }
 
+async function testCrossLanguageDynamicProgramming(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "const memoResult = DynamicProgramming.fibonacciMemo(8);",
+      "const tabResult = DynamicProgramming.fibonacciTabulation(8);",
+      "const weights = [1, 3, 4, 5];",
+      "const values = [1, 4, 5, 7];",
+      "const capacity = 7;",
+      "const knapsackResult = DynamicProgramming.knapsack01(weights, values, capacity);",
+      'console.log("Memo:", memoResult, "Tab:", tabResult, "Knapsack:", knapsackResult);'
+    ].join("\n"),
+    python: [
+      "memo_result = DynamicProgramming.fibonacci_memo(8)",
+      "tab_result = DynamicProgramming.fibonacci_tabulation(8)",
+      "weights = [1, 3, 4, 5]",
+      "values = [1, 4, 5, 7]",
+      "capacity = 7",
+      "knapsack_result = DynamicProgramming.knapsack_01(weights, values, capacity)",
+      'print("Memo:", memo_result, "Tab:", tab_result, "Knapsack:", knapsack_result)'
+    ].join("\n"),
+    java: [
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        int memoResult = DynamicProgramming.fibonacciMemo(8);",
+      "        int tabResult = DynamicProgramming.fibonacciTabulation(8);",
+      "        int[] weights = {1, 3, 4, 5};",
+      "        int[] values = {1, 4, 5, 7};",
+      "        int capacity = 7;",
+      "        int knapsackResult =",
+      "            DynamicProgramming.knapsack01(",
+      "                weights,",
+      "                values,",
+      "                capacity",
+      "            );",
+      '        System.out.println("Memo: " + memoResult + " Tab: " + tabResult + " Knapsack: " + knapsackResult);',
+      "    }",
+      "}"
+    ].join("\n")
+  };
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "DP_START",
+      "DP_STATE_READ",
+      "DP_CHOICE",
+      "DP_STATE_WRITE",
+      "DP_ROW_COMPLETE",
+      "DP_END"
+    ]);
+
+    const dpEvents = execution.trace.events.filter(
+      (event) => event.type.startsWith("DP_")
+    );
+    const finalState = execution.states.at(-1);
+    const resultNames = language === "python"
+      ? ["memo_result", "tab_result", "knapsack_result"]
+      : ["memoResult", "tabResult", "knapsackResult"];
+    const programs = Object.values(finalState.dynamicPrograms);
+
+    assert.deepEqual(
+      resultNames.map((name) => finalState.variables[name]),
+      [21, 21, 9]
+    );
+    assert.equal(programs.length, 3);
+    assert.deepEqual(
+      programs.map((program) => program.algorithm),
+      ["fibonacci-memo", "fibonacci-tabulation", "knapsack-01"]
+    );
+    assert.equal(programs[0].cacheHitCount > 0, true);
+    assert.equal(programs[0].cacheMissCount > 0, true);
+    assert.equal(programs[0].dimension, "1d");
+    assert.equal(programs[2].dimension, "2d");
+    assert.deepEqual(programs[2].resultCell, [4, 7]);
+    assert.equal(programs.every((program) => program.finished), true);
+    assert.equal(dpEvents.length > 100, true);
+
+    executions[language] = execution;
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -1357,6 +1445,7 @@ async function runTests() {
     const sorts = await testCrossLanguageSortingAlgorithms(baseUrl);
     const advancedSorts = await testCrossLanguageAdvancedSortingAlgorithms(baseUrl);
     const recursion = await testCrossLanguageRecursion(baseUrl);
+    const dynamicProgramming = await testCrossLanguageDynamicProgramming(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -1443,6 +1532,12 @@ async function runTests() {
     console.log(`JavaScript recursion events: ${recursion.javascript.trace.events.filter((event) => event.type.startsWith("FUNCTION_")).length}`);
     console.log(`Python recursion events: ${recursion.python.trace.events.filter((event) => event.type.startsWith("FUNCTION_")).length}`);
     console.log(`Java recursion events: ${recursion.java.trace.events.filter((event) => event.type.startsWith("FUNCTION_")).length}`);
+    console.log("Cross-language dynamic programming execution: passed");
+    console.log("Fibonacci memoization/tabulation and 0/1 Knapsack: passed");
+    console.log("DP reads, writes, cache reuse, choices, rows, and results: passed");
+    console.log(`JavaScript DP events: ${dynamicProgramming.javascript.trace.events.filter((event) => event.type.startsWith("DP_")).length}`);
+    console.log(`Python DP events: ${dynamicProgramming.python.trace.events.filter((event) => event.type.startsWith("DP_")).length}`);
+    console.log(`Java DP events: ${dynamicProgramming.java.trace.events.filter((event) => event.type.startsWith("DP_")).length}`);
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");

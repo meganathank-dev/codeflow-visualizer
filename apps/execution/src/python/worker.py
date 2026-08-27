@@ -536,6 +536,249 @@ class CodeFlowSortingAlgorithms:
         return self.run("quick", values)
 
 
+class CodeFlowDynamicProgramming:
+    def __init__(self):
+        self.dp_number = 0
+        self.last_steps = []
+
+    def _start(self, algorithm, table, row_labels, column_labels, input_value, phase):
+        self.dp_number += 1
+        dp_id = f"dp:{self.dp_number}"
+        counters = {
+            "readCount": 0,
+            "writeCount": 0,
+            "cacheHitCount": 0,
+            "cacheMissCount": 0,
+            "choiceCount": 0,
+        }
+        self.last_steps = []
+
+        def append_step(event_type, **extra):
+            self.last_steps.append((event_type, {
+                "dpId": dp_id,
+                "algorithm": algorithm,
+                "table": json_safe(table),
+                "dimension": "1d" if len(table) == 1 else "2d",
+                "rows": len(table),
+                "columns": len(table[0]) if table else 0,
+                "rowLabels": list(row_labels),
+                "columnLabels": list(column_labels),
+                "activeRow": None,
+                "activeColumn": None,
+                "readCells": [],
+                "writtenCell": None,
+                "decision": None,
+                "finished": False,
+                **counters,
+                **extra,
+            }))
+
+        append_step("DP_START", input=input_value, phase=phase)
+        return counters, append_step
+
+    @staticmethod
+    def _index(value, name):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 40:
+            raise TypeError(f"{name} must be an integer between 0 and 40.")
+
+    def fibonacci_memo(self, n):
+        self._index(n, "fibonacci_memo input")
+        table = [[None for _ in range(n + 1)]]
+        counters, append_step = self._start(
+            "fibonacci-memo", table, ["memo"],
+            [f"n={index}" for index in range(n + 1)], {"n": n}, "memoization"
+        )
+
+        def solve(index):
+            cell = [0, index]
+            if table[0][index] is not None:
+                counters["cacheHitCount"] += 1
+                counters["readCount"] += 1
+                append_step(
+                    "DP_CACHE_HIT", activeRow=0, activeColumn=index,
+                    readCells=[cell], stateKey=index, value=table[0][index],
+                    phase="memoization"
+                )
+                return table[0][index]
+
+            counters["cacheMissCount"] += 1
+            append_step(
+                "DP_CACHE_MISS", activeRow=0, activeColumn=index,
+                stateKey=index, phase="memoization"
+            )
+
+            if index <= 1:
+                value = index
+                counters["choiceCount"] += 1
+                append_step(
+                    "DP_CHOICE", activeRow=0, activeColumn=index,
+                    decision="base-case", candidates=[index], chosenValue=value,
+                    phase="memoization"
+                )
+            else:
+                previous = solve(index - 1)
+                before_previous = solve(index - 2)
+                counters["readCount"] += 2
+                read_cells = [[0, index - 1], [0, index - 2]]
+                append_step(
+                    "DP_STATE_READ", activeRow=0, activeColumn=index,
+                    readCells=read_cells, values=[previous, before_previous],
+                    phase="memoization"
+                )
+                value = previous + before_previous
+                counters["choiceCount"] += 1
+                append_step(
+                    "DP_CHOICE", activeRow=0, activeColumn=index,
+                    readCells=read_cells, decision="sum-subproblems",
+                    candidates=[previous, before_previous], chosenValue=value,
+                    phase="memoization"
+                )
+
+            table[0][index] = value
+            counters["writeCount"] += 1
+            append_step(
+                "DP_STATE_WRITE", activeRow=0, activeColumn=index,
+                writtenCell=cell, stateKey=index, value=value,
+                phase="memoization"
+            )
+            return value
+
+        result = solve(n)
+        append_step("DP_ROW_COMPLETE", activeRow=0, completedRow=0, phase="memoization")
+        append_step(
+            "DP_END", result=result, resultCell=[0, n],
+            finished=True, phase="complete"
+        )
+        return result
+
+    def fibonacci_tabulation(self, n):
+        self._index(n, "fibonacci_tabulation input")
+        table = [[None for _ in range(n + 1)]]
+        counters, append_step = self._start(
+            "fibonacci-tabulation", table, ["table"],
+            [f"n={index}" for index in range(n + 1)], {"n": n}, "tabulation"
+        )
+
+        for index in range(min(1, n) + 1):
+            table[0][index] = index
+            counters["writeCount"] += 1
+            append_step(
+                "DP_STATE_WRITE", activeRow=0, activeColumn=index,
+                writtenCell=[0, index], value=index,
+                decision="base-case", phase="tabulation"
+            )
+
+        for index in range(2, n + 1):
+            previous = table[0][index - 1]
+            before_previous = table[0][index - 2]
+            read_cells = [[0, index - 1], [0, index - 2]]
+            counters["readCount"] += 2
+            append_step(
+                "DP_STATE_READ", activeRow=0, activeColumn=index,
+                readCells=read_cells, values=[previous, before_previous],
+                phase="tabulation"
+            )
+            value = previous + before_previous
+            counters["choiceCount"] += 1
+            append_step(
+                "DP_CHOICE", activeRow=0, activeColumn=index,
+                readCells=read_cells, decision="sum-previous",
+                candidates=[previous, before_previous], chosenValue=value,
+                phase="tabulation"
+            )
+            table[0][index] = value
+            counters["writeCount"] += 1
+            append_step(
+                "DP_STATE_WRITE", activeRow=0, activeColumn=index,
+                writtenCell=[0, index], value=value, phase="tabulation"
+            )
+
+        result = table[0][n]
+        append_step("DP_ROW_COMPLETE", activeRow=0, completedRow=0, phase="tabulation")
+        append_step(
+            "DP_END", result=result, resultCell=[0, n],
+            finished=True, phase="complete"
+        )
+        return result
+
+    def knapsack_01(self, weights, values, capacity):
+        if (
+            not isinstance(weights, list) or not isinstance(values, list)
+            or not weights or len(weights) != len(values)
+            or any(isinstance(value, bool) or not isinstance(value, int) or value <= 0
+                   for value in weights)
+            or any(isinstance(value, bool) or not isinstance(value, (int, float))
+                   for value in values)
+        ):
+            raise TypeError("knapsack_01 requires equal non-empty weight and value lists.")
+        self._index(capacity, "knapsack_01 capacity")
+
+        item_count = len(weights)
+        table = [
+            [0 if row == 0 or column == 0 else None for column in range(capacity + 1)]
+            for row in range(item_count + 1)
+        ]
+        row_labels = ["0 items"] + [
+            f"item {index + 1} · w{weights[index]} · v{values[index]}"
+            for index in range(item_count)
+        ]
+        counters, append_step = self._start(
+            "knapsack-01", table, row_labels,
+            [f"cap {index}" for index in range(capacity + 1)],
+            {"weights": list(weights), "values": list(values), "capacity": capacity},
+            "tabulation"
+        )
+
+        for row in range(1, item_count + 1):
+            weight = weights[row - 1]
+            item_value = values[row - 1]
+            for column in range(1, capacity + 1):
+                exclude = table[row - 1][column]
+                read_cells = [[row - 1, column]]
+                include = None
+                if weight <= column:
+                    include = item_value + table[row - 1][column - weight]
+                    read_cells.append([row - 1, column - weight])
+
+                counters["readCount"] += len(read_cells)
+                append_step(
+                    "DP_STATE_READ", activeRow=row, activeColumn=column,
+                    readCells=read_cells,
+                    values=[exclude] if include is None else [exclude, include],
+                    itemIndex=row - 1, itemWeight=weight, itemValue=item_value,
+                    phase="tabulation"
+                )
+                included = include is not None and include > exclude
+                value = include if included else exclude
+                decision = "include-item" if included else "exclude-item"
+                counters["choiceCount"] += 1
+                append_step(
+                    "DP_CHOICE", activeRow=row, activeColumn=column,
+                    readCells=read_cells, decision=decision,
+                    candidates=[exclude] if include is None else [exclude, include],
+                    chosenValue=value, itemIndex=row - 1,
+                    itemWeight=weight, itemValue=item_value, phase="tabulation"
+                )
+                table[row][column] = value
+                counters["writeCount"] += 1
+                append_step(
+                    "DP_STATE_WRITE", activeRow=row, activeColumn=column,
+                    writtenCell=[row, column], value=value, decision=decision,
+                    itemIndex=row - 1, phase="tabulation"
+                )
+            append_step(
+                "DP_ROW_COMPLETE", activeRow=row, completedRow=row,
+                phase="tabulation"
+            )
+
+        result = table[item_count][capacity]
+        append_step(
+            "DP_END", result=result, resultCell=[item_count, capacity],
+            finished=True, phase="complete"
+        )
+        return result
+
+
 class LinkedListNode:
     def __init__(self, identifier, value):
         self.id = identifier
@@ -1302,7 +1545,8 @@ class SourceInstrumenter(ast.NodeTransformer):
             "add_node", "add_edge", "bfs", "dfs",
             "linear_search", "binary_search",
             "bubble_sort", "selection_sort", "insertion_sort",
-            "merge_sort", "quick_sort"
+            "merge_sort", "quick_sort",
+            "fibonacci_memo", "fibonacci_tabulation", "knapsack_01"
         }:
             return node
 
@@ -1334,6 +1578,7 @@ class PythonExecutionTracer:
         self.last_line = 1
         self.search_algorithms = CodeFlowSearchAlgorithms()
         self.sorting_algorithms = CodeFlowSortingAlgorithms()
+        self.dynamic_programming = CodeFlowDynamicProgramming()
 
     def record(self, event_type, line, payload=None, scope_id=None):
         if len(self.events) >= self.maximum_events - 2:
@@ -1825,8 +2070,18 @@ class PythonExecutionTracer:
     def trace_method(self, line, name, collection, method_name, *args, **kwargs):
         method = getattr(collection, method_name)
 
-        if isinstance(collection, (CodeFlowSearchAlgorithms, CodeFlowSortingAlgorithms)):
+        if isinstance(collection, (
+            CodeFlowSearchAlgorithms,
+            CodeFlowSortingAlgorithms,
+            CodeFlowDynamicProgramming,
+        )):
             result = method(*args, **kwargs)
+
+            if isinstance(collection, CodeFlowDynamicProgramming):
+                for event_type, payload in collection.last_steps:
+                    self.record(event_type, line, payload, self.caller_scope())
+                return result
+
             caller = sys._getframe(1)
             array_name = next(
                 (variable_name for variable_name, value in caller.f_locals.items()
@@ -2224,6 +2479,7 @@ class PythonExecutionTracer:
             "Graph": CodeFlowGraph,
             "SearchAlgorithms": self.search_algorithms,
             "SortingAlgorithms": self.sorting_algorithms,
+            "DynamicProgramming": self.dynamic_programming,
             "max": max,
             "min": min,
             "print": self.traced_print,

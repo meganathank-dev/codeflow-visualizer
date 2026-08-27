@@ -184,6 +184,7 @@ function executeSource(payload) {
     sandbox.Graph = runtime.createGraphConstructor();
     sandbox.SearchAlgorithms = runtime.createSearchAlgorithms();
     sandbox.SortingAlgorithms = runtime.createSortingAlgorithms();
+    sandbox.DynamicProgramming = runtime.createDynamicProgrammingAlgorithms();
 
     const context = vm.createContext(
       sandbox,

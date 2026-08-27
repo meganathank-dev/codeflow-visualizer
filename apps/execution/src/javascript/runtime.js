@@ -310,6 +310,8 @@ function createJavaScriptRuntime(options = {}) {
 
   let nextSortNumber = 0;
 
+  let nextDynamicProgrammingNumber = 0;
+
   let lastRecordedLine = 1;
 
   function currentScopeId() {
@@ -1525,6 +1527,327 @@ function createJavaScriptRuntime(options = {}) {
 
     emit(EVENT_TYPES.SORT_END, { finished: true });
     return values;
+  }
+
+  function runDynamicProgrammingAlgorithm(algorithm, ...argumentsList) {
+    const line = lastRecordedLine;
+    const dpId = `dp:${++nextDynamicProgrammingNumber}`;
+    let table = [];
+    let rowLabels = [];
+    let columnLabels = [];
+    let readCount = 0;
+    let writeCount = 0;
+    let cacheHitCount = 0;
+    let cacheMissCount = 0;
+    let choiceCount = 0;
+
+    function emit(type, extra = {}) {
+      record(type, line, {
+        dpId,
+        algorithm,
+        table: structuredClone(table),
+        dimension: table.length === 1 ? "1d" : "2d",
+        rows: table.length,
+        columns: table[0]?.length ?? 0,
+        rowLabels: Array.from(rowLabels),
+        columnLabels: Array.from(columnLabels),
+        activeRow: null,
+        activeColumn: null,
+        readCells: [],
+        writtenCell: null,
+        decision: null,
+        readCount,
+        writeCount,
+        cacheHitCount,
+        cacheMissCount,
+        choiceCount,
+        finished: false,
+        ...extra
+      });
+    }
+
+    function assertIndex(value, name) {
+      if (!Number.isInteger(value) || value < 0 || value > 40) {
+        throw new TypeError(`${name} must be an integer between 0 and 40.`);
+      }
+    }
+
+    if (algorithm === "fibonacci-memo") {
+      const n = argumentsList[0];
+      assertIndex(n, "fibonacciMemo input");
+      table = [Array(n + 1).fill(null)];
+      rowLabels = ["memo"];
+      columnLabels = Array.from({ length: n + 1 }, (_, index) => `n=${index}`);
+      emit(EVENT_TYPES.DP_START, { input: { n }, phase: "memoization" });
+
+      function solve(index) {
+        const cell = [0, index];
+
+        if (table[0][index] !== null) {
+          cacheHitCount += 1;
+          readCount += 1;
+          emit(EVENT_TYPES.DP_CACHE_HIT, {
+            activeRow: 0,
+            activeColumn: index,
+            readCells: [cell],
+            stateKey: index,
+            value: table[0][index],
+            phase: "memoization"
+          });
+          return table[0][index];
+        }
+
+        cacheMissCount += 1;
+        emit(EVENT_TYPES.DP_CACHE_MISS, {
+          activeRow: 0,
+          activeColumn: index,
+          stateKey: index,
+          phase: "memoization"
+        });
+
+        let value;
+
+        if (index <= 1) {
+          value = index;
+          choiceCount += 1;
+          emit(EVENT_TYPES.DP_CHOICE, {
+            activeRow: 0,
+            activeColumn: index,
+            decision: "base-case",
+            candidates: [index],
+            chosenValue: value,
+            phase: "memoization"
+          });
+        } else {
+          const previous = solve(index - 1);
+          const beforePrevious = solve(index - 2);
+          readCount += 2;
+          emit(EVENT_TYPES.DP_STATE_READ, {
+            activeRow: 0,
+            activeColumn: index,
+            readCells: [[0, index - 1], [0, index - 2]],
+            values: [previous, beforePrevious],
+            phase: "memoization"
+          });
+          value = previous + beforePrevious;
+          choiceCount += 1;
+          emit(EVENT_TYPES.DP_CHOICE, {
+            activeRow: 0,
+            activeColumn: index,
+            readCells: [[0, index - 1], [0, index - 2]],
+            decision: "sum-subproblems",
+            candidates: [previous, beforePrevious],
+            chosenValue: value,
+            phase: "memoization"
+          });
+        }
+
+        table[0][index] = value;
+        writeCount += 1;
+        emit(EVENT_TYPES.DP_STATE_WRITE, {
+          activeRow: 0,
+          activeColumn: index,
+          writtenCell: cell,
+          stateKey: index,
+          value,
+          phase: "memoization"
+        });
+        return value;
+      }
+
+      const result = solve(n);
+      emit(EVENT_TYPES.DP_ROW_COMPLETE, {
+        activeRow: 0,
+        completedRow: 0,
+        phase: "memoization"
+      });
+      emit(EVENT_TYPES.DP_END, {
+        result,
+        resultCell: [0, n],
+        finished: true,
+        phase: "complete"
+      });
+      return result;
+    }
+
+    if (algorithm === "fibonacci-tabulation") {
+      const n = argumentsList[0];
+      assertIndex(n, "fibonacciTabulation input");
+      table = [Array(n + 1).fill(null)];
+      rowLabels = ["table"];
+      columnLabels = Array.from({ length: n + 1 }, (_, index) => `n=${index}`);
+      emit(EVENT_TYPES.DP_START, { input: { n }, phase: "tabulation" });
+
+      for (let index = 0; index <= Math.min(1, n); index += 1) {
+        table[0][index] = index;
+        writeCount += 1;
+        emit(EVENT_TYPES.DP_STATE_WRITE, {
+          activeRow: 0,
+          activeColumn: index,
+          writtenCell: [0, index],
+          value: index,
+          decision: "base-case",
+          phase: "tabulation"
+        });
+      }
+
+      for (let index = 2; index <= n; index += 1) {
+        const previous = table[0][index - 1];
+        const beforePrevious = table[0][index - 2];
+        readCount += 2;
+        emit(EVENT_TYPES.DP_STATE_READ, {
+          activeRow: 0,
+          activeColumn: index,
+          readCells: [[0, index - 1], [0, index - 2]],
+          values: [previous, beforePrevious],
+          phase: "tabulation"
+        });
+        const value = previous + beforePrevious;
+        choiceCount += 1;
+        emit(EVENT_TYPES.DP_CHOICE, {
+          activeRow: 0,
+          activeColumn: index,
+          readCells: [[0, index - 1], [0, index - 2]],
+          decision: "sum-previous",
+          candidates: [previous, beforePrevious],
+          chosenValue: value,
+          phase: "tabulation"
+        });
+        table[0][index] = value;
+        writeCount += 1;
+        emit(EVENT_TYPES.DP_STATE_WRITE, {
+          activeRow: 0,
+          activeColumn: index,
+          writtenCell: [0, index],
+          value,
+          phase: "tabulation"
+        });
+      }
+
+      const result = table[0][n];
+      emit(EVENT_TYPES.DP_ROW_COMPLETE, {
+        activeRow: 0,
+        completedRow: 0,
+        phase: "tabulation"
+      });
+      emit(EVENT_TYPES.DP_END, {
+        result,
+        resultCell: [0, n],
+        finished: true,
+        phase: "complete"
+      });
+      return result;
+    }
+
+    if (algorithm === "knapsack-01") {
+      const [weights, values, capacity] = argumentsList;
+
+      if (
+        !Array.isArray(weights) ||
+        !Array.isArray(values) ||
+        weights.length !== values.length ||
+        weights.length === 0 ||
+        weights.some((value) => !Number.isInteger(value) || value <= 0) ||
+        values.some((value) => typeof value !== "number" || !Number.isFinite(value))
+      ) {
+        throw new TypeError("knapsack01 requires equal non-empty weight and value arrays.");
+      }
+
+      if (!Number.isInteger(capacity) || capacity < 0 || capacity > 40) {
+        throw new TypeError("knapsack01 capacity must be an integer between 0 and 40.");
+      }
+
+      const itemCount = weights.length;
+      table = Array.from(
+        { length: itemCount + 1 },
+        (_, row) => Array.from(
+          { length: capacity + 1 },
+          (_, column) => row === 0 || column === 0 ? 0 : null
+        )
+      );
+      rowLabels = [
+        "0 items",
+        ...weights.map((weight, index) => `item ${index + 1} · w${weight} · v${values[index]}`)
+      ];
+      columnLabels = Array.from({ length: capacity + 1 }, (_, index) => `cap ${index}`);
+      emit(EVENT_TYPES.DP_START, {
+        input: { weights: Array.from(weights), values: Array.from(values), capacity },
+        phase: "tabulation"
+      });
+
+      for (let row = 1; row <= itemCount; row += 1) {
+        const weight = weights[row - 1];
+        const itemValue = values[row - 1];
+
+        for (let column = 1; column <= capacity; column += 1) {
+          const exclude = table[row - 1][column];
+          const readCells = [[row - 1, column]];
+          let include = null;
+
+          if (weight <= column) {
+            include = itemValue + table[row - 1][column - weight];
+            readCells.push([row - 1, column - weight]);
+          }
+
+          readCount += readCells.length;
+          emit(EVENT_TYPES.DP_STATE_READ, {
+            activeRow: row,
+            activeColumn: column,
+            readCells,
+            values: include === null ? [exclude] : [exclude, include],
+            itemIndex: row - 1,
+            itemWeight: weight,
+            itemValue,
+            phase: "tabulation"
+          });
+
+          const included = include !== null && include > exclude;
+          const value = included ? include : exclude;
+          choiceCount += 1;
+          emit(EVENT_TYPES.DP_CHOICE, {
+            activeRow: row,
+            activeColumn: column,
+            readCells,
+            decision: included ? "include-item" : "exclude-item",
+            candidates: include === null ? [exclude] : [exclude, include],
+            chosenValue: value,
+            itemIndex: row - 1,
+            itemWeight: weight,
+            itemValue,
+            phase: "tabulation"
+          });
+
+          table[row][column] = value;
+          writeCount += 1;
+          emit(EVENT_TYPES.DP_STATE_WRITE, {
+            activeRow: row,
+            activeColumn: column,
+            writtenCell: [row, column],
+            value,
+            decision: included ? "include-item" : "exclude-item",
+            itemIndex: row - 1,
+            phase: "tabulation"
+          });
+        }
+
+        emit(EVENT_TYPES.DP_ROW_COMPLETE, {
+          activeRow: row,
+          completedRow: row,
+          phase: "tabulation"
+        });
+      }
+
+      const result = table[itemCount][capacity];
+      emit(EVENT_TYPES.DP_END, {
+        result,
+        resultCell: [itemCount, capacity],
+        finished: true,
+        phase: "complete"
+      });
+      return result;
+    }
+
+    throw new TypeError(`Unsupported dynamic-programming algorithm: ${algorithm}`);
   }
 
   function recordTreeMethod(name, method, tree, result, line, requestedValue) {
@@ -2935,6 +3258,27 @@ function createJavaScriptRuntime(options = {}) {
 
         quickSort(values) {
           return runSortAlgorithm("quick", values);
+        }
+      };
+    },
+
+    createDynamicProgrammingAlgorithms() {
+      return {
+        fibonacciMemo(n) {
+          return runDynamicProgrammingAlgorithm("fibonacci-memo", n);
+        },
+
+        fibonacciTabulation(n) {
+          return runDynamicProgrammingAlgorithm("fibonacci-tabulation", n);
+        },
+
+        knapsack01(weights, values, capacity) {
+          return runDynamicProgrammingAlgorithm(
+            "knapsack-01",
+            weights,
+            values,
+            capacity
+          );
         }
       };
     },
