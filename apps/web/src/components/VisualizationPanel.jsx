@@ -1774,6 +1774,106 @@ function DynamicProgrammingVisualization({ dynamicProgramming }) {
   );
 }
 
+function HanoiVisualization({ hanoi }) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (!hanoi) {
+    return null;
+  }
+
+  const pegNames = ["A", "B", "C"];
+  const visibleFrames = [...hanoi.frames].reverse().slice(0, 6);
+  const progress = hanoi.expectedMoves
+    ? Math.round((hanoi.moveNumber / hanoi.expectedMoves) * 100)
+    : 0;
+
+  return (
+    <motion.div
+      className="visualization-card hanoi-card"
+      layout
+      transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+    >
+      <div className="visualization-card-heading">
+        <div className="visualization-card-title">
+          <Layers3 size={16} />
+          <span>Tower of Hanoi</span>
+        </div>
+        <div className="hanoi-heading-meta">
+          <span className="hanoi-depth">Depth {hanoi.depth} / {hanoi.maxDepth}</span>
+          <span className={`structure-name${hanoi.finished ? " is-hanoi-complete" : ""}`}>
+            {hanoi.finished ? "complete" : hanoi.phase || "ready"}
+          </span>
+        </div>
+      </div>
+
+      <div className="hanoi-summary-grid">
+        <div><span>Disks</span><strong>{hanoi.diskCount}</strong></div>
+        <div><span>Move</span><strong>{hanoi.moveNumber} / {hanoi.expectedMoves}</strong></div>
+        <div><span>Current disk</span><strong>{hanoi.disk ?? "—"}</strong></div>
+        <div><span>Route</span><strong>{hanoi.from && hanoi.to ? `${hanoi.from} → ${hanoi.to}` : `${hanoi.source} → ${hanoi.target}`}</strong></div>
+      </div>
+
+      <div className="hanoi-stage" aria-label="Tower of Hanoi peg and disk visualization">
+        {pegNames.map((pegName) => {
+          const disks = [...hanoi.pegs[pegName]].reverse();
+          const isSource = hanoi.operation === "HANOI_MOVE" && hanoi.from === pegName;
+          const isTarget = hanoi.operation === "HANOI_MOVE" && hanoi.to === pegName;
+          return (
+            <div
+              className={`hanoi-peg${isSource ? " is-hanoi-source" : ""}${isTarget ? " is-hanoi-target" : ""}`}
+              key={`hanoi-peg-${pegName}`}
+            >
+              <div className="hanoi-rod" />
+              <div className="hanoi-disks">
+                <AnimatePresence initial={false}>
+                  {disks.map((disk) => (
+                    <motion.div
+                      className={`hanoi-disk${hanoi.disk === disk && hanoi.operation === "HANOI_MOVE" ? " is-moving-disk" : ""}`}
+                      key={`hanoi-disk-${disk}`}
+                      layoutId={`hanoi-${hanoi.id}-disk-${disk}`}
+                      style={{ width: `${38 + (disk / Math.max(hanoi.diskCount, 1)) * 55}%` }}
+                      transition={shouldReduceMotion ? { duration: 0 } : SPRING_TRANSITION}
+                    >
+                      {disk}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+              <div className="hanoi-base" />
+              <strong className="hanoi-peg-label">PEG {pegName}</strong>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hanoi-progress-row">
+        <span>OPTIMAL MOVES</span>
+        <div className="hanoi-progress-track">
+          <motion.div
+            className="hanoi-progress-fill"
+            animate={{ width: `${progress}%` }}
+            transition={shouldReduceMotion ? { duration: 0 } : SOFT_SPRING_TRANSITION}
+          />
+        </div>
+        <strong>{progress}%</strong>
+      </div>
+
+      <div className="hanoi-frame-strip">
+        <span className="hanoi-frame-label">RECURSIVE FRAMES</span>
+        {visibleFrames.length ? visibleFrames.map((frame, index) => (
+          <motion.span
+            className={index === 0 ? "is-hanoi-top-frame" : ""}
+            key={frame.id}
+            layout
+          >
+            n={frame.diskCount} · {frame.from}→{frame.to} · d{frame.depth}
+          </motion.span>
+        )) : <em>All recursive frames returned.</em>}
+      </div>
+    </motion.div>
+  );
+}
+
 function RecursionVisualization({ recursion }) {
   const shouldReduceMotion = useReducedMotion();
 
@@ -2116,6 +2216,10 @@ function ProgramVisualization({
             : SOFT_SPRING_TRANSITION
         }
       >
+        <HanoiVisualization
+          hanoi={step.hanoi}
+        />
+
         <RecursionVisualization
           recursion={step.recursion}
         />

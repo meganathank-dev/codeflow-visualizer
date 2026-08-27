@@ -185,6 +185,7 @@ function executeSource(payload) {
     sandbox.SearchAlgorithms = runtime.createSearchAlgorithms();
     sandbox.SortingAlgorithms = runtime.createSortingAlgorithms();
     sandbox.DynamicProgramming = runtime.createDynamicProgrammingAlgorithms();
+    sandbox.RecursionAlgorithms = runtime.createRecursionAlgorithms();
 
     const context = vm.createContext(
       sandbox,

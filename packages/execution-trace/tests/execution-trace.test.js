@@ -664,6 +664,16 @@ function testDomainRestrictions() {
     false
   );
 
+  assert.equal(
+    isEventAllowedForDomain(EVENT_TYPES.HANOI_MOVE, TRACE_DOMAINS.PROGRAM),
+    true
+  );
+
+  assert.equal(
+    isEventAllowedForDomain(EVENT_TYPES.HANOI_MOVE, TRACE_DOMAINS.QUERY),
+    false
+  );
+
   for (const eventType of [
     EVENT_TYPES.SORT_SPLIT,
     EVENT_TYPES.SORT_MERGE,

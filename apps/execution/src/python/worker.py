@@ -779,6 +779,110 @@ class CodeFlowDynamicProgramming:
         return result
 
 
+class CodeFlowRecursionAlgorithms:
+    def __init__(self):
+        self.hanoi_number = 0
+        self.last_steps = []
+
+    def tower_of_hanoi(self, disk_count):
+        if (
+            isinstance(disk_count, bool)
+            or not isinstance(disk_count, int)
+            or disk_count < 1
+            or disk_count > 8
+        ):
+            raise TypeError(
+                "tower_of_hanoi disk count must be an integer between 1 and 8."
+            )
+
+        self.hanoi_number += 1
+        hanoi_id = f"hanoi:{self.hanoi_number}"
+        expected_moves = (2 ** disk_count) - 1
+        pegs = {
+            "A": list(range(disk_count, 0, -1)),
+            "B": [],
+            "C": [],
+        }
+        frames = []
+        move_number = 0
+        max_depth = 0
+        self.last_steps = []
+
+        def append_step(event_type, **extra):
+            self.last_steps.append((event_type, {
+                "hanoiId": hanoi_id,
+                "diskCount": disk_count,
+                "source": "A",
+                "target": "C",
+                "auxiliary": "B",
+                "pegs": json_safe(pegs),
+                "frames": json_safe(frames),
+                "moveNumber": move_number,
+                "expectedMoves": expected_moves,
+                "depth": len(frames),
+                "maxDepth": max_depth,
+                "finished": False,
+                **extra,
+            }))
+
+        def move(disk, source, target):
+            nonlocal move_number
+            removed = pegs[source].pop()
+            destination_top = pegs[target][-1] if pegs[target] else None
+            if removed != disk or (
+                destination_top is not None and destination_top < disk
+            ):
+                raise RuntimeError("Invalid Tower of Hanoi move generated.")
+            pegs[target].append(disk)
+            move_number += 1
+            append_step(
+                "HANOI_MOVE", disk=disk, **{"from": source}, to=target, phase="move"
+            )
+
+        def solve(count, source, target, auxiliary, depth):
+            nonlocal max_depth
+            frame = {
+                "id": f"{hanoi_id}:frame:{len(frames) + 1}:{move_number}",
+                "diskCount": count,
+                "from": source,
+                "to": target,
+                "auxiliary": auxiliary,
+                "depth": depth,
+                "phase": "enter",
+            }
+            frames.append(frame)
+            max_depth = max(max_depth, depth)
+            append_step(
+                "HANOI_CALL", disk=count, **{"from": source}, to=target,
+                phase="recursive-call"
+            )
+
+            if count == 1:
+                frame["phase"] = "base-case"
+                move(1, source, target)
+            else:
+                solve(count - 1, source, auxiliary, target, depth + 1)
+                frame["phase"] = "move-largest"
+                move(count, source, target)
+                frame["phase"] = "second-recursion"
+                solve(count - 1, auxiliary, target, source, depth + 1)
+
+            frame["phase"] = "return"
+            append_step(
+                "HANOI_RETURN", disk=count, **{"from": source}, to=target,
+                phase="return"
+            )
+            frames.pop()
+
+        append_step("HANOI_START", phase="start")
+        solve(disk_count, "A", "C", "B", 1)
+        append_step(
+            "HANOI_END", disk=None, **{"from": None}, to=None, depth=0,
+            frames=[], finished=True, phase="complete"
+        )
+        return move_number
+
+
 class LinkedListNode:
     def __init__(self, identifier, value):
         self.id = identifier
@@ -1546,7 +1650,8 @@ class SourceInstrumenter(ast.NodeTransformer):
             "linear_search", "binary_search",
             "bubble_sort", "selection_sort", "insertion_sort",
             "merge_sort", "quick_sort",
-            "fibonacci_memo", "fibonacci_tabulation", "knapsack_01"
+            "fibonacci_memo", "fibonacci_tabulation", "knapsack_01",
+            "tower_of_hanoi"
         }:
             return node
 
@@ -1579,6 +1684,7 @@ class PythonExecutionTracer:
         self.search_algorithms = CodeFlowSearchAlgorithms()
         self.sorting_algorithms = CodeFlowSortingAlgorithms()
         self.dynamic_programming = CodeFlowDynamicProgramming()
+        self.recursion_algorithms = CodeFlowRecursionAlgorithms()
 
     def record(self, event_type, line, payload=None, scope_id=None):
         if len(self.events) >= self.maximum_events - 2:
@@ -2074,10 +2180,11 @@ class PythonExecutionTracer:
             CodeFlowSearchAlgorithms,
             CodeFlowSortingAlgorithms,
             CodeFlowDynamicProgramming,
+            CodeFlowRecursionAlgorithms,
         )):
             result = method(*args, **kwargs)
 
-            if isinstance(collection, CodeFlowDynamicProgramming):
+            if isinstance(collection, (CodeFlowDynamicProgramming, CodeFlowRecursionAlgorithms)):
                 for event_type, payload in collection.last_steps:
                     self.record(event_type, line, payload, self.caller_scope())
                 return result
@@ -2480,6 +2587,7 @@ class PythonExecutionTracer:
             "SearchAlgorithms": self.search_algorithms,
             "SortingAlgorithms": self.sorting_algorithms,
             "DynamicProgramming": self.dynamic_programming,
+            "RecursionAlgorithms": self.recursion_algorithms,
             "max": max,
             "min": min,
             "print": self.traced_print,

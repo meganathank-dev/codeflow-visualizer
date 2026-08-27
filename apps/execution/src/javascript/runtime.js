@@ -312,6 +312,8 @@ function createJavaScriptRuntime(options = {}) {
 
   let nextDynamicProgrammingNumber = 0;
 
+  let nextHanoiNumber = 0;
+
   let lastRecordedLine = 1;
 
   function currentScopeId() {
@@ -1850,6 +1852,113 @@ function createJavaScriptRuntime(options = {}) {
     throw new TypeError(`Unsupported dynamic-programming algorithm: ${algorithm}`);
   }
 
+  function runTowerOfHanoi(diskCount) {
+    if (!Number.isInteger(diskCount) || diskCount < 1 || diskCount > 8) {
+      throw new TypeError("towerOfHanoi disk count must be an integer between 1 and 8.");
+    }
+
+    const line = lastRecordedLine;
+    const hanoiId = `hanoi:${++nextHanoiNumber}`;
+    const expectedMoves = (2 ** diskCount) - 1;
+    const pegs = {
+      A: Array.from({ length: diskCount }, (_, index) => diskCount - index),
+      B: [],
+      C: []
+    };
+    const frames = [];
+    let moveNumber = 0;
+    let maxDepth = 0;
+
+    function emit(type, extra = {}) {
+      record(type, line, {
+        hanoiId,
+        diskCount,
+        source: "A",
+        target: "C",
+        auxiliary: "B",
+        pegs: structuredClone(pegs),
+        frames: structuredClone(frames),
+        moveNumber,
+        expectedMoves,
+        depth: frames.length,
+        maxDepth,
+        finished: false,
+        ...extra
+      });
+    }
+
+    function move(disk, from, to) {
+      const removed = pegs[from].pop();
+      const destinationTop = pegs[to].at(-1);
+
+      if (removed !== disk || (destinationTop != null && destinationTop < disk)) {
+        throw new Error("Invalid Tower of Hanoi move generated.");
+      }
+
+      pegs[to].push(disk);
+      moveNumber += 1;
+      emit(EVENT_TYPES.HANOI_MOVE, {
+        disk,
+        from,
+        to,
+        phase: "move"
+      });
+    }
+
+    function solve(count, from, to, auxiliary, depth) {
+      const frame = {
+        id: `${hanoiId}:frame:${frames.length + 1}:${moveNumber}`,
+        diskCount: count,
+        from,
+        to,
+        auxiliary,
+        depth,
+        phase: "enter"
+      };
+      frames.push(frame);
+      maxDepth = Math.max(maxDepth, depth);
+      emit(EVENT_TYPES.HANOI_CALL, {
+        disk: count,
+        from,
+        to,
+        phase: "recursive-call"
+      });
+
+      if (count === 1) {
+        frame.phase = "base-case";
+        move(1, from, to);
+      } else {
+        solve(count - 1, from, auxiliary, to, depth + 1);
+        frame.phase = "move-largest";
+        move(count, from, to);
+        frame.phase = "second-recursion";
+        solve(count - 1, auxiliary, to, from, depth + 1);
+      }
+
+      frame.phase = "return";
+      emit(EVENT_TYPES.HANOI_RETURN, {
+        disk: count,
+        from,
+        to,
+        phase: "return"
+      });
+      frames.pop();
+    }
+
+    emit(EVENT_TYPES.HANOI_START, { phase: "start" });
+    solve(diskCount, "A", "C", "B", 1);
+    emit(EVENT_TYPES.HANOI_END, {
+      disk: null,
+      from: null,
+      to: null,
+      depth: 0,
+      frames: [],
+      finished: true,
+      phase: "complete"
+    });
+    return moveNumber;
+  }
+
   function recordTreeMethod(name, method, tree, result, line, requestedValue) {
     const payload = {
       name,
@@ -3279,6 +3388,14 @@ function createJavaScriptRuntime(options = {}) {
             values,
             capacity
           );
+        }
+      };
+    },
+
+    createRecursionAlgorithms() {
+      return {
+        towerOfHanoi(diskCount) {
+          return runTowerOfHanoi(diskCount);
         }
       };
     },

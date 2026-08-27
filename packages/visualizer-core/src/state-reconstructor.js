@@ -58,6 +58,8 @@ function createInitialState(trace) {
 
     dynamicPrograms: {},
 
+    hanoiRuns: {},
+
     linkedLists: {},
 
     objects: {},
@@ -1282,6 +1284,70 @@ function handleDynamicProgrammingEvent(state, event) {
   dynamicProgram.lastOperation = event.type;
 }
 
+function handleHanoiEvent(state, event) {
+  const payload = event.payload || {};
+  const hanoiId = payload.hanoiId || "hanoi:1";
+
+  if (!state.hanoiRuns[hanoiId]) {
+    state.hanoiRuns[hanoiId] = {
+      id: hanoiId,
+      diskCount: 0,
+      source: "A",
+      target: "C",
+      auxiliary: "B",
+      pegs: { A: [], B: [], C: [] },
+      frames: [],
+      moveNumber: 0,
+      expectedMoves: 0,
+      disk: null,
+      from: null,
+      to: null,
+      depth: 0,
+      maxDepth: 0,
+      phase: null,
+      finished: false,
+      lastOperation: null
+    };
+  }
+
+  const hanoi = state.hanoiRuns[hanoiId];
+
+  for (const key of [
+    "diskCount", "source", "target", "auxiliary", "moveNumber",
+    "expectedMoves", "disk", "from", "to", "depth", "maxDepth", "phase"
+  ]) {
+    if (Object.hasOwn(payload, key)) {
+      hanoi[key] = cloneValue(payload[key]);
+    }
+  }
+
+  if (payload.pegs && typeof payload.pegs === "object") {
+    hanoi.pegs = cloneValue(payload.pegs);
+  }
+
+  if (Array.isArray(payload.frames)) {
+    hanoi.frames = cloneValue(payload.frames);
+  }
+
+  if (event.type === EVENT_TYPES.HANOI_START) {
+    hanoi.finished = false;
+    hanoi.phase = "start";
+  } else if (event.type === EVENT_TYPES.HANOI_CALL) {
+    hanoi.phase = "recursive-call";
+  } else if (event.type === EVENT_TYPES.HANOI_MOVE) {
+    hanoi.phase = "move";
+  } else if (event.type === EVENT_TYPES.HANOI_RETURN) {
+    hanoi.phase = "return";
+  } else if (event.type === EVENT_TYPES.HANOI_END) {
+    hanoi.finished = true;
+    hanoi.phase = "complete";
+    hanoi.frames = [];
+    hanoi.depth = 0;
+  }
+
+  hanoi.lastOperation = event.type;
+}
+
 function handleFunctionEnter(state, event) {
   const name = (
     event.payload.name ||
@@ -2010,6 +2076,16 @@ function reduceExecutionEvent(previousState, event) {
     case EVENT_TYPES.DP_ROW_COMPLETE:
     case EVENT_TYPES.DP_END: {
       handleDynamicProgrammingEvent(state, event);
+
+      break;
+    }
+
+    case EVENT_TYPES.HANOI_START:
+    case EVENT_TYPES.HANOI_CALL:
+    case EVENT_TYPES.HANOI_MOVE:
+    case EVENT_TYPES.HANOI_RETURN:
+    case EVENT_TYPES.HANOI_END: {
+      handleHanoiEvent(state, event);
 
       break;
     }

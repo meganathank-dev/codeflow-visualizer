@@ -6,6 +6,7 @@ import com.sun.jdi.ByteValue;
 import com.sun.jdi.CharValue;
 import com.sun.jdi.DoubleValue;
 import com.sun.jdi.FloatValue;
+import com.sun.jdi.Field;
 import com.sun.jdi.IntegerValue;
 import com.sun.jdi.LocalVariable;
 import com.sun.jdi.LongValue;
@@ -260,6 +261,19 @@ public final class CodeFlowJavaDebugger {
         );
         exceptionRequest.enable();
 
+        ExceptionRequest helperExceptionRequest =
+            requestManager.createExceptionRequest(
+                null,
+                false,
+                true
+            );
+
+        helperExceptionRequest.addClassExclusionFilter(mainClass);
+        helperExceptionRequest.setSuspendPolicy(
+            EventRequest.SUSPEND_ALL
+        );
+        helperExceptionRequest.enable();
+
         StepRequest stepRequest =
             requestManager.createStepRequest(
                 thread,
@@ -329,7 +343,8 @@ public final class CodeFlowJavaDebugger {
                         event instanceof ExceptionEvent
                     ) {
                         handleException(
-                            (ExceptionEvent) event
+                            (ExceptionEvent) event,
+                            mainClass
                         );
 
                         executionFailed = true;
@@ -481,23 +496,47 @@ public final class CodeFlowJavaDebugger {
     }
 
     private static void handleException(
-        ExceptionEvent event
+        ExceptionEvent event,
+        String mainClass
     ) {
-        String exceptionType = event
-            .exception()
+        ObjectReference exception = event.exception();
+        String exceptionType = exception
             .referenceType()
             .name();
+        String exceptionMessage = null;
+        int line = normalizeLine(event.location().lineNumber());
+
+        for (Field field : exception.referenceType().allFields()) {
+            if (!"detailMessage".equals(field.name())) {
+                continue;
+            }
+
+            Value messageValue = exception.getValue(field);
+            if (messageValue instanceof StringReference) {
+                exceptionMessage = ((StringReference) messageValue).value();
+            }
+            break;
+        }
+
+        try {
+            for (StackFrame frame : event.thread().frames()) {
+                if (mainClass.equals(frame.location().declaringType().name())) {
+                    line = normalizeLine(frame.location().lineNumber());
+                    break;
+                }
+            }
+        } catch (Exception ignored) {
+            // Fall back to the exception location when caller frames are unavailable.
+        }
 
         emit(
             "ERROR",
-            Integer.toString(
-                normalizeLine(
-                    event.location().lineNumber()
-                )
-            ),
+            Integer.toString(line),
             encode(exceptionType),
             encode(
-                "Java exception observed by JDI."
+                exceptionMessage == null || exceptionMessage.isBlank()
+                    ? "Java exception observed by JDI."
+                    : exceptionMessage
             )
         );
     }

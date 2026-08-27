@@ -1152,6 +1152,89 @@ function testDynamicProgrammingReconstruction() {
   assert.equal(finalState.finished, true);
 }
 
+function testHanoiReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-hanoi-test"
+  });
+  const base = {
+    hanoiId: "hanoi:1",
+    diskCount: 2,
+    source: "A",
+    target: "C",
+    auxiliary: "B",
+    expectedMoves: 3,
+    maxDepth: 2
+  };
+
+  recorder.start();
+  recorder.record(EVENT_TYPES.HANOI_START, {
+    ...base,
+    pegs: { A: [2, 1], B: [], C: [] },
+    frames: [],
+    moveNumber: 0,
+    depth: 0,
+    phase: "start"
+  });
+  recorder.record(EVENT_TYPES.HANOI_CALL, {
+    ...base,
+    pegs: { A: [2, 1], B: [], C: [] },
+    frames: [{ id: "frame:1", diskCount: 2, from: "A", to: "C", auxiliary: "B", depth: 1 }],
+    moveNumber: 0,
+    disk: 2,
+    from: "A",
+    to: "C",
+    depth: 1
+  });
+  recorder.record(EVENT_TYPES.HANOI_MOVE, {
+    ...base,
+    pegs: { A: [2], B: [1], C: [] },
+    frames: [{ id: "frame:1", diskCount: 2, from: "A", to: "C", auxiliary: "B", depth: 1 }],
+    moveNumber: 1,
+    disk: 1,
+    from: "A",
+    to: "B",
+    depth: 2
+  });
+  recorder.record(EVENT_TYPES.HANOI_RETURN, {
+    ...base,
+    pegs: { A: [], B: [], C: [2, 1] },
+    frames: [{ id: "frame:1", diskCount: 2, from: "A", to: "C", auxiliary: "B", depth: 1 }],
+    moveNumber: 3,
+    disk: 2,
+    from: "A",
+    to: "C",
+    depth: 1
+  });
+  recorder.record(EVENT_TYPES.HANOI_END, {
+    ...base,
+    pegs: { A: [], B: [], C: [2, 1] },
+    frames: [],
+    moveNumber: 3,
+    depth: 0,
+    finished: true
+  });
+  recorder.finish();
+
+  const reconstructor = new StateReconstructor(recorder.toJSON(), {
+    checkpointInterval: 2
+  });
+  const callState = reconstructor.getStateAt(2).hanoiRuns["hanoi:1"];
+  const moveState = reconstructor.getStateAt(3).hanoiRuns["hanoi:1"];
+  const finalState = reconstructor.getStateAt(5).hanoiRuns["hanoi:1"];
+
+  assert.equal(callState.frames.length, 1);
+  assert.equal(callState.depth, 1);
+  assert.deepEqual(moveState.pegs, { A: [2], B: [1], C: [] });
+  assert.equal(moveState.moveNumber, 1);
+  assert.equal(moveState.phase, "move");
+  assert.deepEqual(finalState.pegs, { A: [], B: [], C: [2, 1] });
+  assert.equal(finalState.moveNumber, 3);
+  assert.equal(finalState.expectedMoves, 3);
+  assert.equal(finalState.finished, true);
+  assert.deepEqual(finalState.frames, []);
+}
+
 function testRecursionReconstruction() {
   const recorder = new TraceRecorder({
     language: LANGUAGES.JAVASCRIPT,
@@ -1988,6 +2071,8 @@ async function runTests() {
 
   testDynamicProgrammingReconstruction();
 
+  testHanoiReconstruction();
+
   testRecursionReconstruction();
 
   testTimelineNavigation(
@@ -2082,6 +2167,10 @@ async function runTests() {
 
   console.log(
     "Dynamic-programming table, transitions, and result reconstruction: passed"
+  );
+
+  console.log(
+    "Tower of Hanoi pegs, legal moves, recursion frames, and completion reconstruction: passed"
   );
 }
 

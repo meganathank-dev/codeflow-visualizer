@@ -1262,6 +1262,101 @@ async function testCrossLanguageDynamicProgramming(baseUrl) {
   return executions;
 }
 
+async function testCrossLanguageTowerOfHanoi(baseUrl) {
+  const fixtures = {
+    javascript: [
+      "const hanoiMoves = RecursionAlgorithms.towerOfHanoi(4);",
+      'console.log("Hanoi moves:", hanoiMoves);'
+    ].join("\n"),
+    python: [
+      "hanoi_moves = RecursionAlgorithms.tower_of_hanoi(4)",
+      'print("Hanoi moves:", hanoi_moves)'
+    ].join("\n"),
+    java: [
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        int hanoiMoves =",
+      "            RecursionAlgorithms.towerOfHanoi(",
+      "                4",
+      "            );",
+      '        System.out.println("Hanoi moves: " + hanoiMoves);',
+      "    }",
+      "}"
+    ].join("\n")
+  };
+  const executions = {};
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const execution = assertCompletedProgram(
+      await execute(baseUrl, language, source),
+      language
+    );
+
+    assertRequiredEvents(execution.trace, [
+      "HANOI_START",
+      "HANOI_CALL",
+      "HANOI_MOVE",
+      "HANOI_RETURN",
+      "HANOI_END"
+    ]);
+
+    const hanoiEvents = execution.trace.events.filter(
+      (event) => event.type.startsWith("HANOI_")
+    );
+    const moveEvents = hanoiEvents.filter((event) => event.type === "HANOI_MOVE");
+    const finalState = execution.states.at(-1);
+    const resultName = language === "python" ? "hanoi_moves" : "hanoiMoves";
+    const runs = Object.values(finalState.hanoiRuns);
+
+    assert.equal(finalState.variables[resultName], 15);
+    assert.equal(runs.length, 1);
+    assert.equal(hanoiEvents.length, 47);
+    assert.equal(moveEvents.length, 15);
+    assert.deepEqual(moveEvents.map((event) => event.payload.moveNumber),
+      Array.from({ length: 15 }, (_, index) => index + 1));
+    assert.equal(moveEvents.every((event) => {
+      const pegs = Object.values(event.payload.pegs);
+      return pegs.every((peg) => peg.every(
+        (disk, index) => index === 0 || peg[index - 1] > disk
+      ));
+    }), true);
+    assert.equal(runs[0].diskCount, 4);
+    assert.equal(runs[0].expectedMoves, 15);
+    assert.equal(runs[0].maxDepth, 4);
+    assert.equal(runs[0].moveNumber, 15);
+    assert.deepEqual(runs[0].pegs, { A: [], B: [], C: [4, 3, 2, 1] });
+    assert.deepEqual(runs[0].frames, []);
+    assert.equal(runs[0].finished, true);
+
+    executions[language] = execution;
+  }
+
+  const invalidFixtures = {
+    javascript: "RecursionAlgorithms.towerOfHanoi(0);",
+    python: "RecursionAlgorithms.tower_of_hanoi(0)",
+    java: [
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        RecursionAlgorithms.towerOfHanoi(0);",
+      "    }",
+      "}"
+    ].join("\n")
+  };
+
+  for (const [language, source] of Object.entries(invalidFixtures)) {
+    const invalid = await execute(baseUrl, language, source);
+    assert.equal(invalid.status, 200);
+    assert.equal(invalid.body.executionStatus, "failed");
+    assert.equal(invalid.body.trace.status, "failed");
+    assert.match(
+      invalid.body.states.at(-1).errors.at(-1).message,
+      /between 1 and 8/i
+    );
+  }
+
+  return executions;
+}
+
 function assertCompletedQuery(response) {
   assert.equal(response.status, 200);
   assert.equal(response.body.status, "ok");
@@ -1446,6 +1541,7 @@ async function runTests() {
     const advancedSorts = await testCrossLanguageAdvancedSortingAlgorithms(baseUrl);
     const recursion = await testCrossLanguageRecursion(baseUrl);
     const dynamicProgramming = await testCrossLanguageDynamicProgramming(baseUrl);
+    const hanoi = await testCrossLanguageTowerOfHanoi(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -1538,6 +1634,13 @@ async function runTests() {
     console.log(`JavaScript DP events: ${dynamicProgramming.javascript.trace.events.filter((event) => event.type.startsWith("DP_")).length}`);
     console.log(`Python DP events: ${dynamicProgramming.python.trace.events.filter((event) => event.type.startsWith("DP_")).length}`);
     console.log(`Java DP events: ${dynamicProgramming.java.trace.events.filter((event) => event.type.startsWith("DP_")).length}`);
+    console.log("Cross-language Tower of Hanoi execution: passed");
+    console.log("Optimal move count, legal peg state, recursion depth, and stack unwind: passed");
+    console.log("Hanoi invalid-input and recursion-limit protection: passed");
+    console.log(`JavaScript Hanoi events: ${hanoi.javascript.trace.events.filter((event) => event.type.startsWith("HANOI_")).length}`);
+    console.log(`Python Hanoi events: ${hanoi.python.trace.events.filter((event) => event.type.startsWith("HANOI_")).length}`);
+    console.log(`Java Hanoi events: ${hanoi.java.trace.events.filter((event) => event.type.startsWith("HANOI_")).length}`);
+    console.log("Phase 7 complete algorithm regression suite: passed");
     console.log("Shared execution trace compatibility: passed");
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");

@@ -1640,7 +1640,108 @@ function recordDynamicProgramming(
   });
 }
 
-function resolveDynamicProgrammingStatement(sourceLines, line) {
+function recordTowerOfHanoi(
+  recorder,
+  diskCount,
+  line,
+  scopeId,
+  logicalHanoiRuns
+) {
+  logicalHanoiRuns.nextId += 1;
+  const hanoiId = `hanoi:${logicalHanoiRuns.nextId}`;
+  const expectedMoves = (2 ** diskCount) - 1;
+  const pegs = {
+    A: Array.from({ length: diskCount }, (_, index) => diskCount - index),
+    B: [],
+    C: []
+  };
+  const frames = [];
+  let moveNumber = 0;
+  let maxDepth = 0;
+
+  function emit(type, extra = {}) {
+    record(recorder, type, line, {
+      hanoiId,
+      diskCount,
+      source: "A",
+      target: "C",
+      auxiliary: "B",
+      pegs: structuredClone(pegs),
+      frames: structuredClone(frames),
+      moveNumber,
+      expectedMoves,
+      depth: frames.length,
+      maxDepth,
+      finished: false,
+      ...extra
+    }, scopeId);
+  }
+
+  function move(disk, from, to) {
+    const removed = pegs[from].pop();
+    const destinationTop = pegs[to].at(-1);
+    if (removed !== disk || (destinationTop != null && destinationTop < disk)) {
+      throw new Error("Invalid Tower of Hanoi move generated.");
+    }
+    pegs[to].push(disk);
+    moveNumber += 1;
+    emit(EVENT_TYPES.HANOI_MOVE, { disk, from, to, phase: "move" });
+  }
+
+  function solve(count, from, to, auxiliary, depth) {
+    const frame = {
+      id: `${hanoiId}:frame:${frames.length + 1}:${moveNumber}`,
+      diskCount: count,
+      from,
+      to,
+      auxiliary,
+      depth,
+      phase: "enter"
+    };
+    frames.push(frame);
+    maxDepth = Math.max(maxDepth, depth);
+    emit(EVENT_TYPES.HANOI_CALL, {
+      disk: count,
+      from,
+      to,
+      phase: "recursive-call"
+    });
+
+    if (count === 1) {
+      frame.phase = "base-case";
+      move(1, from, to);
+    } else {
+      solve(count - 1, from, auxiliary, to, depth + 1);
+      frame.phase = "move-largest";
+      move(count, from, to);
+      frame.phase = "second-recursion";
+      solve(count - 1, auxiliary, to, from, depth + 1);
+    }
+
+    frame.phase = "return";
+    emit(EVENT_TYPES.HANOI_RETURN, {
+      disk: count,
+      from,
+      to,
+      phase: "return"
+    });
+    frames.pop();
+  }
+
+  emit(EVENT_TYPES.HANOI_START, { phase: "start" });
+  solve(diskCount, "A", "C", "B", 1);
+  emit(EVENT_TYPES.HANOI_END, {
+    disk: null,
+    from: null,
+    to: null,
+    depth: 0,
+    frames: [],
+    finished: true,
+    phase: "complete"
+  });
+}
+
+function resolveAlgorithmStatement(sourceLines, line) {
   const directSourceLine = sourceLines[line - 1] || "";
   let startIndex = Math.max(0, line - 1);
 
@@ -1669,7 +1770,10 @@ function resolveDynamicProgrammingStatement(sourceLines, line) {
     .map((sourceLine) => sourceLine.trim())
     .join(" ");
 
-  if (!statement.includes("DynamicProgramming.")) {
+  if (
+    !statement.includes("DynamicProgramming.") &&
+    !statement.includes("RecursionAlgorithms.")
+  ) {
     return {
       sourceLine: directSourceLine,
       line
@@ -1697,10 +1801,11 @@ function processCollectionStatement(
   logicalSearches,
   logicalSorts,
   logicalDynamicPrograms,
+  logicalHanoiRuns,
   currentLocals = locals
 ) {
   const match = sourceLine.match(
-    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey|contains|toArray|addNode|addEdge|bfs|dfs|linearSearch|binarySearch|bubbleSort|selectionSort|insertionSort|mergeSort|quickSort|fibonacciMemo|fibonacciTabulation|knapsack01)\s*\((.*?)\)\s*;/
+    /\b([A-Za-z_$][\w$]*)\s*\.\s*(push|add|addFirst|addLast|offer|pop|poll|remove|removeFirst|removeLast|get|getFirst|getLast|peek|element|put|putIfAbsent|containsKey|contains|toArray|addNode|addEdge|bfs|dfs|linearSearch|binarySearch|bubbleSort|selectionSort|insertionSort|mergeSort|quickSort|fibonacciMemo|fibonacciTabulation|knapsack01|towerOfHanoi)\s*\((.*?)\)\s*;/
   );
 
   if (!match) {
@@ -1708,6 +1813,27 @@ function processCollectionStatement(
   }
 
   const [, name, method, expression] = match;
+
+  if (name === "RecursionAlgorithms" && method === "towerOfHanoi") {
+    const invocationKey = `${scopeId || "global"}:${line}:${method}:${expression}`;
+    if (logicalHanoiRuns.processed.has(invocationKey)) {
+      return;
+    }
+
+    const evaluationLocals = { ...locals, ...currentLocals };
+    const diskCount = evaluateSimpleExpression(expression.trim(), evaluationLocals);
+    if (Number.isInteger(diskCount) && diskCount >= 1 && diskCount <= 8) {
+      logicalHanoiRuns.processed.add(invocationKey);
+      recordTowerOfHanoi(
+        recorder,
+        diskCount,
+        line,
+        scopeId,
+        logicalHanoiRuns
+      );
+    }
+    return;
+  }
 
   if (
     name === "DynamicProgramming" &&
@@ -2432,6 +2558,7 @@ function buildJavaTrace(rawObservations, options) {
   const logicalSearches = { nextId: 0 };
   const logicalSorts = { nextId: 0 };
   const logicalDynamicPrograms = { nextId: 0, processed: new Set() };
+  const logicalHanoiRuns = { nextId: 0, processed: new Set() };
   const controlFlow = createControlFlowTracker(options.sourceLines);
   const observations = rawObservations.trim().split(/\r?\n/).filter(Boolean);
 
@@ -2541,7 +2668,7 @@ function buildJavaTrace(rawObservations, options) {
         frameState.scopeId
       );
 
-      const collectionStatement = resolveDynamicProgrammingStatement(
+      const collectionStatement = resolveAlgorithmStatement(
         options.sourceLines,
         frameState.lastLine
       );
@@ -2561,6 +2688,7 @@ function buildJavaTrace(rawObservations, options) {
         logicalSearches,
         logicalSorts,
         logicalDynamicPrograms,
+        logicalHanoiRuns,
         locals
       );
 
@@ -2612,7 +2740,7 @@ function buildJavaTrace(rawObservations, options) {
           frameState.scopeId
         );
 
-        const collectionStatement = resolveDynamicProgrammingStatement(
+        const collectionStatement = resolveAlgorithmStatement(
           options.sourceLines,
           frameState.lastLine
         );
@@ -2632,6 +2760,7 @@ function buildJavaTrace(rawObservations, options) {
           logicalSearches,
           logicalSorts,
           logicalDynamicPrograms,
+          logicalHanoiRuns,
           locals
         );
 
@@ -2803,6 +2932,10 @@ async function executeJava(source, options = {}) {
     __dirname,
     "CodeFlowDynamicProgramming.java"
   );
+  const recursionAlgorithmsSourcePath = path.join(
+    __dirname,
+    "CodeFlowRecursionAlgorithms.java"
+  );
 
   try {
     await fs.writeFile(sourcePath, source, "utf8");
@@ -2822,6 +2955,7 @@ async function executeJava(source, options = {}) {
         searchSourcePath,
         sortSourcePath,
         dynamicProgrammingSourcePath,
+        recursionAlgorithmsSourcePath,
         sourcePath
       ],
       {

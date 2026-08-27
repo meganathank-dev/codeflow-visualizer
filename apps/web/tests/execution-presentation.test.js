@@ -27,6 +27,7 @@ function createState(step, overrides = {}) {
     searches: {},
     sorts: {},
     dynamicPrograms: {},
+    hanoiRuns: {},
     callStack: [],
     console: [],
     errors: [],
@@ -1285,6 +1286,77 @@ function createDynamicProgrammingResult(language) {
   };
 }
 
+function createHanoiResult(language) {
+  const hanoiId = "hanoi:1";
+  const base = {
+    hanoiId,
+    diskCount: 2,
+    source: "A",
+    target: "C",
+    auxiliary: "B",
+    expectedMoves: 3,
+    maxDepth: 2
+  };
+  const entries = [
+    ["PROGRAM_START", {}],
+    ["HANOI_START", {
+      ...base, pegs: { A: [2, 1], B: [], C: [] }, frames: [],
+      moveNumber: 0, depth: 0, phase: "start"
+    }],
+    ["HANOI_CALL", {
+      ...base, pegs: { A: [2, 1], B: [], C: [] },
+      frames: [{ id: "frame:1", diskCount: 2, from: "A", to: "C", auxiliary: "B", depth: 1 }],
+      moveNumber: 0, disk: 2, from: "A", to: "C", depth: 1, phase: "recursive-call"
+    }],
+    ["HANOI_MOVE", {
+      ...base, pegs: { A: [2], B: [1], C: [] },
+      frames: [{ id: "frame:2", diskCount: 1, from: "A", to: "B", auxiliary: "C", depth: 2 }],
+      moveNumber: 1, disk: 1, from: "A", to: "B", depth: 2, phase: "move"
+    }],
+    ["HANOI_RETURN", {
+      ...base, pegs: { A: [], B: [], C: [2, 1] },
+      frames: [{ id: "frame:1", diskCount: 2, from: "A", to: "C", auxiliary: "B", depth: 1 }],
+      moveNumber: 3, disk: 2, from: "A", to: "C", depth: 1, phase: "return"
+    }],
+    ["HANOI_END", {
+      ...base, pegs: { A: [], B: [], C: [2, 1] }, frames: [],
+      moveNumber: 3, disk: null, from: null, to: null, depth: 0,
+      finished: true, phase: "complete"
+    }]
+  ];
+  const events = entries.map(([type, payload], step) => ({
+    id: `${language}-hanoi-event-${step}`,
+    step,
+    type,
+    source: { line: 1 },
+    payload
+  }));
+  const states = entries.map(([type, payload], step) => {
+    const hanoiRuns = {};
+    if (step > 0) {
+      hanoiRuns[hanoiId] = {
+        id: hanoiId,
+        ...payload,
+        finished: step === entries.length - 1,
+        lastOperation: type
+      };
+    }
+    return createState(step, {
+      status: step === entries.length - 1 ? "completed" : "running",
+      hanoiRuns
+    });
+  });
+
+  return {
+    status: "ok",
+    language,
+    executionStatus: "completed",
+    trace: { traceId: `${language}-hanoi-presentation-test`, status: "completed", events },
+    states,
+    summary: { eventCount: events.length }
+  };
+}
+
 function createRecursionResult(language) {
   const frame = (depth, n) => ({
     id: `factorial:${depth}`,
@@ -1613,6 +1685,26 @@ async function runTests() {
     assert.equal(dynamicProgrammingPresentation.steps[6].array, null);
     assert.match(dynamicProgrammingPresentation.steps[3].description, /select 1/i);
 
+    const hanoiPresentation = createExecutionPresentation(
+      createHanoiResult(language)
+    );
+
+    assert.equal(hanoiPresentation.steps[1].hanoi.diskCount, 2);
+    assert.equal(hanoiPresentation.steps[1].hanoi.expectedMoves, 3);
+    assert.equal(hanoiPresentation.steps[2].hanoi.frames.length, 1);
+    assert.equal(hanoiPresentation.steps[2].hanoi.depth, 1);
+    assert.deepEqual(hanoiPresentation.steps[3].hanoi.pegs, {
+      A: [2], B: [1], C: []
+    });
+    assert.equal(hanoiPresentation.steps[3].hanoi.disk, 1);
+    assert.equal(hanoiPresentation.steps[3].hanoi.operation, "HANOI_MOVE");
+    assert.match(hanoiPresentation.steps[3].title, /move 1\/3.*disk 1/i);
+    assert.deepEqual(hanoiPresentation.steps[5].hanoi.pegs, {
+      A: [], B: [], C: [2, 1]
+    });
+    assert.equal(hanoiPresentation.steps[5].hanoi.finished, true);
+    assert.match(hanoiPresentation.steps[5].description, /optimal 3 moves/i);
+
     const recursionPresentation = createExecutionPresentation(
       createRecursionResult(language)
     );
@@ -1741,6 +1833,8 @@ async function runTests() {
   console.log("Recursive frames, base case, parameters, and unwind returns: passed");
   console.log("Cross-language dynamic-programming presentation: passed");
   console.log("DP cells, transitions, cache state, and result highlighting: passed");
+  console.log("Cross-language Tower of Hanoi presentation: passed");
+  console.log("Hanoi pegs, disks, move progress, recursion frames, and completion: passed");
   console.log("SQL relational presentation: passed");
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");

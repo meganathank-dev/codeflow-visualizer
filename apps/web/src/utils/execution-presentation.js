@@ -351,6 +351,36 @@ function describeEvent(event, state, language) {
         description: `The final result is ${formatValue(payload.result)} after ${payload.readCount} reads, ${payload.writeCount} writes, and ${payload.choiceCount} decisions.`
       };
 
+    case "HANOI_START":
+      return {
+        title: `Start Tower of Hanoi with ${payload.diskCount} disks`,
+        description: `Move the complete tower from peg ${payload.source} to peg ${payload.target} in exactly ${payload.expectedMoves} legal moves.`
+      };
+
+    case "HANOI_CALL":
+      return {
+        title: `Solve ${payload.disk} disk${payload.disk === 1 ? "" : "s"}: ${payload.from} → ${payload.to}`,
+        description: `Push recursion depth ${payload.depth}; peg ${payload.auxiliary} is the auxiliary workspace.`
+      };
+
+    case "HANOI_MOVE":
+      return {
+        title: `Move ${payload.moveNumber}/${payload.expectedMoves}: disk ${payload.disk}, ${payload.from} → ${payload.to}`,
+        description: `The smallest exposed disk moves legally from peg ${payload.from} to peg ${payload.to}.`
+      };
+
+    case "HANOI_RETURN":
+      return {
+        title: `Return from ${payload.disk}-disk subproblem`,
+        description: `The ${payload.from} → ${payload.to} subproblem is complete and its recursion frame unwinds.`
+      };
+
+    case "HANOI_END":
+      return {
+        title: "Tower of Hanoi completed",
+        description: `All ${payload.diskCount} disks reached peg ${payload.target} in the optimal ${payload.moveNumber} moves.`
+      };
+
     case "STACK_CREATE":
       return {
         title: `Create ${name || "a stack"}`,
@@ -938,6 +968,32 @@ function selectDynamicProgramming(state, event) {
   };
 }
 
+function selectHanoi(state, event) {
+  const hanoiRuns = state.hanoiRuns || {};
+  const eventHanoiId = event.payload?.hanoiId;
+  const selectedId = Object.hasOwn(hanoiRuns, eventHanoiId)
+    ? eventHanoiId
+    : Object.keys(hanoiRuns).at(-1);
+
+  if (!selectedId || !hanoiRuns[selectedId]?.pegs) {
+    return null;
+  }
+
+  const hanoi = hanoiRuns[selectedId];
+  return {
+    ...hanoi,
+    pegs: {
+      A: Array.isArray(hanoi.pegs.A) ? hanoi.pegs.A : [],
+      B: Array.isArray(hanoi.pegs.B) ? hanoi.pegs.B : [],
+      C: Array.isArray(hanoi.pegs.C) ? hanoi.pegs.C : []
+    },
+    frames: Array.isArray(hanoi.frames) ? hanoi.frames : [],
+    operation: eventHanoiId === selectedId && event.type.startsWith("HANOI_")
+      ? event.type
+      : null
+  };
+}
+
 function selectStack(state, event) {
   const stacks = state.stacks || {};
   const eventStack = event.payload?.name;
@@ -1191,6 +1247,7 @@ export function createExecutionPresentation(result) {
     const search = selectSearch(state, event);
     const sort = selectSort(state, event);
     const dynamicProgramming = selectDynamicProgramming(state, event);
+    const hanoi = selectHanoi(state, event);
     const array = selectArray(state, event);
 
     return {
@@ -1206,6 +1263,7 @@ export function createExecutionPresentation(result) {
       search,
       sort,
       dynamicProgramming,
+      hanoi,
       stack: selectStack(state, event),
       queue: selectQueue(state, event),
       linkedList: selectLinkedList(state, event),
@@ -1268,6 +1326,7 @@ export function createIdleExecutionStep(language = "javascript") {
     search: null,
     sort: null,
     dynamicProgramming: null,
+    hanoi: null,
     callStack: [],
     recursion: null,
     console: [],

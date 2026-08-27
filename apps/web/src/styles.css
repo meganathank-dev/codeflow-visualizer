@@ -4083,6 +4083,136 @@ input:focus-visible {
 .dp-legend-dot.is-dp-write-dot { background: var(--accent-purple); }
 .dp-legend-dot.is-dp-result-dot { background: var(--accent-green); }
 
+.hanoi-card {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  border-color: rgba(120, 169, 255, 0.22);
+  background: radial-gradient(circle at 50% 100%, rgba(120, 169, 255, 0.08), transparent 42%), rgba(255, 255, 255, 0.018);
+}
+
+.hanoi-heading-meta,
+.hanoi-summary-grid,
+.hanoi-progress-row,
+.hanoi-frame-strip {
+  display: flex;
+  align-items: center;
+}
+
+.hanoi-heading-meta { gap: 8px; }
+.hanoi-depth {
+  padding: 4px 7px;
+  border: 1px solid rgba(169, 145, 255, 0.2);
+  border-radius: 6px;
+  color: var(--accent-purple);
+  background: rgba(169, 145, 255, 0.07);
+  font-size: 9px;
+}
+.structure-name.is-hanoi-complete { color: var(--accent-green); }
+
+.hanoi-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 14px 4px;
+}
+.hanoi-summary-grid > div {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid rgba(141, 163, 196, 0.12);
+  border-radius: 8px;
+  background: rgba(8, 13, 22, 0.42);
+}
+.hanoi-summary-grid span { color: var(--text-muted); font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+.hanoi-summary-grid strong { color: var(--text-secondary); font-size: 12px; }
+
+.hanoi-stage {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(110px, 1fr));
+  gap: 13px;
+  overflow-x: auto;
+  padding: 18px 14px 10px;
+}
+.hanoi-peg {
+  position: relative;
+  display: grid;
+  min-width: 110px;
+  min-height: 195px;
+  grid-template-rows: 1fr 8px 24px;
+  justify-items: center;
+  border-radius: 10px;
+  background: rgba(8, 13, 22, 0.28);
+}
+.hanoi-peg.is-hanoi-source { background: rgba(243, 189, 122, 0.045); }
+.hanoi-peg.is-hanoi-target { background: rgba(103, 220, 162, 0.055); }
+.hanoi-rod {
+  position: absolute;
+  bottom: 31px;
+  width: 6px;
+  height: 145px;
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(90deg, rgba(120, 169, 255, 0.28), rgba(120, 169, 255, 0.65));
+}
+.hanoi-disks {
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  padding: 8px 5px 0;
+}
+.hanoi-disk {
+  display: grid;
+  min-width: 34px;
+  height: 17px;
+  place-items: center;
+  border: 1px solid rgba(120, 169, 255, 0.52);
+  border-radius: 999px;
+  color: var(--text-primary);
+  background: linear-gradient(90deg, rgba(120, 169, 255, 0.14), rgba(169, 145, 255, 0.28));
+  font-size: 8px;
+  font-weight: 800;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+}
+.hanoi-disk.is-moving-disk {
+  border-color: rgba(103, 220, 162, 0.75);
+  background: linear-gradient(90deg, rgba(103, 220, 162, 0.2), rgba(120, 169, 255, 0.3));
+  box-shadow: 0 0 15px rgba(103, 220, 162, 0.16);
+}
+.hanoi-base {
+  z-index: 2;
+  width: 90%;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(120, 169, 255, 0.48);
+}
+.hanoi-peg-label { color: var(--text-muted); font-size: 8px; letter-spacing: 0.1em; }
+
+.hanoi-progress-row { gap: 9px; padding: 2px 14px 11px; }
+.hanoi-progress-row > span { color: var(--text-muted); font-size: 8px; letter-spacing: 0.08em; }
+.hanoi-progress-row > strong { color: var(--accent-green); font-size: 9px; }
+.hanoi-progress-track { flex: 1; height: 4px; overflow: hidden; border-radius: 999px; background: rgba(141, 163, 196, 0.12); }
+.hanoi-progress-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent-blue), var(--accent-green)); }
+
+.hanoi-frame-strip {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 13px;
+}
+.hanoi-frame-label { color: var(--accent-purple); font-size: 8px; font-weight: 800; letter-spacing: 0.08em; }
+.hanoi-frame-strip > span:not(.hanoi-frame-label) {
+  padding: 4px 6px;
+  border: 1px solid rgba(141, 163, 196, 0.14);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  background: rgba(8, 13, 22, 0.42);
+  font-size: 8px;
+}
+.hanoi-frame-strip > span.is-hanoi-top-frame { border-color: rgba(169, 145, 255, 0.5); color: var(--accent-purple); }
+.hanoi-frame-strip em { color: var(--text-muted); font-size: 9px; font-style: normal; }
+
 @media (max-width: 600px) {
   .sort-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4103,4 +4233,7 @@ input:focus-visible {
 
   .dp-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dp-heading-meta { align-items: flex-end; flex-direction: column; }
+  .hanoi-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hanoi-stage { justify-content: flex-start; }
+  .hanoi-heading-meta { align-items: flex-end; flex-direction: column; }
 }
