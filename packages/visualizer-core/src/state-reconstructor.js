@@ -66,6 +66,17 @@ function createInitialState(trace) {
 
     callStack: [],
 
+    functionHistory: [],
+
+    input: {
+      history: [],
+      current: null,
+      consumed: 0,
+      remaining: 0
+    },
+
+    lastException: null,
+
     recursion: {
       active: false,
 
@@ -1403,7 +1414,13 @@ function handleFunctionEnter(state, event) {
 
     source: event.source
       ? cloneValue(event.source)
-      : null
+      : null,
+
+    callLine: event.payload.callLine || event.source?.line || null,
+
+    enteredAtStep: event.step,
+
+    status: "active"
   };
 
   state.callStack.push(
@@ -1482,6 +1499,17 @@ function handleFunctionReturn(state, event) {
 
       returnStep: event.step
     };
+
+    returnedFrame.status = "returned";
+    returnedFrame.durationSteps = Math.max(
+      0,
+      event.step - (frame.enteredAtStep ?? event.step)
+    );
+
+    state.functionHistory.push(returnedFrame);
+    if (state.functionHistory.length > 100) {
+      state.functionHistory.shift();
+    }
 
     if (
       frame.recursive ||
@@ -2063,6 +2091,33 @@ function reduceExecutionEvent(previousState, event) {
     case EVENT_TYPES.SORT_MARK_SORTED:
     case EVENT_TYPES.SORT_END: {
       handleSortEvent(state, event);
+
+      break;
+    }
+
+    case EVENT_TYPES.EXCEPTION_THROW: {
+      state.lastException = {
+        step: event.step,
+        source: event.source ? cloneValue(event.source) : null,
+        ...cloneValue(event.payload)
+      };
+
+      break;
+    }
+
+    case EVENT_TYPES.INPUT: {
+      const inputEntry = {
+        step: event.step,
+        source: event.source ? cloneValue(event.source) : null,
+        ...cloneValue(event.payload)
+      };
+
+      state.input.current = inputEntry;
+      state.input.history.push(inputEntry);
+      state.input.consumed = state.input.history.length;
+      state.input.remaining = Number.isInteger(event.payload.remaining)
+        ? event.payload.remaining
+        : 0;
 
       break;
     }

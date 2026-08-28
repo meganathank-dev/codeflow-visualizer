@@ -1308,7 +1308,61 @@ function testRecursionReconstruction() {
   assert.equal(finalReturnState.recursion.active, false);
   assert.equal(finalReturnState.recursion.maxDepth, 3);
   assert.equal(finalReturnState.recursion.lastReturn.returnValue, 6);
+  assert.equal(finalReturnState.functionHistory.length, 3);
+  assert.equal(finalReturnState.functionHistory.at(-1).status, "returned");
+  assert.equal(finalReturnState.functionHistory.at(-1).returnValue, 6);
+  assert.equal(finalReturnState.functionHistory.at(-1).durationSteps > 0, true);
   assert.equal(reconstructor.getStateAt(3).recursion.depth, 3);
+}
+
+function testInputAndExceptionReconstruction() {
+  const recorder = new TraceRecorder({
+    language: LANGUAGES.JAVASCRIPT,
+    traceId: "visualizer-core-input-error-test"
+  });
+
+  recorder.start();
+  recorder.record(EVENT_TYPES.INPUT, {
+    inputId: "input:1",
+    prompt: "Name?",
+    rawValue: "Divya",
+    value: "Divya",
+    valueType: "string",
+    inputNumber: 1,
+    remaining: 0
+  }, { source: { line: 1 } });
+  recorder.record(EVENT_TYPES.EXCEPTION_THROW, {
+    name: "TypeError",
+    errorType: "TypeError",
+    message: "Example failure",
+    phase: "execute",
+    category: "runtime",
+    hint: "Check the value types.",
+    sourceExcerpt: "value.run();",
+    frames: [{ functionName: "main", line: 2 }]
+  }, { source: { line: 2 } });
+  recorder.fail({
+    name: "TypeError",
+    errorType: "TypeError",
+    message: "Example failure",
+    phase: "execute",
+    category: "runtime",
+    hint: "Check the value types.",
+    sourceExcerpt: "value.run();",
+    frames: [{ functionName: "main", line: 2 }]
+  }, { source: { line: 2 } });
+
+  const reconstructor = new StateReconstructor(recorder.toJSON());
+  const inputState = reconstructor.getStateAt(1);
+  const throwState = reconstructor.getStateAt(2);
+  const errorState = reconstructor.getStateAt(3);
+
+  assert.equal(inputState.input.consumed, 1);
+  assert.equal(inputState.input.current.rawValue, "Divya");
+  assert.equal(inputState.input.remaining, 0);
+  assert.equal(throwState.lastException.category, "runtime");
+  assert.equal(errorState.errors.at(-1).hint, "Check the value types.");
+  assert.equal(errorState.errors.at(-1).sourceExcerpt, "value.run();");
 }
 
 function testProgramStateReconstruction(trace) {
@@ -2075,6 +2129,8 @@ async function runTests() {
 
   testRecursionReconstruction();
 
+  testInputAndExceptionReconstruction();
+
   testTimelineNavigation(
     programTrace
   );
@@ -2171,6 +2227,10 @@ async function runTests() {
 
   console.log(
     "Tower of Hanoi pegs, legal moves, recursion frames, and completion reconstruction: passed"
+  );
+
+  console.log(
+    "Input history, enriched exceptions, and function-return history reconstruction: passed"
   );
 }
 

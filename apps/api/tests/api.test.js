@@ -206,7 +206,8 @@ async function runTests() {
       method: "POST",
       body: JSON.stringify({
         language: "javascript",
-        source: 'console.log("Hello");'
+        source: 'console.log("Hello");',
+        inputs: ["Divya", "21"]
       })
     });
 
@@ -215,6 +216,28 @@ async function runTests() {
     assert.equal(javascriptExecution.body.language, "javascript");
     assert.equal(javascriptExecution.body.trace.events[0].type, "OUTPUT");
     assert.equal(javascriptExecution.body.states[0].console[0].text, "Hello");
+
+    const invalidInputs = await requestJson(apiBaseUrl, "/api/execute", {
+      method: "POST",
+      body: JSON.stringify({
+        language: "javascript",
+        source: 'console.log("Hello");',
+        inputs: [42]
+      })
+    });
+    assert.equal(invalidInputs.status, 400);
+    assert.equal(invalidInputs.body.error.code, "INVALID_INPUTS");
+
+    const sqlInputs = await requestJson(apiBaseUrl, "/api/execute", {
+      method: "POST",
+      body: JSON.stringify({
+        language: "sql",
+        source: "SELECT name FROM students;",
+        inputs: ["unused"]
+      })
+    });
+    assert.equal(sqlInputs.status, 400);
+    assert.equal(sqlInputs.body.error.code, "INPUT_NOT_SUPPORTED");
 
     const pythonExecution = await requestJson(apiBaseUrl, "/api/execute", {
       method: "POST",
@@ -274,6 +297,7 @@ async function runTests() {
     console.log("Execution-state forwarding: passed");
     console.log("All four language boundaries: passed");
     console.log("Request validation: passed");
+    console.log("Program-input forwarding and validation: passed");
     console.log("Execution boundary separation: passed");
   } finally {
     await close(apiServer);
