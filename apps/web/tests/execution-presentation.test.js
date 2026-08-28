@@ -15,6 +15,16 @@ import {
   getPendingInputRequest
 } from "../src/utils/interactive-input.js";
 
+import {
+  getPlaybackDelay,
+  getPlaybackSpeedDescription
+} from "../src/utils/playback.js";
+
+import {
+  formatRuntimeValue,
+  selectVisibleRuntimeVariables
+} from "../src/utils/value-presentation.js";
+
 function createState(step, overrides = {}) {
   return {
     step,
@@ -1620,6 +1630,7 @@ async function runTests() {
 
   javaFinalState.variables = {
     args: [],
+    input: { $type: "object", display: "java.util.Scanner@4b85612c" },
     numbers: [4, 8, 12],
     stack: { $type: "object", display: "java.util.ArrayDeque" },
     total: 24
@@ -1643,6 +1654,31 @@ async function runTests() {
     javaPresentation.steps.at(-1).variables.stack,
     [4, 8, 12]
   );
+  assert.equal(Object.hasOwn(javaPresentation.steps.at(-1).variables, "args"), false);
+  assert.equal(Object.hasOwn(javaPresentation.steps.at(-1).variables, "input"), false);
+  assert.equal(
+    formatRuntimeValue({ $type: "object", display: "java.util.Scanner@4b85612c" }),
+    "Scanner (System.in)"
+  );
+  assert.deepEqual(
+    selectVisibleRuntimeVariables({
+      args: [],
+      input: { $type: "object", display: "java.util.Scanner@4b85612c" },
+      name: "Meganathan",
+      number: 5
+    }, "java"),
+    { name: "Meganathan", number: 5 }
+  );
+  assert.deepEqual(
+    selectVisibleRuntimeVariables({ input: { value: "learner data" } }, "javascript"),
+    { input: { value: "learner data" } }
+  );
+
+  assert.ok(getPlaybackDelay("PROGRAM_END", 1) > getPlaybackDelay("STATEMENT_EXECUTE", 1));
+  assert.ok(getPlaybackDelay("INPUT", 0.5) > getPlaybackDelay("INPUT", 2));
+  assert.equal(getPlaybackSpeedDescription(0.25), "Very slow");
+  assert.equal(getPlaybackSpeedDescription(1), "Readable");
+  assert.equal(getPlaybackSpeedDescription(2), "Very fast");
 
   for (const language of ["javascript", "python", "java"]) {
     const queuePresentation = createExecutionPresentation(
@@ -1896,6 +1932,7 @@ async function runTests() {
 
   const idle = createIdleExecutionStep();
   assert.equal(idle.status, "idle");
+  assert.equal(idle.language, "javascript");
   assert.deepEqual(idle.variables, {});
 
   const idleSql = createIdleExecutionStep("sql");
@@ -1991,6 +2028,9 @@ async function runTests() {
   console.log("Empty and invalid API response handling: passed");
   console.log("Program input and enriched error presentation: passed");
   console.log("Sequential interactive input request detection: passed");
+  console.log("Readable event-aware playback timing: passed");
+  console.log("Java runtime-object filtering and friendly values: passed");
+  console.log("Playback, inspector accessibility, and MVP UI acceptance: passed");
 }
 
 runTests().catch((error) => {

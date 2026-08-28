@@ -22,9 +22,9 @@ import {
 
 import { readJsonResponse } from "./utils/http-response";
 import { executeWithInteractiveInputs } from "./utils/interactive-input";
+import { getPlaybackDelay } from "./utils/playback";
 
 const INITIAL_LANGUAGE = "javascript";
-const BASE_PLAYBACK_INTERVAL = 430;
 const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
 const LIVE_EXECUTION_LANGUAGES = Object.freeze([
   "javascript",
@@ -153,10 +153,10 @@ export default function App() {
       if (nextStep >= totalSteps - 1) {
         setIsPlaying(false);
       }
-    }, BASE_PLAYBACK_INTERVAL / speed);
+    }, getPlaybackDelay(activeStep?.event, speed));
 
     return () => window.clearTimeout(timer);
-  }, [boundedCurrentStep, isExecuting, isPlaying, speed, totalSteps]);
+  }, [activeStep?.event, boundedCurrentStep, isExecuting, isPlaying, speed, totalSteps]);
 
   useEffect(() => {
     function handleKeyboardShortcut(event) {
@@ -194,6 +194,18 @@ export default function App() {
       if (event.key === "ArrowLeft") {
         event.preventDefault();
         handleSeek(boundedCurrentStep - 1);
+        return;
+      }
+
+      if (event.key === "Home") {
+        event.preventDefault();
+        handleSeek(0);
+        return;
+      }
+
+      if (event.key === "End") {
+        event.preventDefault();
+        handleSeek(totalSteps - 1);
       }
     }
 
@@ -381,7 +393,9 @@ export default function App() {
         );
       }
 
-      setIsPlaying(presentation.steps.length > 1);
+      // A newly generated trace stays at event one so the learner can read it.
+      // Playback begins only after an explicit Play action.
+      setIsPlaying(false);
     } catch (error) {
       if (error.name !== "AbortError") {
         setNotification(error.message || `${language.label} execution failed.`);
@@ -557,7 +571,11 @@ export default function App() {
             />
           </div>
 
-          <InspectorPanel step={activeStep} />
+          <InspectorPanel
+            step={activeStep}
+            currentStep={boundedCurrentStep}
+            totalSteps={totalSteps}
+          />
         </main>
 
         <TimelineControls

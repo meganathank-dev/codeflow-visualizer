@@ -1,3 +1,5 @@
+import { selectVisibleRuntimeVariables } from "./value-presentation.js";
+
 function formatValue(value) {
   if (typeof value === "string") {
     return JSON.stringify(value);
@@ -733,7 +735,7 @@ function selectArray(state, event) {
   };
 }
 
-function selectVariables(state) {
+function selectVariables(state, language) {
   const variables = {
     ...(state.variables || {})
   };
@@ -792,7 +794,7 @@ function selectVariables(state) {
     variables[name] = adjacency;
   }
 
-  return variables;
+  return selectVisibleRuntimeVariables(variables, language);
 }
 
 function treeValuesInorder(tree) {
@@ -1115,7 +1117,7 @@ function selectControlFlow(state, event) {
   };
 }
 
-function selectRecursion(state, event) {
+function selectRecursion(state, event, language) {
   const recursion = state.recursion || {};
   const payload = event.payload || {};
   const isRecursiveExecution = (
@@ -1135,7 +1137,10 @@ function selectRecursion(state, event) {
     depth: frame.depth ?? null,
     recursionDepth: frame.recursionDepth ?? 1,
     parameters: frame.parameters || {},
-    locals: state.scopes?.[frame.scopeId]?.variables || {},
+    locals: selectVisibleRuntimeVariables(
+      state.scopes?.[frame.scopeId]?.variables || {},
+      language
+    ),
     sourceLine: frame.source?.line || null,
     recursive: Boolean(frame.recursive),
     returnValue: frame.returnValue,
@@ -1268,7 +1273,8 @@ export function createExecutionPresentation(result) {
       event: event.type,
       title: narrative.title,
       description: narrative.description,
-      variables: selectVariables(state),
+      language: result.language,
+      variables: selectVariables(state, result.language),
       array: dynamicProgramming || sort || (search && array?.name === search.arrayName)
         ? null
         : array,
@@ -1291,7 +1297,10 @@ export function createExecutionPresentation(result) {
         recursionDepth: frame.recursionDepth ?? 1,
         recursive: Boolean(frame.recursive),
         parameters: frame.parameters || {},
-        locals: state.scopes?.[frame.scopeId]?.variables || {},
+        locals: selectVisibleRuntimeVariables(
+          state.scopes?.[frame.scopeId]?.variables || {},
+          result.language
+        ),
         callerFrameId: frame.callerFrameId || null,
         enteredAtStep: frame.enteredAtStep ?? null,
         status: frame.status || "active"
@@ -1311,7 +1320,7 @@ export function createExecutionPresentation(result) {
         consumed: state.input.consumed || 0,
         remaining: state.input.remaining || 0
       } : null,
-      recursion: selectRecursion(state, event),
+      recursion: selectRecursion(state, event, result.language),
       console: Array.isArray(state.console) ? state.console : [],
       iteration: controlFlow.iteration,
       condition: controlFlow.condition,
@@ -1338,6 +1347,7 @@ export function createIdleExecutionStep(language = "javascript") {
 
   return {
     id: `${language}-idle`,
+    language,
     line: null,
     event: isSql ? "SQL_QUERY_START" : "PROGRAM_START",
     title: isSql ? "Run your query to begin" : "Run your code to begin",

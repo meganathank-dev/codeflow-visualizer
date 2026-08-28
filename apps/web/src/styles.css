@@ -2896,6 +2896,11 @@ input:focus-visible {
   font-size: 10px;
 }
 
+.event-detail strong {
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
 .timeline-panel {
   display: flex;
 
@@ -3070,6 +3075,8 @@ input:focus-visible {
 
   align-items: center;
   justify-content: space-between;
+
+  gap: 12px;
 }
 
 .transport-controls {
@@ -3156,6 +3163,12 @@ input:focus-visible {
   font-size: 9px;
 
   letter-spacing: 0.07em;
+}
+
+.speed-selector small {
+  color: var(--text-secondary);
+  font-size: 9px;
+  letter-spacing: 0;
 }
 
 .speed-selector select {
@@ -3562,6 +3575,11 @@ input:focus-visible {
     padding: 13px 12px;
   }
 
+  .timeline-controls {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
   .timeline-current-event {
     max-width: 110px;
 
@@ -3578,6 +3596,10 @@ input:focus-visible {
 
   .transport-button {
     width: 29px;
+  }
+
+  .speed-selector small {
+    display: none;
   }
 
   .workspace-footer {

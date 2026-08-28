@@ -21,6 +21,8 @@ import {
   Workflow
 } from "lucide-react";
 
+import { formatRuntimeValue } from "../utils/value-presentation";
+
 const SPRING_TRANSITION = {
   type: "spring",
   stiffness: 340,
@@ -36,22 +38,7 @@ const SOFT_SPRING_TRANSITION = {
 };
 
 function formatVariableValue(value) {
-  if (Array.isArray(value)) {
-    return `[${value.join(", ")}]`;
-  }
-
-  if (
-    value !== null &&
-    typeof value === "object"
-  ) {
-    return JSON.stringify(value);
-  }
-
-  if (typeof value === "string") {
-    return `"${value}"`;
-  }
-
-  return String(value);
+  return formatRuntimeValue(value);
 }
 
 function AnimatedValue({
@@ -141,6 +128,7 @@ function VariableCards({
               <motion.div
                 className="variable-card"
                 key={name}
+                title={`${name}: ${formatVariableValue(value)}`}
                 layout
                 initial={
                   shouldReduceMotion

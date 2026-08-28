@@ -9,6 +9,8 @@ import {
   Timer
 } from "lucide-react";
 
+import { getPlaybackSpeedDescription } from "../utils/playback";
+
 const PLAYBACK_SPEEDS = [
   0.25,
   0.5,
@@ -108,7 +110,7 @@ export default function TimelineControls({
           </span>
         </div>
 
-        <div className="timeline-current-event">
+        <div className="timeline-current-event" aria-live="polite" aria-atomic="true">
           {
             String(
               currentEvent ||
@@ -121,7 +123,7 @@ export default function TimelineControls({
         </div>
 
         <span className="timeline-step-count">
-          Step {currentStep + 1} of {totalSteps}
+          Event {currentStep + 1} of {totalSteps}
         </span>
       </div>
 
@@ -157,6 +159,7 @@ export default function TimelineControls({
             totalSteps <= 1
           }
           aria-label="Execution timeline"
+          aria-valuetext={`Event ${currentStep + 1} of ${totalSteps}: ${String(currentEvent || "PROGRAM_START").replaceAll("_", " ")}`}
         />
 
         <div className="timeline-markers">
@@ -202,6 +205,7 @@ export default function TimelineControls({
             }
             aria-label="First execution step"
             title="First step"
+            aria-keyshortcuts="Home"
           >
             <SkipBack size={17} />
           </button>
@@ -216,6 +220,7 @@ export default function TimelineControls({
             }
             aria-label="Previous execution step"
             title="Previous step"
+            aria-keyshortcuts="ArrowLeft"
           >
             <ChevronLeft size={19} />
           </button>
@@ -236,6 +241,7 @@ export default function TimelineControls({
                 ? "Pause execution"
                 : "Play execution"
             }
+            aria-keyshortcuts="Space"
           >
             {
               isPlaying
@@ -258,6 +264,7 @@ export default function TimelineControls({
             }
             aria-label="Next execution step"
             title="Next step"
+            aria-keyshortcuts="ArrowRight"
           >
             <ChevronRight size={19} />
           </button>
@@ -272,6 +279,7 @@ export default function TimelineControls({
             }
             aria-label="Last execution step"
             title="Last step"
+            aria-keyshortcuts="End"
           >
             <SkipForward size={17} />
           </button>
@@ -297,6 +305,8 @@ export default function TimelineControls({
             SPEED
           </span>
 
+          <small>{getPlaybackSpeedDescription(speed)}</small>
+
           <select
             value={speed}
             onChange={
@@ -317,7 +327,7 @@ export default function TimelineControls({
                     key={playbackSpeed}
                     value={playbackSpeed}
                   >
-                    {playbackSpeed}x
+                    {playbackSpeed}x · {getPlaybackSpeedDescription(playbackSpeed)}
                   </option>
                 )
               )

@@ -9,6 +9,11 @@ import {
   TerminalSquare
 } from "lucide-react";
 
+import {
+  formatRuntimeValue,
+  getRuntimeValueType
+} from "../utils/value-presentation";
+
 const TABS = [
   {
     id: "variables",
@@ -36,18 +41,7 @@ const TABS = [
 ];
 
 function formatValue(value) {
-  if (typeof value === "string") {
-    return `"${value}"`;
-  }
-
-  if (
-    value !== null &&
-    typeof value === "object"
-  ) {
-    return JSON.stringify(value);
-  }
-
-  return String(value);
+  return formatRuntimeValue(value);
 }
 
 function VariablesTab({
@@ -91,13 +85,14 @@ function VariablesTab({
 
               <span className="inspector-variable-type">
                 {
-                  Array.isArray(value)
-                    ? "array"
-                    : typeof value
+                  getRuntimeValueType(value)
                 }
               </span>
 
-              <code className="inspector-variable-value">
+              <code
+                className="inspector-variable-value"
+                title={formatValue(value)}
+              >
                 {
                   formatValue(value)
                 }
@@ -224,10 +219,22 @@ function CallStackTab({
 }
 
 function EventTab({
-  step
+  step,
+  currentStep,
+  totalSteps
 }) {
   return (
     <div className="event-details-grid">
+      <div className="event-detail">
+        <span>
+          Position
+        </span>
+
+        <code>
+          {currentStep + 1} / {totalSteps}
+        </code>
+      </div>
+
       <div className="event-detail">
         <span>
           Event
@@ -268,6 +275,16 @@ function EventTab({
 
       <div className="event-detail event-detail-wide">
         <span>
+          What happened
+        </span>
+
+        <strong>
+          {step.title}
+        </strong>
+      </div>
+
+      <div className="event-detail event-detail-wide">
+        <span>
           Explanation
         </span>
 
@@ -282,7 +299,9 @@ function EventTab({
 }
 
 export default function InspectorPanel({
-  step
+  step,
+  currentStep = 0,
+  totalSteps = 1
 }) {
   const [
     activeTab,
@@ -293,7 +312,7 @@ export default function InspectorPanel({
 
   return (
     <section className="inspector-panel">
-      <div className="inspector-tabs">
+      <div className="inspector-tabs" role="tablist" aria-label="Execution inspector">
         {
           TABS.map(
             ({
@@ -309,6 +328,10 @@ export default function InspectorPanel({
                 }
                 key={id}
                 type="button"
+                role="tab"
+                id={`inspector-tab-${id}`}
+                aria-controls={`inspector-panel-${id}`}
+                aria-selected={activeTab === id}
                 onClick={() => {
                   setActiveTab(id);
                 }}
@@ -335,7 +358,12 @@ export default function InspectorPanel({
         }
       </div>
 
-      <div className="inspector-content">
+      <div
+        className="inspector-content"
+        role="tabpanel"
+        id={`inspector-panel-${activeTab}`}
+        aria-labelledby={`inspector-tab-${activeTab}`}
+      >
         {
           activeTab === "variables" && (
             <VariablesTab
@@ -364,6 +392,8 @@ export default function InspectorPanel({
           activeTab === "event" && (
             <EventTab
               step={step}
+              currentStep={currentStep}
+              totalSteps={totalSteps}
             />
           )
         }
