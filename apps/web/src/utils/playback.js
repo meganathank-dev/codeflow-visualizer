@@ -37,3 +37,33 @@ export function getPlaybackSpeedDescription(speed) {
   if (speed <= 1.5) return "Fast";
   return "Very fast";
 }
+
+export function getPrimaryActionLabel({
+  isExecuting = false,
+  isPlaying = false,
+  supportsLiveExecution = false,
+  hasLiveExecution = false,
+  isAtFirstStep = false,
+  isAtFinalStep = false
+} = {}) {
+  if (isExecuting) return "Running...";
+  if (isPlaying) return "Pause";
+
+  if (!supportsLiveExecution) {
+    return "Preview demo";
+  }
+
+  if (!hasLiveExecution) {
+    return "Run code";
+  }
+
+  if (isAtFinalStep) {
+    return "Run again";
+  }
+
+  if (isAtFirstStep) {
+    return "Play trace";
+  }
+
+  return "Resume";
+}

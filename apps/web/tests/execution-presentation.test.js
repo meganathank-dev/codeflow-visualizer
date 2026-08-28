@@ -17,6 +17,7 @@ import {
 
 import {
   getPlaybackDelay,
+  getPrimaryActionLabel,
   getPlaybackSpeedDescription
 } from "../src/utils/playback.js";
 
@@ -1679,6 +1680,55 @@ async function runTests() {
   assert.equal(getPlaybackSpeedDescription(0.25), "Very slow");
   assert.equal(getPlaybackSpeedDescription(1), "Readable");
   assert.equal(getPlaybackSpeedDescription(2), "Very fast");
+  assert.equal(
+    getPrimaryActionLabel({
+      supportsLiveExecution: true,
+      hasLiveExecution: false,
+      isAtFirstStep: true
+    }),
+    "Run code"
+  );
+  assert.equal(
+    getPrimaryActionLabel({
+      supportsLiveExecution: true,
+      hasLiveExecution: true,
+      isAtFirstStep: true
+    }),
+    "Play trace"
+  );
+  assert.equal(
+    getPrimaryActionLabel({
+      supportsLiveExecution: true,
+      hasLiveExecution: true,
+      isAtFirstStep: false,
+      isAtFinalStep: false
+    }),
+    "Resume"
+  );
+  assert.equal(
+    getPrimaryActionLabel({
+      supportsLiveExecution: true,
+      hasLiveExecution: true,
+      isAtFinalStep: true
+    }),
+    "Run again"
+  );
+  assert.equal(
+    getPrimaryActionLabel({
+      isExecuting: true,
+      supportsLiveExecution: true,
+      hasLiveExecution: true
+    }),
+    "Running..."
+  );
+  assert.equal(
+    getPrimaryActionLabel({
+      isPlaying: true,
+      supportsLiveExecution: true,
+      hasLiveExecution: true
+    }),
+    "Pause"
+  );
 
   for (const language of ["javascript", "python", "java"]) {
     const queuePresentation = createExecutionPresentation(
@@ -2029,6 +2079,7 @@ async function runTests() {
   console.log("Program input and enriched error presentation: passed");
   console.log("Sequential interactive input request detection: passed");
   console.log("Readable event-aware playback timing: passed");
+  console.log("Primary playback action-state labels: passed");
   console.log("Java runtime-object filtering and friendly values: passed");
   console.log("Playback, inspector accessibility, and MVP UI acceptance: passed");
 }

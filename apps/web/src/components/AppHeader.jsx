@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { LANGUAGE_OPTIONS } from "../data/demo-executions";
+import { getPrimaryActionLabel } from "../utils/playback";
 
 export default function AppHeader({
   language,
@@ -18,24 +19,20 @@ export default function AppHeader({
   isExecuting,
   hasLiveExecution,
   supportsLiveExecution,
+  isAtFirstStep,
   isAtFinalStep,
   onRun,
   onPause
 }) {
   const selectedLanguage = LANGUAGE_OPTIONS.find((item) => item.id === language);
-  let actionLabel = "Preview demo";
-
-  if (isExecuting) {
-    actionLabel = "Running...";
-  } else if (isPlaying) {
-    actionLabel = "Pause";
-  } else if (supportsLiveExecution && hasLiveExecution && !isAtFinalStep) {
-    actionLabel = "Resume";
-  } else if (supportsLiveExecution && hasLiveExecution && isAtFinalStep) {
-    actionLabel = "Run again";
-  } else if (supportsLiveExecution) {
-    actionLabel = "Run code";
-  }
+  const actionLabel = getPrimaryActionLabel({
+    isExecuting,
+    isPlaying,
+    supportsLiveExecution,
+    hasLiveExecution,
+    isAtFirstStep,
+    isAtFinalStep
+  });
 
   return (
     <header className="app-header">

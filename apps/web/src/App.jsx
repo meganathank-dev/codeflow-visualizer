@@ -510,6 +510,7 @@ export default function App() {
           isExecuting={isExecuting}
           hasLiveExecution={hasLiveExecution}
           supportsLiveExecution={canExecuteLive}
+          isAtFirstStep={boundedCurrentStep === 0}
           isAtFinalStep={boundedCurrentStep >= totalSteps - 1}
           onRun={handlePrimaryAction}
           onPause={handlePause}
