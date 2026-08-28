@@ -33,6 +33,9 @@ const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4100;
 const DEFAULT_MAX_SOURCE_BYTES = 32 * 1024;
 const DEFAULT_MAX_REQUEST_BYTES = 64 * 1024;
+const DEFAULT_MAX_INPUT_ITEMS = 20;
+const DEFAULT_MAX_INPUT_ITEM_BYTES = 512;
+const DEFAULT_MAX_INPUT_BYTES = 4 * 1024;
 const SERVICE_NAME = "codeflow-execution";
 const SERVICE_VERSION = "0.5.0";
 
@@ -159,6 +162,7 @@ async function readJsonBody(request, maximumBytes) {
 
 function validateExecutionRequest(body, maximumSourceBytes) {
   const { language, source } = body;
+  const inputs = body.inputs ?? [];
 
   if (typeof language !== "string" || !SUPPORTED_LANGUAGES.includes(language)) {
     throw new ExecutionRequestError(
@@ -186,7 +190,47 @@ function validateExecutionRequest(body, maximumSourceBytes) {
     );
   }
 
-  return { language, source, sourceBytes };
+  if (!Array.isArray(inputs) || inputs.some((value) => typeof value !== "string")) {
+    throw new ExecutionRequestError(
+      "Program inputs must be an array of strings.",
+      400,
+      "INVALID_INPUTS"
+    );
+  }
+
+  if (inputs.length > DEFAULT_MAX_INPUT_ITEMS) {
+    throw new ExecutionRequestError(
+      `Program input is limited to ${DEFAULT_MAX_INPUT_ITEMS} lines.`,
+      413,
+      "INPUT_LIMIT_EXCEEDED"
+    );
+  }
+
+  if (inputs.some((value) => Buffer.byteLength(value, "utf8") > DEFAULT_MAX_INPUT_ITEM_BYTES)) {
+    throw new ExecutionRequestError(
+      `Each program input line is limited to ${DEFAULT_MAX_INPUT_ITEM_BYTES} bytes.`,
+      413,
+      "INPUT_LINE_TOO_LARGE"
+    );
+  }
+
+  if (Buffer.byteLength(inputs.join("\n"), "utf8") > DEFAULT_MAX_INPUT_BYTES) {
+    throw new ExecutionRequestError(
+      `Program input is limited to ${DEFAULT_MAX_INPUT_BYTES} bytes.`,
+      413,
+      "INPUT_TOO_LARGE"
+    );
+  }
+
+  if (language === LANGUAGES.SQL && inputs.length > 0) {
+    throw new ExecutionRequestError(
+      "SQL execution does not accept program input.",
+      400,
+      "INPUT_NOT_SUPPORTED"
+    );
+  }
+
+  return { language, source, sourceBytes, inputs: [...inputs] };
 }
 
 async function handleExecution(request, response, options) {
@@ -222,17 +266,17 @@ async function handleExecution(request, response, options) {
   if (executionRequest.language === LANGUAGES.JAVASCRIPT) {
     executionResult = await executeJavaScript(
       executionRequest.source,
-      options.javascript
+      { ...options.javascript, inputs: executionRequest.inputs }
     );
   } else if (executionRequest.language === LANGUAGES.PYTHON) {
     executionResult = await executePython(
       executionRequest.source,
-      options.python
+      { ...options.python, inputs: executionRequest.inputs }
     );
   } else if (executionRequest.language === LANGUAGES.JAVA) {
     executionResult = await executeJava(
       executionRequest.source,
-      options.java
+      { ...options.java, inputs: executionRequest.inputs }
     );
   } else {
     executionResult = await executeSql(

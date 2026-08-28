@@ -116,6 +116,8 @@ function executeSource(payload) {
 
     maximumOutputBytes,
 
+    inputs = [],
+
     vmTimeoutMs = DEFAULT_VM_TIMEOUT_MS
   } = payload;
 
@@ -126,7 +128,11 @@ function executeSource(payload) {
 
     maximumTraceEvents,
 
-    maximumOutputBytes
+    maximumOutputBytes,
+
+    source,
+
+    inputs
   });
 
   runtime.start();
@@ -186,6 +192,7 @@ function executeSource(payload) {
     sandbox.SortingAlgorithms = runtime.createSortingAlgorithms();
     sandbox.DynamicProgramming = runtime.createDynamicProgrammingAlgorithms();
     sandbox.RecursionAlgorithms = runtime.createRecursionAlgorithms();
+    sandbox.prompt = runtime.createPrompt();
 
     const context = vm.createContext(
       sandbox,

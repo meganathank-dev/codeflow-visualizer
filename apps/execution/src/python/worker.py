@@ -26,7 +26,6 @@ FORBIDDEN_NAMES = {
     "getattr",
     "globals",
     "help",
-    "input",
     "locals",
     "open",
     "quit",
@@ -63,6 +62,13 @@ class TraceLimitError(Exception):
 
 class OutputLimitError(Exception):
     pass
+
+
+class InputExhaustedError(Exception):
+    def __init__(self, prompt, input_number):
+        super().__init__(f"No program input remains for prompt {prompt!r}.")
+        self.prompt = prompt
+        self.input_number = input_number
 
 
 class CodeFlowSearchAlgorithms:
@@ -1671,7 +1677,7 @@ class SourceInstrumenter(ast.NodeTransformer):
 
 
 class PythonExecutionTracer:
-    def __init__(self, maximum_events, maximum_output_bytes):
+    def __init__(self, maximum_events, maximum_output_bytes, inputs=None):
         self.maximum_events = maximum_events
         self.maximum_output_bytes = maximum_output_bytes
         self.events = []
@@ -1685,6 +1691,8 @@ class PythonExecutionTracer:
         self.sorting_algorithms = CodeFlowSortingAlgorithms()
         self.dynamic_programming = CodeFlowDynamicProgramming()
         self.recursion_algorithms = CodeFlowRecursionAlgorithms()
+        self.inputs = list(inputs or [])
+        self.input_index = 0
 
     def record(self, event_type, line, payload=None, scope_id=None):
         if len(self.events) >= self.maximum_events - 2:
@@ -1907,6 +1915,11 @@ class PythonExecutionTracer:
         function_name = frame.f_code.co_name
 
         if event == "call":
+            if len(self.call_stack) >= 64:
+                raise RecursionError(
+                    "CodeFlow recursion depth limit of 64 frames was exceeded."
+                )
+
             current_locals = snapshot_locals(frame.f_locals)
             scope_id = None
             parent_frame_id = self.call_stack[-1] if self.call_stack else None
@@ -2546,6 +2559,30 @@ class PythonExecutionTracer:
 
         return result
 
+    def traced_input(self, prompt=""):
+        prompt_text = str(prompt)
+        if self.input_index >= len(self.inputs):
+            raise InputExhaustedError(prompt_text, self.input_index + 1)
+
+        raw_value = self.inputs[self.input_index]
+        input_number = self.input_index + 1
+        self.input_index += 1
+        self.record(
+            "INPUT",
+            self.last_line,
+            {
+                "inputId": f"input:{input_number}",
+                "prompt": prompt_text,
+                "rawValue": raw_value,
+                "value": raw_value,
+                "valueType": "string",
+                "inputNumber": input_number,
+                "remaining": len(self.inputs) - self.input_index,
+            },
+            self.caller_scope(),
+        )
+        return raw_value
+
     def traced_print(self, *values, sep=" ", end="\n", **kwargs):
         if kwargs:
             raise ValueError("print() file and flush arguments are not supported.")
@@ -2577,6 +2614,7 @@ class PythonExecutionTracer:
             "Exception": Exception,
             "float": float,
             "int": int,
+            "input": self.traced_input,
             "isinstance": isinstance,
             "len": len,
             "list": list,
@@ -2629,6 +2667,71 @@ class PythonExecutionTracer:
 
         return self.last_line
 
+    def create_error_payload(self, error, line, source):
+        name = type(error).__name__
+
+        if isinstance(error, SyntaxError):
+            category = "syntax"
+            phase = "parse"
+            hint = "Correct the highlighted Python syntax before running again."
+        elif isinstance(error, InputExhaustedError):
+            category = "input"
+            phase = "execute"
+            hint = "Enter the requested value in the input dialog to continue execution."
+        elif isinstance(error, RecursionError):
+            category = "limit"
+            phase = "execute"
+            hint = "Add a reachable base case or reduce the recursive input size."
+        elif isinstance(error, (TypeError, ValueError)):
+            category = "runtime"
+            phase = "execute"
+            hint = "Check the value types and conversion performed on the highlighted line."
+        elif isinstance(error, (IndexError, KeyError)):
+            category = "runtime"
+            phase = "execute"
+            hint = "Check the collection index or key used on the highlighted line."
+        else:
+            category = "runtime"
+            phase = "execute"
+            hint = "Inspect the highlighted source line and the recorded call-stack frames."
+
+        frames = []
+        if error.__traceback__ is not None:
+            for frame in traceback.extract_tb(error.__traceback__):
+                if frame.filename == SOURCE_FILENAME:
+                    frames.append({
+                        "functionName": frame.name,
+                        "line": frame.lineno,
+                        "column": None,
+                    })
+
+        source_lines = source.splitlines()
+        source_excerpt = (
+            source_lines[line - 1].strip()
+            if 1 <= line <= len(source_lines)
+            else None
+        )
+
+        return {
+            "name": name,
+            "errorType": name,
+            "code": "INPUT_EXHAUSTED" if isinstance(error, InputExhaustedError) else None,
+            "message": str(error),
+            "phase": phase,
+            "category": category,
+            "hint": hint,
+            "sourceExcerpt": source_excerpt,
+            "inputRequest": (
+                {
+                    "prompt": error.prompt,
+                    "inputNumber": error.input_number,
+                }
+                if isinstance(error, InputExhaustedError)
+                else None
+            ),
+            "frames": frames,
+        }
+
     def run(self, source):
         try:
             tree = ast.parse(source, filename=SOURCE_FILENAME, mode="exec")
@@ -2636,18 +2739,15 @@ class PythonExecutionTracer:
         except SourcePolicyError:
             raise
         except Exception as error:
+            line = self.find_error_line(error)
             return {
                 "status": "ok",
                 "executionStatus": "failed",
                 "events": [{
                     "type": "ERROR",
-                    "line": self.find_error_line(error),
+                    "line": line,
                     "scopeId": None,
-                    "payload": {
-                        "name": type(error).__name__,
-                        "errorType": type(error).__name__,
-                        "message": str(error),
-                    },
+                    "payload": self.create_error_payload(error, line, source),
                 }],
             }
 
@@ -2662,15 +2762,21 @@ class PythonExecutionTracer:
         except Exception as error:
             sys.settrace(None)
 
+            line = self.find_error_line(error)
+            payload = self.create_error_payload(error, line, source)
+
+            self.events.append({
+                "type": "EXCEPTION_THROW",
+                "line": line,
+                "scopeId": None,
+                "payload": payload,
+            })
+
             self.events.append({
                 "type": "ERROR",
-                "line": self.find_error_line(error),
+                "line": line,
                 "scopeId": None,
-                "payload": {
-                    "name": type(error).__name__,
-                    "errorType": type(error).__name__,
-                    "message": str(error),
-                },
+                "payload": payload,
             })
 
             return {
@@ -2707,6 +2813,7 @@ def main():
     tracer = PythonExecutionTracer(
         maximum_events=int(payload.get("maximumTraceEvents", 1000)),
         maximum_output_bytes=int(payload.get("maximumOutputBytes", 16 * 1024)),
+        inputs=payload.get("inputs", []),
     )
 
     try:

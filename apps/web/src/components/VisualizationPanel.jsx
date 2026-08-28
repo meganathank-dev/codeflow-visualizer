@@ -7,11 +7,13 @@ import {
 
 import {
   Activity,
+  AlertTriangle,
   ArrowRight,
   ArrowUpDown,
   Database,
   GitBranch,
   KeyRound,
+  Keyboard,
   Layers3,
   Search,
   Sparkles,
@@ -1646,6 +1648,60 @@ function SortVisualization({ sort }) {
   );
 }
 
+function InputVisualization({ input }) {
+  if (!input?.current) {
+    return null;
+  }
+
+  const current = input.current;
+  return (
+    <motion.div className="input-visualization-card" layout>
+      <div className="input-visualization-icon"><Keyboard size={17} /></div>
+      <div>
+        <span>PROGRAM INPUT #{current.inputNumber}</span>
+        <strong>{current.prompt || "Input read"}</strong>
+      </div>
+      <code>{formatVariableValue(current.rawValue ?? current.value)}</code>
+      <small>{input.remaining} remaining</small>
+    </motion.div>
+  );
+}
+
+function ErrorVisualization({ error }) {
+  if (!error) {
+    return null;
+  }
+
+  return (
+    <motion.div
+      className="error-visualization-card"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      role="alert"
+    >
+      <div className="error-visualization-heading">
+        <AlertTriangle size={18} />
+        <div>
+          <span>{error.phase || "execute"} · {error.category || "runtime"}</span>
+          <strong>{error.name || error.errorType || "Execution error"}</strong>
+        </div>
+      </div>
+      <p>{error.message}</p>
+      {error.sourceExcerpt && <code>{error.sourceExcerpt}</code>}
+      {error.hint && <div className="error-hint"><Sparkles size={14} />{error.hint}</div>}
+      {Array.isArray(error.frames) && error.frames.length > 0 && (
+        <div className="error-frame-list">
+          {error.frames.slice(-5).reverse().map((frame, index) => (
+            <span key={`${frame.functionName}-${frame.line}-${index}`}>
+              <code>{frame.functionName}()</code> line {frame.line}
+            </span>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 function DynamicProgrammingVisualization({ dynamicProgramming }) {
   const shouldReduceMotion = useReducedMotion();
 
@@ -2092,6 +2148,9 @@ function ProgramVisualization({
       <EventStory
         step={step}
       />
+
+      <ErrorVisualization error={step.error} />
+      <InputVisualization input={step.input} />
 
       <motion.div
         className="variable-section"

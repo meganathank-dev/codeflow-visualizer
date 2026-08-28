@@ -1,36 +1,30 @@
 export class ApiResponseError extends Error {
-  constructor(message, code) {
+  constructor(message, code, status = null) {
     super(message);
     this.name = "ApiResponseError";
     this.code = code;
+    this.status = status;
   }
 }
 
-export async function readJsonResponse(response, serviceLabel) {
-  let bodyText;
+export async function readJsonResponse(response, serviceName = "API") {
+  const body = await response.text();
 
-  try {
-    bodyText = await response.text();
-  } catch {
+  if (!body.trim()) {
     throw new ApiResponseError(
-      `${serviceLabel} connection was interrupted. Wait a moment and try again.`,
-      "RESPONSE_READ_FAILED"
-    );
-  }
-
-  if (!bodyText.trim()) {
-    throw new ApiResponseError(
-      `${serviceLabel} returned an empty response. The local API may be restarting; wait a moment and try again.`,
-      "EMPTY_RESPONSE"
+      `${serviceName} returned an empty response (HTTP ${response.status}).`,
+      "EMPTY_RESPONSE",
+      response.status
     );
   }
 
   try {
-    return JSON.parse(bodyText);
+    return JSON.parse(body);
   } catch {
     throw new ApiResponseError(
-      `${serviceLabel} returned an invalid response (HTTP ${response.status}).`,
-      "INVALID_JSON_RESPONSE"
+      `${serviceName} returned invalid JSON (HTTP ${response.status}).`,
+      "INVALID_JSON_RESPONSE",
+      response.status
     );
   }
 }

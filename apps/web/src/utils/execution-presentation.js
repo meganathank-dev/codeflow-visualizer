@@ -655,6 +655,18 @@ function describeEvent(event, state, language) {
         description: payload.text || payload.message || "The program produces console output."
       };
 
+    case "INPUT":
+      return {
+        title: `Read program input ${payload.inputNumber ?? ""}`.trim(),
+        description: `${payload.prompt ? `${payload.prompt} receives ` : "The program receives "}${formatValue(payload.rawValue ?? payload.value)}. ${payload.remaining ?? 0} queued input value${payload.remaining === 1 ? " remains" : "s remain"}.`
+      };
+
+    case "EXCEPTION_THROW":
+      return {
+        title: `${payload.name || payload.errorType || "Exception"} was thrown`,
+        description: payload.message || "Program execution raised an exception."
+      };
+
     case "ERROR":
       return {
         title: payload.name || payload.errorType || "Execution error",
@@ -1279,8 +1291,26 @@ export function createExecutionPresentation(result) {
         recursionDepth: frame.recursionDepth ?? 1,
         recursive: Boolean(frame.recursive),
         parameters: frame.parameters || {},
-        locals: state.scopes?.[frame.scopeId]?.variables || {}
+        locals: state.scopes?.[frame.scopeId]?.variables || {},
+        callerFrameId: frame.callerFrameId || null,
+        enteredAtStep: frame.enteredAtStep ?? null,
+        status: frame.status || "active"
       })),
+      functionHistory: (state.functionHistory || []).map((frame) => ({
+        id: frame.id || frame.scopeId,
+        name: frame.name || frame.functionName || "anonymous",
+        returnValue: frame.returnValue,
+        returnStep: frame.returnStep,
+        durationSteps: frame.durationSteps,
+        recursionDepth: frame.recursionDepth ?? 1,
+        status: frame.status || "returned"
+      })),
+      input: state.input ? {
+        current: state.input.current,
+        history: Array.isArray(state.input.history) ? state.input.history : [],
+        consumed: state.input.consumed || 0,
+        remaining: state.input.remaining || 0
+      } : null,
       recursion: selectRecursion(state, event),
       console: Array.isArray(state.console) ? state.console : [],
       iteration: controlFlow.iteration,
@@ -1289,7 +1319,7 @@ export function createExecutionPresentation(result) {
         ? selectSql(state, event, sqlContext)
         : null,
       status: state.status,
-      error: state.errors?.at(-1) || null,
+      error: state.errors?.at(-1) || state.lastException || null,
       payload: event.payload || {}
     };
   });
@@ -1328,6 +1358,8 @@ export function createIdleExecutionStep(language = "javascript") {
     dynamicProgramming: null,
     hanoi: null,
     callStack: [],
+    functionHistory: [],
+    input: null,
     recursion: null,
     console: [],
     iteration: null,

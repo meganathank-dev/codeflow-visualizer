@@ -392,6 +392,8 @@ async function executeJavaScript(
 
       maximumOutputBytes: configuration.maximumOutputBytes,
 
+      inputs: Array.isArray(options.inputs) ? options.inputs : [],
+
       vmTimeoutMs: configuration.vmTimeoutMs
     },
 

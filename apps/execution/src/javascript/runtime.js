@@ -250,7 +250,11 @@ function createJavaScriptRuntime(options = {}) {
 
     maximumTraceEvents = DEFAULT_MAX_TRACE_EVENTS,
 
-    maximumOutputBytes = DEFAULT_MAX_OUTPUT_BYTES
+    maximumOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
+
+    source = "",
+
+    inputs = []
   } = options;
 
   if (
@@ -280,6 +284,10 @@ function createJavaScriptRuntime(options = {}) {
     );
   }
 
+  if (!Array.isArray(inputs) || inputs.some((value) => typeof value !== "string")) {
+    throw new TypeError("inputs must be an array of strings.");
+  }
+
   const recorder = new TraceRecorder({
     language: "javascript",
 
@@ -304,6 +312,10 @@ function createJavaScriptRuntime(options = {}) {
 
   let totalOutputBytes = 0;
 
+  const inputQueue = Array.from(inputs);
+
+  let nextInputIndex = 0;
+
   let nextFrameNumber = 0;
 
   let nextSearchNumber = 0;
@@ -315,6 +327,56 @@ function createJavaScriptRuntime(options = {}) {
   let nextHanoiNumber = 0;
 
   let lastRecordedLine = 1;
+
+  const sourceLines = String(source).split(/\r?\n/);
+
+  function createErrorPayload(error, line) {
+    const name = error?.name ?? "JavaScriptExecutionError";
+    const message = error?.message ?? "JavaScript execution failed.";
+    const normalizedLine = normalizeLine(line);
+    const category = name === "SyntaxError"
+      ? "syntax"
+      : error?.code === "INPUT_EXHAUSTED"
+        ? "input"
+        : error instanceof RuntimeLimitError
+          ? "limit"
+          : "runtime";
+    const hint = category === "input"
+      ? "Enter the requested value in the input dialog to continue execution."
+      : category === "syntax"
+        ? "Correct the highlighted JavaScript syntax before running again."
+        : name === "ReferenceError"
+          ? "Check that every variable and function is declared before it is used."
+          : name === "TypeError"
+            ? "Check the value types, function arguments, and method used on this line."
+            : name === "RangeError"
+              ? "Check array bounds and reduce recursive depth if the call stack is too deep."
+              : category === "limit"
+                ? "Reduce the loop iterations, recursion depth, output, or total work."
+                : "Inspect the highlighted source line and the recorded call-stack frames.";
+    const frames = String(error?.stack || "")
+      .split(/\r?\n/)
+      .map((entry) => entry.match(/at\s+(.*?)\s+\(codeflow-user-program\.js:(\d+):(\d+)\)|at\s+codeflow-user-program\.js:(\d+):(\d+)/))
+      .filter(Boolean)
+      .map((match) => ({
+        functionName: match[1] || "<program>",
+        line: Number(match[2] || match[4]),
+        column: Number(match[3] || match[5])
+      }));
+
+    return {
+      name,
+      errorType: name,
+      code: error?.code ?? null,
+      message,
+      phase: category === "syntax" ? "parse" : "execute",
+      category,
+      hint,
+      sourceExcerpt: sourceLines[normalizedLine - 1]?.trim() || null,
+      inputRequest: error?.inputRequest ?? null,
+      frames
+    };
+  }
 
   function currentScopeId() {
     return (
@@ -2893,6 +2955,13 @@ function createJavaScriptRuntime(options = {}) {
 
       line
     ) {
+      if (callFrames.length >= 64) {
+        throw new RuntimeLimitError(
+          "CodeFlow recursion depth limit of 64 frames was exceeded.",
+          "RECURSION_DEPTH_EXCEEDED"
+        );
+      }
+
       nextFrameNumber += 1;
 
       const parentFrame = callFrames.at(-1) ?? null;
@@ -3261,28 +3330,21 @@ function createJavaScriptRuntime(options = {}) {
         return;
       }
 
+      const payload = createErrorPayload(error, line);
+
+      if (
+        payload.category !== "syntax" &&
+        recorder.eventCount < maximumTraceEvents - 1
+      ) {
+        recorder.record(
+          EVENT_TYPES.EXCEPTION_THROW,
+          payload,
+          createEventOptions(line, null)
+        );
+      }
+
       recorder.fail(
-        {
-          name: (
-            error?.name ??
-            "JavaScriptExecutionError"
-          ),
-
-          errorType: (
-            error?.name ??
-            "JavaScriptExecutionError"
-          ),
-
-          code: (
-            error?.code ??
-            null
-          ),
-
-          message: (
-            error?.message ??
-            "JavaScript execution failed."
-          )
-        },
+        payload,
 
         createEventOptions(
           line,
@@ -3397,6 +3459,39 @@ function createJavaScriptRuntime(options = {}) {
         towerOfHanoi(diskCount) {
           return runTowerOfHanoi(diskCount);
         }
+      };
+    },
+
+    createPrompt() {
+      return (message = "") => {
+        const prompt = String(message ?? "");
+
+        if (nextInputIndex >= inputQueue.length) {
+          const error = new Error(
+            `No program input remains for prompt ${JSON.stringify(prompt)}.`
+          );
+          error.name = "InputExhaustedError";
+          error.code = "INPUT_EXHAUSTED";
+          error.inputRequest = {
+            prompt,
+            inputNumber: nextInputIndex + 1
+          };
+          throw error;
+        }
+
+        const rawValue = inputQueue[nextInputIndex];
+        const inputNumber = nextInputIndex + 1;
+        nextInputIndex += 1;
+        record(EVENT_TYPES.INPUT, lastRecordedLine, {
+          inputId: `input:${inputNumber}`,
+          prompt,
+          rawValue,
+          value: rawValue,
+          valueType: "string",
+          inputNumber,
+          remaining: inputQueue.length - nextInputIndex
+        });
+        return rawValue;
       };
     },
 

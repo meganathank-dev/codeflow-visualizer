@@ -33,6 +33,7 @@ const ALLOWED_IMPORTS = new Set([
   "java.util.List",
   "java.util.Map",
   "java.util.Queue",
+  "java.util.Scanner",
   "java.util.PriorityQueue",
   "java.util.Stack",
   "java.util.TreeSet"
@@ -2483,7 +2484,134 @@ function createControlFlowTracker(sourceLines) {
   };
 }
 
-function createFailedTrace(traceId, line, name, message) {
+function createJavaErrorPayload(name, message, line, sourceLines = []) {
+  const lowerMessage = String(message || "").toLowerCase();
+  const category = name === "CompilationError"
+    ? "syntax"
+    : name === "java.util.NoSuchElementException" || lowerMessage.includes("no line found")
+      ? "input"
+      : name === "java.lang.StackOverflowError"
+        ? "limit"
+        : "runtime";
+  const hint = category === "input"
+    ? "Enter the requested value in the input dialog to continue execution."
+    : category === "syntax"
+      ? "Correct the highlighted Java compilation error before running again."
+      : name === "java.lang.StackOverflowError"
+        ? "Add a reachable base case or reduce the recursive input size."
+        : name === "java.lang.NullPointerException"
+          ? "Check which value is null before accessing it on this line."
+          : name === "java.lang.ArrayIndexOutOfBoundsException"
+            ? "Check that the array index is within its valid bounds."
+            : "Inspect the highlighted source line and the recorded call-stack frames.";
+
+  return {
+    name,
+    errorType: name,
+    code: category === "input" ? "INPUT_EXHAUSTED" : null,
+    message,
+    phase: category === "syntax" ? "compile" : "execute",
+    category,
+    hint,
+    sourceExcerpt: sourceLines[line - 1]?.trim() || null,
+    frames: []
+  };
+}
+
+function parseJavaInputValue(method, rawValue) {
+  if (method === "nextInt" || method === "nextLong") {
+    const value = Number.parseInt(rawValue, 10);
+    return { value: Number.isNaN(value) ? rawValue : value, valueType: "integer" };
+  }
+
+  if (method === "nextDouble" || method === "nextFloat") {
+    const value = Number(rawValue);
+    return { value: Number.isNaN(value) ? rawValue : value, valueType: "number" };
+  }
+
+  if (method === "nextBoolean") {
+    return { value: rawValue.trim().toLowerCase() === "true", valueType: "boolean" };
+  }
+
+  return { value: rawValue, valueType: "string" };
+}
+
+function decodeJavaPromptLiteral(value) {
+  try {
+    return JSON.parse(`"${value}"`);
+  } catch {
+    return value.replaceAll('\\"', '"').replaceAll("\\n", "\n");
+  }
+}
+
+function detectJavaInputRequest(sourceLine, inputNumber, sourceLines = [], line = 1) {
+  const match = sourceLine.match(
+    /\b([A-Za-z_$][\w$]*)\s*\.\s*(nextLine|nextInt|nextLong|nextDouble|nextFloat|nextBoolean)\s*\(\s*\)/
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const [, scannerName, method] = match;
+  const assignedName = sourceLine.match(/\b([A-Za-z_$][\w$]*)\s*=/)?.[1] ?? null;
+  let prompt = null;
+
+  for (let index = line - 2; index >= Math.max(0, line - 5); index -= 1) {
+    const promptMatch = sourceLines[index]?.match(
+      /System\.out\.print(?:ln)?\(\s*"((?:\\.|[^"\\])*)"\s*\)\s*;/
+    );
+
+    if (promptMatch) {
+      prompt = decodeJavaPromptLiteral(promptMatch[1]);
+      break;
+    }
+  }
+
+  prompt ||= assignedName
+    ? `Enter ${assignedName.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase()}:`
+    : `${scannerName}.${method}()`;
+
+  return { scannerName, method, prompt, inputNumber };
+}
+
+function processJavaInputStatement(
+  recorder,
+  sourceLine,
+  line,
+  scopeId,
+  logicalInputs,
+  sourceLines = []
+) {
+  const request = detectJavaInputRequest(
+    sourceLine,
+    logicalInputs.index + 1,
+    sourceLines,
+    line
+  );
+
+  if (!request || logicalInputs.index >= logicalInputs.values.length) {
+    return;
+  }
+
+  const { method, prompt } = request;
+  const rawValue = logicalInputs.values[logicalInputs.index];
+  const inputNumber = logicalInputs.index + 1;
+  logicalInputs.index += 1;
+  const parsed = parseJavaInputValue(method, rawValue);
+
+  record(recorder, EVENT_TYPES.INPUT, line, {
+    inputId: `input:${inputNumber}`,
+    prompt,
+    rawValue,
+    value: parsed.value,
+    valueType: parsed.valueType,
+    inputNumber,
+    remaining: logicalInputs.values.length - logicalInputs.index
+  }, scopeId);
+}
+
+function createFailedTrace(traceId, line, name, message, sourceLines = []) {
   const recorder = new TraceRecorder({
     language: "java",
     traceId,
@@ -2501,7 +2629,7 @@ function createFailedTrace(traceId, line, name, message) {
   );
 
   recorder.fail(
-    { name, errorType: name, message },
+    createJavaErrorPayload(name, message, line, sourceLines),
     { source: { line } }
   );
 
@@ -2559,6 +2687,10 @@ function buildJavaTrace(rawObservations, options) {
   const logicalSorts = { nextId: 0 };
   const logicalDynamicPrograms = { nextId: 0, processed: new Set() };
   const logicalHanoiRuns = { nextId: 0, processed: new Set() };
+  const logicalInputs = {
+    values: Array.isArray(options.inputs) ? [...options.inputs] : [],
+    index: 0
+  };
   const controlFlow = createControlFlowTracker(options.sourceLines);
   const observations = rawObservations.trim().split(/\r?\n/).filter(Boolean);
 
@@ -2692,6 +2824,15 @@ function buildJavaTrace(rawObservations, options) {
         locals
       );
 
+      processJavaInputStatement(
+        recorder,
+        options.sourceLines[frameState.lastLine - 1] || "",
+        frameState.lastLine,
+        frameState.scopeId,
+        logicalInputs,
+        options.sourceLines
+      );
+
       controlFlow.observeLine(
         recorder,
         frameState.lastLine,
@@ -2764,6 +2905,15 @@ function buildJavaTrace(rawObservations, options) {
           locals
         );
 
+        processJavaInputStatement(
+          recorder,
+          options.sourceLines[frameState.lastLine - 1] || "",
+          frameState.lastLine,
+          frameState.scopeId,
+          logicalInputs,
+          options.sourceLines
+        );
+
         controlFlow.close(recorder, frameState.lastLine, frameState.scopeId);
       }
 
@@ -2808,11 +2958,29 @@ function buildJavaTrace(rawObservations, options) {
     if (observationType === "ERROR") {
       const line = parsePositiveLine(fields[1], lastObservedLine);
 
-      recorder.fail({
-        name: decode(fields[2]),
-        errorType: decode(fields[2]),
-        message: decode(fields[3])
-      }, { source: { line } });
+      const payload = createJavaErrorPayload(
+        decode(fields[2]),
+        decode(fields[3]),
+        line,
+        options.sourceLines
+      );
+      if (payload.category === "input") {
+        payload.inputRequest = detectJavaInputRequest(
+          options.sourceLines[line - 1] || "",
+          logicalInputs.index + 1,
+          options.sourceLines,
+          line
+        );
+      }
+      payload.frames = [...activeFrames].reverse().map((frame) => ({
+        functionName: frame.functionName,
+        line: frame.lastLine || line,
+        column: null
+      }));
+
+      record(recorder, EVENT_TYPES.EXCEPTION_THROW, line, payload, null);
+
+      recorder.fail(payload, { source: { line } });
 
       lastObservedLine = line;
       break;
@@ -2972,7 +3140,8 @@ async function executeJava(source, options = {}) {
         traceId,
         compilerFailure.line,
         "CompilationError",
-        compilerFailure.message
+        compilerFailure.message,
+        sourceInfo.sourceLines
       );
 
       return createExecutionResponse(trace, startedAt);
@@ -2987,7 +3156,10 @@ async function executeJava(source, options = {}) {
         workspace,
         "CodeFlowJavaDebugger",
         workspace,
-        sourceInfo.className
+        sourceInfo.className,
+        (Array.isArray(options.inputs) ? options.inputs : [])
+          .map((value) => Buffer.from(value, "utf8").toString("base64"))
+          .join(",")
       ],
       {
         cwd: workspace,
@@ -3009,7 +3181,8 @@ async function executeJava(source, options = {}) {
       traceId,
       className: sourceInfo.className,
       sourceLines: sourceInfo.sourceLines,
-      maximumTraceEvents: configuration.maximumTraceEvents
+      maximumTraceEvents: configuration.maximumTraceEvents,
+      inputs: Array.isArray(options.inputs) ? options.inputs : []
     });
 
     return createExecutionResponse(trace, startedAt);

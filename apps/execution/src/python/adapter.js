@@ -258,7 +258,8 @@ async function executePython(source, options = {}) {
     {
       source,
       maximumTraceEvents: configuration.maximumTraceEvents,
-      maximumOutputBytes: configuration.maximumOutputBytes
+      maximumOutputBytes: configuration.maximumOutputBytes,
+      inputs: Array.isArray(options.inputs) ? options.inputs : []
     },
     configuration
   );

@@ -192,6 +192,7 @@ export default function EditorPanel({
         <span>UTF-8</span>
         <span>{language.label}</span>
       </div>
+
     </section>
   );
 }

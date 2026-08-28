@@ -4,6 +4,7 @@ import { AlertCircle, Radio, X } from "lucide-react";
 
 import AppHeader from "./components/AppHeader";
 import EditorPanel from "./components/EditorPanel";
+import ProgramInputDialog from "./components/ProgramInputDialog";
 import VisualizationPanel from "./components/VisualizationPanel";
 import InspectorPanel from "./components/InspectorPanel";
 import TimelineControls from "./components/TimelineControls";
@@ -19,15 +20,12 @@ import {
   createIdleExecutionStep
 } from "./utils/execution-presentation";
 
-import {
-  ApiResponseError,
-  readJsonResponse
-} from "./utils/http-response";
+import { readJsonResponse } from "./utils/http-response";
+import { executeWithInteractiveInputs } from "./utils/interactive-input";
 
 const INITIAL_LANGUAGE = "javascript";
 const BASE_PLAYBACK_INTERVAL = 430;
 const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
-const BACKEND_FAILURE_THRESHOLD = 2;
 const LIVE_EXECUTION_LANGUAGES = Object.freeze([
   "javascript",
   "python",
@@ -51,9 +49,11 @@ export default function App() {
   const [speed, setSpeed] = useState(1);
   const [notification, setNotification] = useState("");
   const [backendStatus, setBackendStatus] = useState("checking");
+  const [inputRequest, setInputRequest] = useState(null);
+  const [inputValue, setInputValue] = useState("");
 
   const activeRequestRef = useRef(null);
-  const healthFailureCountRef = useRef(0);
+  const inputResolverRef = useRef(null);
 
   const language = useMemo(
     () => getLanguageOption(selectedLanguage),
@@ -67,7 +67,8 @@ export default function App() {
 
   const liveExecution = executions[selectedLanguage];
   const hasLiveExecution = Boolean(
-    liveExecution && liveExecution.source === source
+    liveExecution &&
+    liveExecution.source === source
   );
 
   const steps = hasLiveExecution
@@ -96,35 +97,20 @@ export default function App() {
           headers: { accept: "application/json" }
         });
 
-        const result = await readJsonResponse(
-          response,
-          "Health service"
-        );
+        const result = await readJsonResponse(response, "Health service");
 
         if (!isMounted) {
           return;
         }
 
-        const connected = (
-          response.ok &&
-          result.executionService?.connected === true
+        setBackendStatus(
+          response.ok && result.executionService?.connected === true
+            ? "connected"
+            : "offline"
         );
-
-        healthFailureCountRef.current = connected
-          ? 0
-          : BACKEND_FAILURE_THRESHOLD;
-
-        setBackendStatus(connected ? "connected" : "offline");
       } catch {
         if (isMounted) {
-          healthFailureCountRef.current += 1;
-
-          if (
-            healthFailureCountRef.current >=
-            BACKEND_FAILURE_THRESHOLD
-          ) {
-            setBackendStatus("offline");
-          }
+          setBackendStatus("offline");
         }
       } finally {
         requestInProgress = false;
@@ -144,8 +130,9 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    return () => activeRequestRef.current?.abort();
+  useEffect(() => () => {
+    activeRequestRef.current?.abort();
+    inputResolverRef.current?.({ confirmed: false, value: "" });
   }, []);
 
   useEffect(() => {
@@ -225,9 +212,36 @@ export default function App() {
     totalSteps
   ]);
 
+  function closeInputRequest(result) {
+    const resolve = inputResolverRef.current;
+    inputResolverRef.current = null;
+    setInputRequest(null);
+    setInputValue("");
+    resolve?.(result);
+  }
+
   function cancelActiveExecution() {
     activeRequestRef.current?.abort();
     activeRequestRef.current = null;
+    closeInputRequest({ confirmed: false, value: "" });
+  }
+
+  function requestProgramInput(request) {
+    return new Promise((resolve) => {
+      inputResolverRef.current = resolve;
+      setInputValue("");
+      setInputRequest(request);
+    });
+  }
+
+  function handleInputConfirm() {
+    closeInputRequest({ confirmed: true, value: inputValue });
+  }
+
+  function handleInputCancel() {
+    cancelActiveExecution();
+    setIsExecuting(false);
+    setNotification("Execution cancelled while waiting for program input.");
   }
 
   function clearExecution(languageId) {
@@ -311,26 +325,40 @@ export default function App() {
     setNotification("");
 
     try {
-      const response = await fetch("/api/execute", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json"
+      const execution = await executeWithInteractiveInputs({
+        execute: async (collectedInputs) => {
+          const response = await fetch("/api/execute", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              accept: "application/json"
+            },
+            body: JSON.stringify({
+              language: selectedLanguage,
+              source,
+              inputs: collectedInputs
+            }),
+            signal: controller.signal
+          });
+
+          const result = await readJsonResponse(response, "Execution service");
+
+          if (!response.ok || result.status !== "ok") {
+            throw new Error(
+              result.error?.message || `${language.label} execution failed.`
+            );
+          }
+
+          return result;
         },
-        body: JSON.stringify({ language: selectedLanguage, source }),
-        signal: controller.signal
+        requestInput: requestProgramInput
       });
 
-      const result = await readJsonResponse(
-        response,
-        `${language.label} execution service`
-      );
-
-      if (!response.ok || result.status !== "ok") {
-        throw new Error(
-          result.error?.message || `${language.label} execution failed.`
-        );
+      if (execution.cancelled || controller.signal.aborted) {
+        return;
       }
+
+      const { inputs: collectedInputs, result } = execution;
 
       const presentation = createExecutionPresentation(result);
 
@@ -338,6 +366,7 @@ export default function App() {
         ...previousExecutions,
         [selectedLanguage]: {
           source,
+          inputs: collectedInputs,
           presentation
         }
       }));
@@ -355,10 +384,6 @@ export default function App() {
       setIsPlaying(presentation.steps.length > 1);
     } catch (error) {
       if (error.name !== "AbortError") {
-        if (error instanceof ApiResponseError) {
-          setBackendStatus("offline");
-        }
-
         setNotification(error.message || `${language.label} execution failed.`);
       }
     } finally {
@@ -437,6 +462,10 @@ export default function App() {
     }
 
     if (isExecuting) {
+      if (inputRequest) {
+        return `${language.label} · Waiting for input #${inputRequest.inputNumber}`;
+      }
+
       return `${language.label} · Generating execution trace`;
     }
 
@@ -556,6 +585,15 @@ export default function App() {
           <span>UNDERSTAND IT.</span>
         </div>
       </div>
+
+      <ProgramInputDialog
+        request={inputRequest}
+        value={inputValue}
+        languageLabel={language.label}
+        onChange={setInputValue}
+        onConfirm={handleInputConfirm}
+        onCancel={handleInputCancel}
+      />
     </div>
   );
 }

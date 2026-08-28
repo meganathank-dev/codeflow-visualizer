@@ -155,7 +155,13 @@ function CallStackTab({
   if (step.callStack.length === 0) {
     return (
       <div className="inspector-message">
-        No program call-stack frames are available for this step.
+        No active call-stack frames are available for this step.
+        {step.functionHistory?.length > 0 && (
+          <span className="last-function-return">
+            Last return: <code>{step.functionHistory.at(-1).name}()</code>
+            {" → "}{formatValue(step.functionHistory.at(-1).returnValue)}
+          </span>
+        )}
       </div>
     );
   }
@@ -163,17 +169,17 @@ function CallStackTab({
   return (
     <div className="call-stack-list">
       {
-        step.callStack.map(
+        [...step.callStack].reverse().map(
           (frame, index) => (
             <div
-              className="call-stack-row"
+              className={index === 0 ? "call-stack-row is-stack-top" : "call-stack-row"}
               key={
                 `${frame.name}-${index}`
               }
             >
               <span className="call-stack-index">
                 {
-                  String(index).padStart(
+                  String(frame.depth ?? step.callStack.length - index).padStart(
                     2,
                     "0"
                   )
@@ -186,9 +192,29 @@ function CallStackTab({
                 }
               </code>
 
+              {index === 0 && <span className="call-stack-top-label">TOP</span>}
+
+              {frame.recursive && (
+                <span className="call-stack-depth">recursion {frame.recursionDepth}</span>
+              )}
+
               <span className="call-stack-line">
                 line {frame.line}
               </span>
+
+              {(Object.keys(frame.parameters || {}).length > 0 || Object.keys(frame.locals || {}).length > 0) && (
+                <div className="call-stack-values">
+                  {Object.entries(frame.parameters || {}).map(([name, value]) => (
+                    <span key={`parameter-${name}`}><small>{name}</small><code>{formatValue(value)}</code></span>
+                  ))}
+                  {Object.entries(frame.locals || {})
+                    .filter(([name]) => !Object.hasOwn(frame.parameters || {}, name))
+                    .slice(0, 4)
+                    .map(([name, value]) => (
+                      <span className="is-local" key={`local-${name}`}><small>{name}</small><code>{formatValue(value)}</code></span>
+                    ))}
+                </div>
+              )}
             </div>
           )
         )

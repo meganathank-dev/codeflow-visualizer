@@ -70,9 +70,9 @@ public final class CodeFlowJavaDebugger {
     }
 
     public static void main(String[] args) {
-        if (args.length != 2) {
+        if (args.length != 3) {
             System.err.println(
-                "Usage: CodeFlowJavaDebugger <build-directory> <main-class>"
+                "Usage: CodeFlowJavaDebugger <build-directory> <main-class> <encoded-inputs>"
             );
             System.exit(1);
         }
@@ -83,9 +83,10 @@ public final class CodeFlowJavaDebugger {
             .toString();
 
         String mainClass = args[1];
+        List<String> inputs = decodeInputs(args[2]);
 
         try {
-            runDebugger(buildDirectory, mainClass);
+            runDebugger(buildDirectory, mainClass, inputs);
         } catch (Exception error) {
             emit(
                 "TRACER_FAILURE",
@@ -101,7 +102,8 @@ public final class CodeFlowJavaDebugger {
 
     private static void runDebugger(
         String buildDirectory,
-        String mainClass
+        String mainClass,
+        List<String> inputs
     ) throws Exception {
         LaunchingConnector connector = Bootstrap
             .virtualMachineManager()
@@ -140,6 +142,15 @@ public final class CodeFlowJavaDebugger {
 
         Process targetProcess =
             virtualMachine.process();
+
+        if (!inputs.isEmpty()) {
+            String inputText = String.join(System.lineSeparator(), inputs)
+                + System.lineSeparator();
+            targetProcess.getOutputStream().write(
+                inputText.getBytes(StandardCharsets.UTF_8)
+            );
+        }
+        targetProcess.getOutputStream().close();
 
         List<String> standardOutput =
             Collections.synchronizedList(
@@ -203,6 +214,21 @@ public final class CodeFlowJavaDebugger {
                 : "completed";
 
         emit("END", status);
+    }
+
+    private static List<String> decodeInputs(String encodedInputs) {
+        List<String> inputs = new ArrayList<>();
+        if (encodedInputs == null || encodedInputs.isEmpty()) {
+            return inputs;
+        }
+
+        for (String encodedInput : encodedInputs.split(",", -1)) {
+            inputs.add(new String(
+                Base64.getDecoder().decode(encodedInput),
+                StandardCharsets.UTF_8
+            ));
+        }
+        return inputs;
     }
 
     private static void configureClassPreparation(

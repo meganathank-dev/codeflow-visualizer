@@ -43,10 +43,10 @@ async function requestJson(baseUrl, pathname, options = {}) {
   };
 }
 
-function execute(baseUrl, language, source) {
+function execute(baseUrl, language, source, inputs = []) {
   return requestJson(baseUrl, "/execute", {
     method: "POST",
-    body: JSON.stringify({ language, source })
+    body: JSON.stringify({ language, source, inputs })
   });
 }
 
@@ -1487,6 +1487,91 @@ async function testSyntaxErrors(baseUrl) {
   }
 }
 
+async function testCrossLanguageInputAndErrors(baseUrl) {
+  const inputs = ["Meganathan", "20"];
+  const fixtures = {
+    javascript: [
+      'const name = prompt("Name?");',
+      'const age = Number(prompt("Age?"));',
+      'console.log("User:", name, age);'
+    ].join("\n"),
+    python: [
+      'name = input("Name? ")',
+      'age = int(input("Age? "))',
+      'print("User:", name, age)'
+    ].join("\n"),
+    java: [
+      "import java.util.Scanner;",
+      "public class Main {",
+      "  public static void main(String[] args) {",
+      "    Scanner scanner = new Scanner(System.in);",
+      "    String name = scanner.nextLine();",
+      "    int age = Integer.parseInt(scanner.nextLine());",
+      '    System.out.println("User: " + name + " " + age);',
+      "  }",
+      "}"
+    ].join("\n")
+  };
+
+  const executions = {};
+  for (const [language, source] of Object.entries(fixtures)) {
+    executions[language] = assertCompletedProgram(
+      await execute(baseUrl, language, source, inputs),
+      language
+    );
+    const inputEvents = executions[language].trace.events.filter(
+      (event) => event.type === "INPUT"
+    );
+    assert.equal(inputEvents.length, 2);
+    assert.deepEqual(inputEvents.map((event) => event.payload.rawValue), inputs);
+    assert.equal(executions[language].states.at(-1).input.consumed, 2);
+    assert.equal(executions[language].states.at(-1).input.remaining, 0);
+  }
+
+  for (const [language, source] of Object.entries({
+    javascript: 'const missing = prompt("Missing?");',
+    python: 'missing = input("Missing? ")',
+    java: [
+      "import java.util.Scanner;",
+      "public class Main {",
+      "  public static void main(String[] args) {",
+      "    Scanner scanner = new Scanner(System.in);",
+      "    String missing = scanner.nextLine();",
+      "  }",
+      "}"
+    ].join("\n")
+  })) {
+    const response = await execute(baseUrl, language, source, []);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.executionStatus, "failed");
+    const error = response.body.states.at(-1).errors.at(-1);
+    assert.equal(error.category, "input");
+    assert.equal(error.code, "INPUT_EXHAUSTED");
+    assert.match(error.hint, /input/i);
+    assert.equal(typeof error.sourceExcerpt, "string");
+    assert.equal(error.inputRequest.inputNumber, 1);
+    assert.equal(typeof error.inputRequest.prompt, "string");
+    assert.ok(error.inputRequest.prompt.length > 0);
+    assertRequiredEvents(response.body.trace, ["EXCEPTION_THROW", "ERROR"]);
+  }
+
+  for (const [language, source] of Object.entries(fixtures)) {
+    const response = await execute(baseUrl, language, source, [inputs[0]]);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.executionStatus, "failed");
+    const error = response.body.states.at(-1).errors.at(-1);
+    assert.equal(error.code, "INPUT_EXHAUSTED");
+    assert.equal(error.inputRequest.inputNumber, 2);
+    assert.match(error.inputRequest.prompt, /age|input #2/i);
+    assert.equal(
+      response.body.trace.events.filter((event) => event.type === "INPUT").length,
+      1
+    );
+  }
+
+  return executions;
+}
+
 async function testPolicyRejection(baseUrl) {
   for (const [language, source] of [
     ["javascript", "process.exit(1);"],
@@ -1542,6 +1627,7 @@ async function runTests() {
     const recursion = await testCrossLanguageRecursion(baseUrl);
     const dynamicProgramming = await testCrossLanguageDynamicProgramming(baseUrl);
     const hanoi = await testCrossLanguageTowerOfHanoi(baseUrl);
+    const inputHandling = await testCrossLanguageInputAndErrors(baseUrl);
 
     await testPythonEnumerate(baseUrl);
     await testSqlJoin(baseUrl);
@@ -1577,6 +1663,10 @@ async function runTests() {
     console.log("SQL JOIN visualization: passed");
     console.log("SQL GROUP BY and aggregation: passed");
     console.log("SQL DISTINCT visualization: passed");
+    console.log("Cross-language input and error visualization: passed");
+    console.log(`JavaScript input events: ${inputHandling.javascript.trace.events.filter((event) => event.type === "INPUT").length}`);
+    console.log(`Python input events: ${inputHandling.python.trace.events.filter((event) => event.type === "INPUT").length}`);
+    console.log(`Java input events: ${inputHandling.java.trace.events.filter((event) => event.type === "INPUT").length}`);
     console.log("Cross-language queue execution: passed");
     console.log("Queue front and removed variables: passed");
     console.log(`JavaScript queue events: ${queues.javascript.trace.events.filter((event) => event.type.startsWith("QUEUE_")).length}`);

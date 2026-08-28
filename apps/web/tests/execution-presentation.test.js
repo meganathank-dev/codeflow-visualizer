@@ -10,6 +10,11 @@ import {
   readJsonResponse
 } from "../src/utils/http-response.js";
 
+import {
+  executeWithInteractiveInputs,
+  getPendingInputRequest
+} from "../src/utils/interactive-input.js";
+
 function createState(step, overrides = {}) {
   return {
     step,
@@ -1459,6 +1464,151 @@ async function runTests() {
   assert.equal(presentation.steps[6].console[0].text, "Total: 24");
   assert.equal(presentation.steps[6].variables.total, 24);
 
+  const inputErrorEvents = [
+    {
+      id: "input-event",
+      step: 0,
+      type: "INPUT",
+      source: { line: 1 },
+      payload: {
+        inputNumber: 1,
+        prompt: "Name?",
+        rawValue: "Divya",
+        value: "Divya",
+        remaining: 0
+      }
+    },
+    {
+      id: "error-event",
+      step: 1,
+      type: "ERROR",
+      source: { line: 2 },
+      payload: {
+        name: "TypeError",
+        message: "Example failure",
+        phase: "execute",
+        category: "runtime",
+        hint: "Check the value types.",
+        sourceExcerpt: "value.run();",
+        frames: [{ functionName: "main", line: 2 }]
+      }
+    }
+  ];
+  const inputErrorPresentation = createExecutionPresentation({
+    status: "ok",
+    language: "javascript",
+    executionStatus: "failed",
+    trace: { traceId: "input-error", status: "failed", events: inputErrorEvents },
+    states: [
+      createState(0, {
+        input: {
+          current: inputErrorEvents[0].payload,
+          history: [inputErrorEvents[0].payload],
+          consumed: 1,
+          remaining: 0
+        }
+      }),
+      createState(1, {
+        errors: [{ ...inputErrorEvents[1].payload, source: { line: 2 } }],
+        input: {
+          current: inputErrorEvents[0].payload,
+          history: [inputErrorEvents[0].payload],
+          consumed: 1,
+          remaining: 0
+        }
+      })
+    ]
+  });
+  assert.equal(inputErrorPresentation.steps[0].input.current.rawValue, "Divya");
+  assert.match(inputErrorPresentation.steps[0].description, /Name\?.*Divya/);
+  assert.equal(inputErrorPresentation.steps[1].error.category, "runtime");
+  assert.equal(inputErrorPresentation.steps[1].error.sourceExcerpt, "value.run();");
+
+  assert.deepEqual(
+    getPendingInputRequest({
+      states: [
+        createState(0, {
+          errors: [{
+            code: "INPUT_EXHAUSTED",
+            category: "input",
+            inputRequest: { prompt: "Enter your name: ", inputNumber: 1 },
+            sourceExcerpt: 'name = input("Enter your name: ")'
+          }]
+        })
+      ]
+    }),
+    {
+      prompt: "Enter your name:",
+      inputNumber: 1,
+      sourceExcerpt: 'name = input("Enter your name: ")'
+    }
+  );
+
+  assert.deepEqual(
+    getPendingInputRequest({
+      trace: {
+        events: [{
+          type: "ERROR",
+          payload: { code: "INPUT_EXHAUSTED", category: "input" }
+        }]
+      }
+    }, 2),
+    { prompt: "Enter input #2:", inputNumber: 2, sourceExcerpt: null }
+  );
+
+  assert.equal(
+    getPendingInputRequest({
+      states: [createState(0, { errors: [{ category: "runtime" }] })]
+    }),
+    null
+  );
+
+  const requestedInputs = [];
+  const executionCalls = [];
+  const interactiveExecution = await executeWithInteractiveInputs({
+    execute: async (inputs) => {
+      executionCalls.push(inputs);
+
+      if (inputs.length < 2) {
+        const inputNumber = inputs.length + 1;
+        return {
+          states: [
+            createState(0, {
+              errors: [{
+                code: "INPUT_EXHAUSTED",
+                category: "input",
+                inputRequest: {
+                  prompt: inputNumber === 1 ? "Enter your name:" : "Enter a number:",
+                  inputNumber
+                }
+              }]
+            })
+          ]
+        };
+      }
+
+      return { status: "ok", executionStatus: "completed" };
+    },
+    requestInput: async (request) => {
+      requestedInputs.push(request);
+      return {
+        confirmed: true,
+        value: request.inputNumber === 1 ? "Meganathan" : "5"
+      };
+    }
+  });
+
+  assert.deepEqual(executionCalls, [[], ["Meganathan"], ["Meganathan", "5"]]);
+  assert.deepEqual(
+    requestedInputs.map(({ prompt, inputNumber }) => ({ prompt, inputNumber })),
+    [
+      { prompt: "Enter your name:", inputNumber: 1 },
+      { prompt: "Enter a number:", inputNumber: 2 }
+    ]
+  );
+  assert.equal(interactiveExecution.cancelled, false);
+  assert.deepEqual(interactiveExecution.inputs, ["Meganathan", "5"]);
+
   const pythonPresentation = createExecutionPresentation(createResult("python"));
   assert.equal(pythonPresentation.language, "python");
   assert.match(pythonPresentation.steps[0].description, /Python execution/);
@@ -1839,6 +1989,8 @@ async function runTests() {
   console.log("SQL row-filter highlighting: passed");
   console.log("SQL result synchronization: passed");
   console.log("Empty and invalid API response handling: passed");
+  console.log("Program input and enriched error presentation: passed");
+  console.log("Sequential interactive input request detection: passed");
 }
 
 runTests().catch((error) => {
