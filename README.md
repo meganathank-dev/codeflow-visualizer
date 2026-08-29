@@ -116,3 +116,18 @@ packages/
 docs/
 pocs/
 ```
+
+## Documentation
+
+- [Technical architecture](docs/architecture.md)
+- [Phase 0 — Technical validation](docs/phase-0-summary.md)
+- [Phase 1 — Architecture foundation](docs/phase-1-summary.md)
+- [Phase 2 — Real JavaScript execution](docs/phase-2-summary.md)
+- [Phase 3 — Real Python execution](docs/phase-3-summary.md)
+- [Phase 4 — Real Java JDI execution](docs/phase-4-summary.md)
+- [Phase 5 — Real SQL and relational visualization](docs/phase-5-summary.md)
+- [Phase 6 — Cross-language data structures](docs/phase-6-summary.md)
+- [Phase 7 — Algorithms and algorithm closure](docs/phase-7-summary.md)
+- [Phase 8 — Core MVP completion](docs/phase-8-summary.md)
+- [Phase 9 — MERN user platform](docs/phase-9-summary.md)
+- [Phase 10 — AI, feedback, and reliability](docs/phase-10-summary.md)
