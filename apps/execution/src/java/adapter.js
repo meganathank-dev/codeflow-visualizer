@@ -2412,6 +2412,161 @@ function processCollectionStatement(
   }
 }
 
+function findDeclaredJavaHashMaps(sourceLines) {
+  const declarations = [];
+
+  sourceLines.forEach((sourceLine, index) => {
+    const match = sourceLine.match(
+      /\b(?:Map|HashMap|LinkedHashMap)\s*(?:<[^;=]+>)?\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+(?:HashMap|LinkedHashMap)\s*(?:<[^;>]*>)?\s*\(/
+    );
+
+    if (match) {
+      declarations.push({
+        name: match[1],
+        line: index + 1
+      });
+    }
+  });
+
+  return declarations;
+}
+
+function reconcileMissingHashMapEvents(
+  recorder,
+  sourceLines,
+  logicalHashMaps,
+  observedLocals
+) {
+  const recordedEvents = recorder.events;
+
+  for (const declaration of findDeclaredJavaHashMaps(sourceLines)) {
+    const { name, line: declarationLine } = declaration;
+    const mapEvents = recordedEvents.filter((event) => (
+      event.payload?.mapName === name || event.payload?.name === name
+    ));
+
+    // Normal JDI traces already record map operations at their actual line
+    // events. Reconciliation is reserved for JDKs that skip every put line.
+    if (mapEvents.some((event) => event.type === EVENT_TYPES.HASHMAP_SET)) {
+      continue;
+    }
+
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const operationPattern = new RegExp(
+      `\\b${escapedName}\\s*\\.\\s*(put|putIfAbsent|get|containsKey|remove)\\s*\\((.*?)\\)\\s*;`
+    );
+    const operations = [];
+
+    sourceLines.forEach((sourceLine, index) => {
+      const match = sourceLine.match(operationPattern);
+
+      if (match) {
+        operations.push({
+          method: match[1],
+          expression: match[2],
+          line: index + 1
+        });
+      }
+    });
+
+    if (!operations.some(({ method }) => (
+      method === "put" || method === "putIfAbsent"
+    ))) {
+      continue;
+    }
+
+    if (!mapEvents.some((event) => event.type === EVENT_TYPES.HASHMAP_CREATE)) {
+      record(recorder, EVENT_TYPES.HASHMAP_CREATE, declarationLine, {
+        name,
+        mapName: name,
+        entries: [],
+        size: 0,
+        reconciled: true
+      });
+    }
+
+    const entries = [];
+    logicalHashMaps.set(name, entries);
+
+    for (const operation of operations) {
+      const argumentsList = operation.expression.trim() === ""
+        ? []
+        : operation.expression.split(",").map((item) => item.trim());
+      const key = evaluateSimpleExpression(argumentsList[0] || "", observedLocals);
+      const entryIndex = entries.findIndex((entry) => (
+        JSON.stringify(entry.key) === JSON.stringify(key)
+      ));
+      const previous = entryIndex >= 0 ? entries[entryIndex] : null;
+
+      if (
+        operation.method === "put" ||
+        (operation.method === "putIfAbsent" && !previous)
+      ) {
+        const value = evaluateSimpleExpression(
+          argumentsList[1] || "",
+          observedLocals
+        );
+        const previousValue = previous
+          ? structuredClone(previous.value)
+          : null;
+
+        if (previous) {
+          previous.value = structuredClone(value);
+        } else {
+          entries.push({
+            key: structuredClone(key),
+            value: structuredClone(value)
+          });
+        }
+
+        record(recorder, EVENT_TYPES.HASHMAP_SET, operation.line, {
+          name,
+          mapName: name,
+          key,
+          value,
+          previousValue,
+          updated: Boolean(previous),
+          entries: structuredClone(entries),
+          size: entries.length,
+          reconciled: true
+        });
+      } else if (operation.method === "get") {
+        record(recorder, EVENT_TYPES.HASHMAP_GET, operation.line, {
+          name,
+          mapName: name,
+          key,
+          value: previous ? structuredClone(previous.value) : null,
+          entries: structuredClone(entries),
+          size: entries.length,
+          reconciled: true
+        });
+      } else if (operation.method === "containsKey") {
+        record(recorder, EVENT_TYPES.HASHMAP_HAS, operation.line, {
+          name,
+          mapName: name,
+          key,
+          result: Boolean(previous),
+          entries: structuredClone(entries),
+          size: entries.length,
+          reconciled: true
+        });
+      } else if (operation.method === "remove" && previous) {
+        entries.splice(entryIndex, 1);
+
+        record(recorder, EVENT_TYPES.HASHMAP_DELETE, operation.line, {
+          name,
+          mapName: name,
+          key,
+          value: previous.value,
+          entries: structuredClone(entries),
+          size: entries.length,
+          reconciled: true
+        });
+      }
+    }
+  }
+}
+
 function findClosingBrace(sourceLines, startIndex) {
   let depth = 0;
   let sawOpeningBrace = false;
@@ -2770,6 +2925,7 @@ function buildJavaTrace(rawObservations, options) {
   const logicalSorts = { nextId: 0 };
   const logicalDynamicPrograms = { nextId: 0, processed: new Set() };
   const logicalHanoiRuns = { nextId: 0, processed: new Set() };
+  const observedLocals = {};
   const logicalInputs = {
     values: Array.isArray(options.inputs) ? [...options.inputs] : [],
     index: 0
@@ -2797,6 +2953,7 @@ function buildJavaTrace(rawObservations, options) {
       const callerLine = parsePositiveLine(fields[3], methodLine);
       const functionName = decode(fields[4]);
       const locals = decodeLocals(fields[5]);
+      Object.assign(observedLocals, locals);
       const scopeId = functionName === "main" ? null : frameId;
       const callerFrame = activeFrames.at(-1) || null;
       const recursionDepth = 1 + activeFrames.filter(
@@ -2867,6 +3024,7 @@ function buildJavaTrace(rawObservations, options) {
       const line = parsePositiveLine(fields[2], lastObservedLine);
       const functionName = decode(fields[3]);
       const locals = decodeLocals(fields[4]);
+      Object.assign(observedLocals, locals);
 
       const frameState = frameStates.get(frameId) || {
         functionName,
@@ -2943,6 +3101,7 @@ function buildJavaTrace(rawObservations, options) {
       const returnType = decode(fields[4]);
       const returnValue = decodeValue(returnType, fields[5]);
       const locals = decodeLocals(fields[6]);
+      Object.assign(observedLocals, locals);
       const frameState = frameStates.get(frameId);
       const activeFrameIndex = activeFrames.findLastIndex(
         (activeFrame) => activeFrame.scopeId === frameState?.scopeId &&
@@ -3108,6 +3267,13 @@ function buildJavaTrace(rawObservations, options) {
     }
 
     if (endStatus === "completed") {
+      reconcileMissingHashMapEvents(
+        recorder,
+        options.sourceLines,
+        logicalHashMaps,
+        observedLocals
+      );
+
       recorder.finish(
         { status: "completed", message: "Java execution completed." },
         { source: { line: lastObservedLine } }
