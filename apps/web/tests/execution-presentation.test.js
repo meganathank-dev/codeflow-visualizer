@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   createExecutionPresentation,
@@ -25,6 +26,11 @@ import {
   formatRuntimeValue,
   selectVisibleRuntimeVariables
 } from "../src/utils/value-presentation.js";
+
+import {
+  formatPlatformDate,
+  normalizeProjectDraft
+} from "../src/utils/user-platform-api.js";
 
 function createState(step, overrides = {}) {
   return {
@@ -1460,6 +1466,13 @@ function createRecursionResult(language) {
 }
 
 async function runTests() {
+  const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(
+    styles,
+    /--accent-mint\s*:\s*var\(--accent-green\)/,
+    "The Phase 9 primary-action color must resolve to the application theme."
+  );
+
   const presentation = createExecutionPresentation(createResult());
 
   assert.equal(presentation.language, "javascript");
@@ -1680,6 +1693,22 @@ async function runTests() {
   assert.equal(getPlaybackSpeedDescription(0.25), "Very slow");
   assert.equal(getPlaybackSpeedDescription(1), "Readable");
   assert.equal(getPlaybackSpeedDescription(2), "Very fast");
+  assert.deepEqual(
+    normalizeProjectDraft({
+      title: "  Array total  ",
+      description: "  Saved workspace  ",
+      language: "javascript",
+      source: "const total = 24;"
+    }),
+    {
+      title: "Array total",
+      description: "Saved workspace",
+      language: "javascript",
+      source: "const total = 24;"
+    }
+  );
+  assert.notEqual(formatPlatformDate("2026-08-28T10:00:00.000Z"), "Unknown time");
+  assert.equal(formatPlatformDate("not-a-date"), "Unknown time");
   assert.equal(
     getPrimaryActionLabel({
       supportsLiveExecution: true,
@@ -2080,6 +2109,8 @@ async function runTests() {
   console.log("Sequential interactive input request detection: passed");
   console.log("Readable event-aware playback timing: passed");
   console.log("Primary playback action-state labels: passed");
+  console.log("User-platform project and date presentation: passed");
+  console.log("User-platform action color and contrast regression: passed");
   console.log("Java runtime-object filtering and friendly values: passed");
   console.log("Playback, inspector accessibility, and MVP UI acceptance: passed");
 }

@@ -176,6 +176,8 @@ async function runTests() {
       ["javascript", "python", "java", "sql"]
     );
     assert.equal(health.body.executionService.security.acceptsUntrustedCode, false);
+    assert.equal(health.body.userPlatform.connected, true);
+    assert.equal(health.body.userPlatform.storage, "memory");
 
     const languages = await requestJson(apiBaseUrl, "/api/languages");
 
@@ -289,6 +291,7 @@ async function runTests() {
     console.log("API tests passed.");
     console.log("API health endpoint: passed");
     console.log("Execution service connection: passed");
+    console.log("User-platform storage health: passed");
     console.log(`Supported languages: ${languages.body.languages.length}`);
     console.log("Real JavaScript trace forwarding: passed");
     console.log("Real Python trace forwarding: passed");

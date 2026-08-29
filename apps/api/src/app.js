@@ -3,6 +3,8 @@
 const express = require("express");
 
 const { SUPPORTED_LANGUAGES } = require("@codeflow/execution-trace");
+const { createMemoryUserRepository } = require("./user-platform/memory-repository");
+const { createUserPlatform } = require("./user-platform/platform");
 
 const DEFAULT_EXECUTION_SERVICE_URL = "http://127.0.0.1:4100";
 // Keep the API timeout above the execution-service process timeout. Java must
@@ -13,6 +15,8 @@ const DEFAULT_MAX_SOURCE_BYTES = 32 * 1024;
 const DEFAULT_MAX_INPUT_ITEMS = 20;
 const DEFAULT_MAX_INPUT_ITEM_BYTES = 512;
 const DEFAULT_MAX_INPUT_BYTES = 4 * 1024;
+const DEFAULT_ACCESS_TOKEN_SECRET = "codeflow-local-access-secret-change-me";
+const DEFAULT_REFRESH_TOKEN_SECRET = "codeflow-local-refresh-secret-change-me";
 
 class ApiRequestError extends Error {
   constructor(message, statusCode, code) {
@@ -185,6 +189,20 @@ function createApiApp(options = {}) {
     requestTimeoutMs
   });
 
+  const configuredAccessSecret = options.accessTokenSecret || process.env.ACCESS_TOKEN_SECRET;
+  const configuredRefreshSecret = options.refreshTokenSecret || process.env.REFRESH_TOKEN_SECRET;
+
+  if (process.env.NODE_ENV === "production" && (!configuredAccessSecret || !configuredRefreshSecret)) {
+    throw new TypeError("ACCESS_TOKEN_SECRET and REFRESH_TOKEN_SECRET are required in production");
+  }
+
+  const userPlatform = createUserPlatform({
+    repository: options.userRepository || createMemoryUserRepository(),
+    accessTokenSecret: configuredAccessSecret || DEFAULT_ACCESS_TOKEN_SECRET,
+    refreshTokenSecret: configuredRefreshSecret || DEFAULT_REFRESH_TOKEN_SECRET,
+    secureCookies: options.secureCookies ?? process.env.NODE_ENV === "production"
+  });
+
   const app = express();
 
   app.disable("x-powered-by");
@@ -211,7 +229,11 @@ function createApiApp(options = {}) {
           enabledLanguages: executionHealth.body.executionEnabledLanguages || [],
           security: executionHealth.body.security || null
         },
-        languages: SUPPORTED_LANGUAGES
+        languages: SUPPORTED_LANGUAGES,
+        userPlatform: {
+          connected: true,
+          storage: userPlatform.repository.kind
+        }
       });
     } catch (error) {
       if (
@@ -227,7 +249,11 @@ function createApiApp(options = {}) {
             enabledLanguages: [],
             security: null
           },
-          languages: SUPPORTED_LANGUAGES
+          languages: SUPPORTED_LANGUAGES,
+          userPlatform: {
+            connected: true,
+            storage: userPlatform.repository.kind
+          }
         });
 
         return;
@@ -246,7 +272,7 @@ function createApiApp(options = {}) {
     }
   });
 
-  app.post("/api/execute", async (request, response, next) => {
+  app.post("/api/execute", userPlatform.optionalAuth, async (request, response, next) => {
     try {
       const executionRequest = validateExecutionRequest(
         request.body,
@@ -258,11 +284,21 @@ function createApiApp(options = {}) {
         body: JSON.stringify(executionRequest)
       });
 
+      if (executionResult.status === 200 && executionResult.body?.status === "ok") {
+        await userPlatform.recordExecution(
+          request.authUser,
+          executionRequest,
+          executionResult.body
+        );
+      }
+
       response.status(executionResult.status).json(executionResult.body);
     } catch (error) {
       next(error);
     }
   });
+
+  app.use("/api", userPlatform.router);
 
   app.use((request, response) => {
     response.status(404).json({
@@ -310,6 +346,30 @@ function createApiApp(options = {}) {
         error: {
           code: error.code,
           message: error.message
+        }
+      });
+
+      return;
+    }
+
+    if (Number.isInteger(error.statusCode) && typeof error.code === "string") {
+      response.status(error.statusCode).json({
+        status: "error",
+        error: {
+          code: error.code,
+          message: error.message
+        }
+      });
+
+      return;
+    }
+
+    if (error?.code === 11000) {
+      response.status(409).json({
+        status: "error",
+        error: {
+          code: "RESOURCE_ALREADY_EXISTS",
+          message: "A record with this value already exists"
         }
       });
 

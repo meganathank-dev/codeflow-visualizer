@@ -6,14 +6,15 @@
   "type": "commonjs",
   "main": "./src/server.js",
   "scripts": {
-    "dev": "node src/server.js",
-    "dev:watch": "node --watch src/server.js",
-    "start": "node src/server.js",
-    "test": "node tests/api.test.js"
+    "dev": "node --env-file-if-exists=.env src/server.js",
+    "dev:watch": "node --env-file-if-exists=.env --watch src/server.js",
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "test": "node tests/api.test.js && node tests/user-platform.test.js"
   },
   "dependencies": {
     "@codeflow/execution-trace": "workspace:*",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "mongoose": "^8.24.4"
   },
   "engines": {
     "node": ">=22.0.0"

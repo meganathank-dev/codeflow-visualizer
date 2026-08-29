@@ -5,6 +5,7 @@ import { AlertCircle, Radio, X } from "lucide-react";
 import AppHeader from "./components/AppHeader";
 import EditorPanel from "./components/EditorPanel";
 import ProgramInputDialog from "./components/ProgramInputDialog";
+import UserPlatformDialog from "./components/UserPlatformDialog";
 import VisualizationPanel from "./components/VisualizationPanel";
 import InspectorPanel from "./components/InspectorPanel";
 import TimelineControls from "./components/TimelineControls";
@@ -23,6 +24,10 @@ import {
 import { readJsonResponse } from "./utils/http-response";
 import { executeWithInteractiveInputs } from "./utils/interactive-input";
 import { getPlaybackDelay } from "./utils/playback";
+import {
+  fetchWithUserSession,
+  restoreUserSession
+} from "./utils/user-platform-api";
 
 const INITIAL_LANGUAGE = "javascript";
 const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
@@ -51,6 +56,8 @@ export default function App() {
   const [backendStatus, setBackendStatus] = useState("checking");
   const [inputRequest, setInputRequest] = useState(null);
   const [inputValue, setInputValue] = useState("");
+  const [user, setUser] = useState(null);
+  const [isUserPlatformOpen, setIsUserPlatformOpen] = useState(false);
 
   const activeRequestRef = useRef(null);
   const inputResolverRef = useRef(null);
@@ -80,6 +87,14 @@ export default function App() {
   const totalSteps = steps.length;
   const boundedCurrentStep = Math.min(currentStep, totalSteps - 1);
   const activeStep = steps[boundedCurrentStep];
+
+  useEffect(() => {
+    let active = true;
+    restoreUserSession().then((restoredUser) => {
+      if (active) setUser(restoredUser);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -339,7 +354,7 @@ export default function App() {
     try {
       const execution = await executeWithInteractiveInputs({
         execute: async (collectedInputs) => {
-          const response = await fetch("/api/execute", {
+          const response = await fetchWithUserSession("/api/execute", {
             method: "POST",
             headers: {
               "content-type": "application/json",
@@ -462,6 +477,21 @@ export default function App() {
     setNotification("");
   }
 
+  function handleLoadProject(project) {
+    cancelActiveExecution();
+    clearExecution(project.language);
+    setIsExecuting(false);
+    setIsPlaying(false);
+    setSelectedLanguage(project.language);
+    setSources((previousSources) => ({
+      ...previousSources,
+      [project.language]: project.source
+    }));
+    setCurrentStep(0);
+    setNotification(`Loaded saved project: ${project.title}`);
+    setIsUserPlatformOpen(false);
+  }
+
   function getBackendStatusLabel() {
     if (backendStatus === "checking") {
       return "Checking local services...";
@@ -512,6 +542,8 @@ export default function App() {
           supportsLiveExecution={canExecuteLive}
           isAtFirstStep={boundedCurrentStep === 0}
           isAtFinalStep={boundedCurrentStep >= totalSteps - 1}
+          user={user}
+          onAccount={() => setIsUserPlatformOpen(true)}
           onRun={handlePrimaryAction}
           onPause={handlePause}
         />
@@ -612,6 +644,16 @@ export default function App() {
         onChange={setInputValue}
         onConfirm={handleInputConfirm}
         onCancel={handleInputCancel}
+      />
+
+      <UserPlatformDialog
+        open={isUserPlatformOpen}
+        user={user}
+        language={selectedLanguage}
+        source={source}
+        onClose={() => setIsUserPlatformOpen(false)}
+        onUserChange={setUser}
+        onLoadProject={handleLoadProject}
       />
     </div>
   );

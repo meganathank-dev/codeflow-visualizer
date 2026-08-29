@@ -6,7 +6,8 @@ import {
   Pause,
   Play,
   ShieldCheck,
-  Sparkles
+  Sparkles,
+  UserRound
 } from "lucide-react";
 
 import { LANGUAGE_OPTIONS } from "../data/demo-executions";
@@ -21,6 +22,8 @@ export default function AppHeader({
   supportsLiveExecution,
   isAtFirstStep,
   isAtFinalStep,
+  user,
+  onAccount,
   onRun,
   onPause
 }) {
@@ -60,6 +63,16 @@ export default function AppHeader({
           <ShieldCheck size={15} />
           <span>{supportsLiveExecution ? "Local execution" : "Preview environment"}</span>
         </div>
+
+        <button
+          className="account-action"
+          type="button"
+          onClick={onAccount}
+          aria-label={user ? `Open ${user.name}'s account` : "Sign in to CodeFlow"}
+        >
+          <UserRound size={15} />
+          <span>{user ? user.name.split(" ")[0] : "Sign in"}</span>
+        </button>
 
         <label className="language-selector">
           <span
