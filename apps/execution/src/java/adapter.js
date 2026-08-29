@@ -2189,20 +2189,27 @@ function processCollectionStatement(
 
   if (
     logicalHashMaps.has(name) ||
-    /(?:^|\.)(?:HashMap|LinkedHashMap)$/.test(locals[name]?.value?.display || "")
+    // A JDI line event can expose the receiver only after the first put has
+    // completed (notably on Temurin 21). Map-specific methods are sufficient
+    // source-level evidence to initialize the logical map deterministically.
+    ["put", "putIfAbsent", "containsKey"].includes(method) ||
+    /(?:^|\.)(?:HashMap|LinkedHashMap)$/.test(
+      locals[name]?.value?.display || currentLocals[name]?.value?.display || ""
+    )
   ) {
+    const hashMapLocals = { ...locals, ...currentLocals };
     const entries = logicalHashMaps.get(name) || [];
     const argumentsList = expression.trim() === ""
       ? []
       : expression.split(",").map((item) => item.trim());
-    const key = evaluateSimpleExpression(argumentsList[0] || "", locals);
+    const key = evaluateSimpleExpression(argumentsList[0] || "", hashMapLocals);
     const index = entries.findIndex((entry) => (
       JSON.stringify(entry.key) === JSON.stringify(key)
     ));
     const previous = index >= 0 ? entries[index] : null;
 
     if (method === "put" || (method === "putIfAbsent" && !previous)) {
-      const value = evaluateSimpleExpression(argumentsList[1] || "", locals);
+      const value = evaluateSimpleExpression(argumentsList[1] || "", hashMapLocals);
       const previousValue = previous ? structuredClone(previous.value) : null;
 
       if (previous) {
