@@ -6,6 +6,7 @@ import {
 
 import {
   Activity,
+  ALargeSmall,
   BookOpenText,
   Braces,
   CircleAlert,
@@ -16,6 +17,9 @@ import {
   Sparkles,
   TerminalSquare
 } from "lucide-react";
+
+import AccessibleSelect from "./AccessibleSelect";
+import { DISPLAY_MODES } from "../utils/display-preferences";
 
 import {
   formatRuntimeValue,
@@ -467,6 +471,8 @@ export default function InspectorPanel({
   source = "",
   language = "javascript",
   verificationId = "",
+  displayMode = "compact",
+  onDisplayModeChange = () => {},
   onSeek = () => {}
 }) {
   const [
@@ -478,50 +484,39 @@ export default function InspectorPanel({
 
   return (
     <section className="inspector-panel">
-      <div className="inspector-tabs" role="tablist" aria-label="Execution inspector">
-        {
-          TABS.map(
-            ({
-              id,
-              label,
-              icon: Icon
-            }) => (
-              <button
-                className={
-                  activeTab === id
-                    ? "inspector-tab is-active"
-                    : "inspector-tab"
-                }
-                key={id}
-                type="button"
-                role="tab"
-                id={`inspector-tab-${id}`}
-                aria-controls={`inspector-panel-${id}`}
-                aria-selected={activeTab === id}
-                onClick={() => {
-                  setActiveTab(id);
-                }}
-              >
-                <Icon size={15} />
+      <div className="inspector-toolbar">
+        <div className="inspector-tabs" role="tablist" aria-label="Execution inspector">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              className={activeTab === id ? "inspector-tab is-active" : "inspector-tab"}
+              key={id}
+              type="button"
+              role="tab"
+              id={`inspector-tab-${id}`}
+              aria-controls={`inspector-panel-${id}`}
+              aria-selected={activeTab === id}
+              onClick={() => setActiveTab(id)}
+            >
+              <Icon size={15} />
+              <span>{label}</span>
+              {id === "console" && step.console.length > 0 && (
+                <span className="tab-count">{step.console.length}</span>
+              )}
+            </button>
+          ))}
+        </div>
 
-                <span>
-                  {label}
-                </span>
-
-                {
-                  id === "console" &&
-                  step.console.length > 0 && (
-                    <span className="tab-count">
-                      {
-                        step.console.length
-                      }
-                    </span>
-                  )
-                }
-              </button>
-            )
-          )
-        }
+        <div className="inspector-display-control" role="group" aria-label="Inspector text size">
+          <ALargeSmall size={16} aria-hidden="true" />
+          <AccessibleSelect
+            className="display-mode-selector"
+            value={displayMode}
+            options={DISPLAY_MODES}
+            onChange={onDisplayModeChange}
+            ariaLabel="Inspector display size"
+            size="compact"
+          />
+        </div>
       </div>
 
       <div
@@ -530,62 +525,25 @@ export default function InspectorPanel({
         id={`inspector-panel-${activeTab}`}
         aria-labelledby={`inspector-tab-${activeTab}`}
       >
-        {
-          activeTab === "variables" && (
-            <VariablesTab
-              step={step}
-            />
-          )
-        }
-
-        {
-          activeTab === "console" && (
-            <ConsoleTab
-              step={step}
-            />
-          )
-        }
-
-        {
-          activeTab === "stack" && (
-            <CallStackTab
-              step={step}
-            />
-          )
-        }
-
-        {
-          activeTab === "event" && (
-            <EventTab
-              step={step}
-              currentStep={currentStep}
-              totalSteps={totalSteps}
-            />
-          )
-        }
-
-        {
-          activeTab === "trace" && (
-            <TraceTab
-              steps={steps}
-              currentStep={currentStep}
-              onSeek={onSeek}
-            />
-          )
-        }
-
-        {
-          activeTab === "explain" && (
-            <ExplainTab
-              source={source}
-              language={language}
-              steps={steps}
-              currentStep={currentStep}
-              verificationId={verificationId}
-              onSeek={onSeek}
-            />
-          )
-        }
+        {activeTab === "variables" && <VariablesTab step={step} />}
+        {activeTab === "console" && <ConsoleTab step={step} />}
+        {activeTab === "stack" && <CallStackTab step={step} />}
+        {activeTab === "event" && (
+          <EventTab step={step} currentStep={currentStep} totalSteps={totalSteps} />
+        )}
+        {activeTab === "trace" && (
+          <TraceTab steps={steps} currentStep={currentStep} onSeek={onSeek} />
+        )}
+        {activeTab === "explain" && (
+          <ExplainTab
+            source={source}
+            language={language}
+            steps={steps}
+            currentStep={currentStep}
+            verificationId={verificationId}
+            onSeek={onSeek}
+          />
+        )}
       </div>
     </section>
   );

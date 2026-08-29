@@ -23,12 +23,19 @@ import {
 
 import { readJsonResponse } from "./utils/http-response";
 import { executeWithInteractiveInputs } from "./utils/interactive-input";
-import { getPlaybackDelay } from "./utils/playback";
+import {
+  getPlaybackDelay,
+  shouldAutoPlayFreshTrace
+} from "./utils/playback";
 import {
   createExecutionFailure,
   getExecutionStage,
   waitForBackendReady
 } from "./utils/execution-reliability";
+import {
+  readDisplayMode,
+  saveDisplayMode
+} from "./utils/display-preferences";
 import {
   fetchWithUserSession,
   restoreUserSession
@@ -59,6 +66,7 @@ export default function App() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionElapsedSeconds, setExecutionElapsedSeconds] = useState(0);
   const [speed, setSpeed] = useState(1);
+  const [displayMode, setDisplayMode] = useState(readDisplayMode);
   const [notification, setNotification] = useState("");
   const [backendStatus, setBackendStatus] = useState("checking");
   const [inputRequest, setInputRequest] = useState(null);
@@ -88,7 +96,7 @@ export default function App() {
 
   const steps = hasLiveExecution
     ? liveExecution.presentation.steps
-    : canExecuteLive && isEdited
+    : canExecuteLive
       ? [createIdleExecutionStep(selectedLanguage)]
       : demoExecution.steps;
 
@@ -105,6 +113,10 @@ export default function App() {
     });
     return () => { active = false; };
   }, [backendStatus]);
+
+  useEffect(() => {
+    saveDisplayMode(displayMode);
+  }, [displayMode]);
 
   useEffect(() => {
     let isMounted = true;
@@ -460,9 +472,13 @@ export default function App() {
         );
       }
 
-      // A newly generated trace stays at event one so the learner can read it.
-      // Playback begins only after an explicit Play action.
-      setIsPlaying(false);
+      // Running code includes playback; no second Play trace click is needed.
+      setIsPlaying(
+        shouldAutoPlayFreshTrace(
+          presentation.executionStatus,
+          presentation.steps.length
+        )
+      );
     } catch (error) {
       if (error.name !== "AbortError") {
         setNotification(error.message || `${language.label} execution failed.`);
@@ -580,7 +596,7 @@ export default function App() {
       : "preview";
 
   return (
-    <div className={isPlaying ? "app-shell is-running" : "app-shell"}>
+    <div className={`${isPlaying ? "app-shell is-running" : "app-shell"} display-${displayMode}`}>
       <div className="background-grid" aria-hidden="true" />
       <div className="ambient-glow ambient-glow-left" aria-hidden="true" />
       <div className="ambient-glow ambient-glow-right" aria-hidden="true" />
@@ -666,6 +682,8 @@ export default function App() {
             source={source}
             language={selectedLanguage}
             verificationId={hasLiveExecution ? liveExecution.verification?.id : ""}
+            displayMode={displayMode}
+            onDisplayModeChange={setDisplayMode}
             onSeek={handleSeek}
           />
         </main>

@@ -66,6 +66,21 @@ is empty, all explanation actions continue to work with the local verified-trace
 engine. AI requests are accepted only for a short-lived trace identifier issued
 after a successful real execution.
 
+## Phase 11 classroom readiness and security
+
+Phase 11 uses Compact as the default workspace mode and offers Presentation as
+the single larger teaching/projector alternative. Language, playback-speed, and
+display-size controls now use a custom
+keyboard-accessible CodeFlow dropdown instead of the operating system's native
+menu.
+
+`pnpm dev` starts execution, API, and web services in readiness order to avoid
+the initial API proxy race. The API adds security headers, configurable production
+origin enforcement, and separate request limits for execution, AI, and account
+operations. The execution service fails closed in production unless the hosting
+environment confirms network, filesystem, CPU, memory, process, and ephemeral
+workspace isolation.
+
 In development, the reset token is returned to the account dialog for local
 testing. Production must provide a password-reset delivery adapter and never
 expose the token in an API response.
@@ -131,3 +146,4 @@ pocs/
 - [Phase 8 — Core MVP completion](docs/phase-8-summary.md)
 - [Phase 9 — MERN user platform](docs/phase-9-summary.md)
 - [Phase 10 — AI, feedback, and reliability](docs/phase-10-summary.md)
+- [Phase 11 — Reliability, educational accessibility, and security](docs/phase-11-summary.md)

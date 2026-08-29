@@ -4,6 +4,10 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 
 const { DEFAULT_REQUEST_TIMEOUT_MS, createApiApp } = require("../src/app");
+const {
+  createRateLimiter,
+  normalizeOrigins
+} = require("../src/security/http-guards");
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -147,7 +151,7 @@ async function requestJson(baseUrl, pathname, options = {}) {
     }
   });
 
-  return { status: response.status, body: await response.json() };
+  return { status: response.status, headers: response.headers, body: await response.json() };
 }
 
 async function runTests() {
@@ -180,6 +184,21 @@ async function runTests() {
     assert.equal(health.body.userPlatform.storage, "memory");
     assert.equal(health.body.ai.verifiedTraceOnly, true);
     assert.equal(health.body.ai.provider, "verified-local");
+    assert.equal(health.headers.get("x-frame-options"), "DENY");
+    assert.match(health.headers.get("content-security-policy"), /default-src 'none'/);
+
+    assert.deepEqual(
+      [...normalizeOrigins(["http://127.0.0.1:5173/", "http://localhost:5173"])],
+      ["http://127.0.0.1:5173", "http://localhost:5173"]
+    );
+    let limitedError;
+    const limiter = createRateLimiter({ windowMs: 1_000, maximumRequests: 1, clock: () => 100 });
+    const mockRequest = { ip: "test-client" };
+    const mockResponse = { setHeader() {} };
+    limiter(mockRequest, mockResponse, (error) => { limitedError = error; });
+    limiter(mockRequest, mockResponse, (error) => { limitedError = error; });
+    assert.equal(limitedError.code, "RATE_LIMIT_EXCEEDED");
+    assert.equal(limitedError.statusCode, 429);
 
     const languages = await requestJson(apiBaseUrl, "/api/languages");
 
@@ -327,6 +346,7 @@ async function runTests() {
     console.log("Program-input forwarding and validation: passed");
     console.log("Verified trace-only explanation boundary: passed");
     console.log("Execution reliability metadata and timeout budget: passed");
+    console.log("Security headers, origin policy, and request rate limiting: passed");
     console.log("Execution boundary separation: passed");
   } finally {
     await close(apiServer);

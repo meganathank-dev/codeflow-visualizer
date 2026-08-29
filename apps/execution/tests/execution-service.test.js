@@ -2,7 +2,12 @@
 
 const assert = require("node:assert/strict");
 const { assertValidTrace } = require("@codeflow/execution-trace");
-const { createExecutionServer } = require("../src/server");
+const {
+  assertProductionIsolation,
+  createExecutionServer,
+  createHealthResponse,
+  hasProductionIsolation
+} = require("../src/server");
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -1603,6 +1608,16 @@ async function testRequestValidation(baseUrl) {
 }
 
 async function runTests() {
+  assert.equal(hasProductionIsolation({}), false);
+  assert.throws(
+    () => assertProductionIsolation({ environment: "production" }),
+    /requires enforced network, filesystem, memory, CPU, process, and ephemeral-workspace isolation/i
+  );
+  const localHealth = createHealthResponse({ environment: "development" });
+  assert.equal(localHealth.readiness.ready, true);
+  assert.equal(localHealth.security.acceptsUntrustedCode, false);
+  assert.equal(localHealth.security.memoryLimitEnforced, false);
+
   const server = createExecutionServer();
   const address = await listen(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1735,6 +1750,7 @@ async function runTests() {
     console.log("Syntax error handling: passed");
     console.log("Restricted source rejection: passed");
     console.log("Existing language boundaries: passed");
+    console.log("Production isolation gate and readiness metadata: passed");
   } finally {
     await close(server);
   }

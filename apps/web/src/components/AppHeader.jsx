@@ -1,6 +1,5 @@
 import {
   Activity,
-  ChevronDown,
   Code2,
   Pause,
   Play,
@@ -10,6 +9,7 @@ import {
   UserRound
 } from "lucide-react";
 
+import AccessibleSelect from "./AccessibleSelect";
 import { LANGUAGE_OPTIONS } from "../data/demo-executions";
 import { getPrimaryActionLabel } from "../utils/playback";
 
@@ -28,7 +28,12 @@ export default function AppHeader({
   onCancel,
   onPause
 }) {
-  const selectedLanguage = LANGUAGE_OPTIONS.find((item) => item.id === language);
+  const languageOptions = LANGUAGE_OPTIONS.map((option) => ({
+    value: option.id,
+    label: option.label,
+    description: option.filename,
+    color: option.color
+  }));
   const actionLabel = getPrimaryActionLabel({
     isExecuting,
     isPlaying,
@@ -75,27 +80,14 @@ export default function AppHeader({
           <span>{user ? user.name.split(" ")[0] : "Sign in"}</span>
         </button>
 
-        <label className="language-selector">
-          <span
-            className="language-dot"
-            style={{ "--language-color": selectedLanguage.color }}
-          />
-
-          <select
-            value={language}
-            onChange={(event) => onLanguageChange(event.target.value)}
-            aria-label="Programming language"
-            disabled={isExecuting}
-          >
-            {LANGUAGE_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-
-          <ChevronDown className="language-chevron" size={15} />
-        </label>
+        <AccessibleSelect
+          className="language-selector"
+          value={language}
+          options={languageOptions}
+          onChange={onLanguageChange}
+          ariaLabel="Programming language"
+          disabled={isExecuting}
+        />
 
         <button
           className={isExecuting ? "primary-action is-cancelling" : isPlaying ? "primary-action is-playing" : "primary-action"}

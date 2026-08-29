@@ -4,6 +4,11 @@ const express = require("express");
 
 const { SUPPORTED_LANGUAGES } = require("@codeflow/execution-trace");
 const { createVerifiedExplanationService } = require("./ai/verified-explanation-service");
+const {
+  createApiSecurityHeaders,
+  createOriginGuard,
+  createRateLimiter
+} = require("./security/http-guards");
 const { createMemoryUserRepository } = require("./user-platform/memory-repository");
 const { createUserPlatform } = require("./user-platform/platform");
 
@@ -216,11 +221,39 @@ function createApiApp(options = {}) {
 
   app.disable("x-powered-by");
 
-  app.use((request, response, next) => {
-    response.setHeader("cache-control", "no-store");
-    response.setHeader("x-content-type-options", "nosniff");
-    next();
-  });
+  if (options.trustProxy !== undefined) app.set("trust proxy", options.trustProxy);
+
+  const production = (options.environment || process.env.NODE_ENV) === "production";
+  const allowedOrigins = options.allowedOrigins || [
+    process.env.WEB_ORIGIN,
+    "http://127.0.0.1:5173",
+    "http://localhost:5173"
+  ];
+
+  app.use(createApiSecurityHeaders());
+  app.use(createOriginGuard({ allowedOrigins, enforce: production }));
+  app.use("/api", createRateLimiter({
+    windowMs: 60_000,
+    maximumRequests: options.generalRateLimit ?? 300
+  }));
+  app.use("/api/execute", createRateLimiter({
+    windowMs: 60_000,
+    maximumRequests: options.executionRateLimit ?? 30,
+    code: "EXECUTION_RATE_LIMIT_EXCEEDED",
+    message: "Too many execution requests. Wait briefly before running code again."
+  }));
+  app.use("/api/ai", createRateLimiter({
+    windowMs: 60_000,
+    maximumRequests: options.aiRateLimit ?? 30,
+    code: "AI_RATE_LIMIT_EXCEEDED",
+    message: "Too many explanation requests. Wait briefly before asking again."
+  }));
+  app.use("/api/auth", createRateLimiter({
+    windowMs: 15 * 60_000,
+    maximumRequests: options.authRateLimit ?? 40,
+    code: "AUTH_RATE_LIMIT_EXCEEDED",
+    message: "Too many account requests. Wait before trying again."
+  }));
 
   app.use(express.json({ limit: "64kb", strict: true }));
 

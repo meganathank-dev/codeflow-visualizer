@@ -9,7 +9,8 @@
     "pnpm": ">=11.0.0"
   },
   "scripts": {
-    "dev": "pnpm -r --parallel --filter @codeflow/execution --filter @codeflow/api --filter @codeflow/web run dev",
+    "dev": "node scripts/start-development.js",
+    "dev:parallel": "pnpm -r --parallel --filter @codeflow/execution --filter @codeflow/api --filter @codeflow/web run dev",
     "dev:web": "pnpm --filter @codeflow/web dev",
     "dev:api": "pnpm --filter @codeflow/api dev",
     "dev:execution": "pnpm --filter @codeflow/execution dev",

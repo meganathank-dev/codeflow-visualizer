@@ -38,12 +38,15 @@ export function getPlaybackSpeedDescription(speed) {
   return "Very fast";
 }
 
+export function shouldAutoPlayFreshTrace(executionStatus, totalSteps) {
+  return executionStatus !== "failed" && totalSteps > 1;
+}
+
 export function getPrimaryActionLabel({
   isExecuting = false,
   isPlaying = false,
   supportsLiveExecution = false,
   hasLiveExecution = false,
-  isAtFirstStep = false,
   isAtFinalStep = false
 } = {}) {
   if (isExecuting) return "Cancel run";
@@ -59,10 +62,6 @@ export function getPrimaryActionLabel({
 
   if (isAtFinalStep) {
     return "Run again";
-  }
-
-  if (isAtFirstStep) {
-    return "Play trace";
   }
 
   return "Resume";

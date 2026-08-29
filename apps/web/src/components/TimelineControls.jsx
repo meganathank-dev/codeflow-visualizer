@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { getPlaybackSpeedDescription } from "../utils/playback";
+import AccessibleSelect from "./AccessibleSelect";
 
 const PLAYBACK_SPEEDS = [
   0.25,
@@ -18,6 +19,13 @@ const PLAYBACK_SPEEDS = [
   1.5,
   2
 ];
+
+const PLAYBACK_SPEED_OPTIONS = PLAYBACK_SPEEDS.map((playbackSpeed) => ({
+  value: playbackSpeed,
+  label: `${playbackSpeed}x`,
+  description: getPlaybackSpeedDescription(playbackSpeed),
+  selectedDescription: getPlaybackSpeedDescription(playbackSpeed)
+}));
 
 const MAX_VISIBLE_MARKERS =
   45;
@@ -307,32 +315,15 @@ export default function TimelineControls({
 
           <small>{getPlaybackSpeedDescription(speed)}</small>
 
-          <select
+          <AccessibleSelect
+            className="speed-dropdown"
             value={speed}
-            onChange={
-              (event) => {
-                onSpeedChange(
-                  Number(
-                    event.target.value
-                  )
-                );
-              }
-            }
-            aria-label="Playback speed"
-          >
-            {
-              PLAYBACK_SPEEDS.map(
-                (playbackSpeed) => (
-                  <option
-                    key={playbackSpeed}
-                    value={playbackSpeed}
-                  >
-                    {playbackSpeed}x · {getPlaybackSpeedDescription(playbackSpeed)}
-                  </option>
-                )
-              )
-            }
-          </select>
+            options={PLAYBACK_SPEED_OPTIONS}
+            onChange={onSpeedChange}
+            ariaLabel="Playback speed"
+            menuPlacement="top"
+            size="compact"
+          />
         </div>
       </div>
     </footer>

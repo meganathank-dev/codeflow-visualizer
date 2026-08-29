@@ -260,7 +260,15 @@ The production sandbox must enforce:
 - Runtime-error handling
 - Infinite-loop protection
 
-Current Phase 0 programs are controlled local fixtures used only for technical validation. They are not production sandboxes.
+The current local runner uses dedicated child processes and strict language-level
+timeouts, but it is still a trusted-development environment. It does not accept
+untrusted public code. Phase 11 makes production startup fail closed unless the
+hosting layer confirms network, filesystem, memory, CPU, process-count, and
+ephemeral-workspace isolation.
+
+The Express API additionally applies security headers, bounded JSON request
+sizes, configurable production-origin enforcement, and separate rate limits for
+general, authentication, execution, and verified-AI operations.
 
 ## 10. Architecture Principles
 

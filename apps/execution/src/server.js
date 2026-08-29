@@ -37,7 +37,7 @@ const DEFAULT_MAX_INPUT_ITEMS = 20;
 const DEFAULT_MAX_INPUT_ITEM_BYTES = 512;
 const DEFAULT_MAX_INPUT_BYTES = 4 * 1024;
 const SERVICE_NAME = "codeflow-execution";
-const SERVICE_VERSION = "0.5.0";
+const SERVICE_VERSION = "0.6.0";
 
 const EXECUTION_ENABLED_LANGUAGES = Object.freeze([
   LANGUAGES.JAVASCRIPT,
@@ -86,27 +86,65 @@ function createLanguageCapabilities() {
   }));
 }
 
-function createHealthResponse() {
+function normalizeIsolationCapabilities(capabilities = {}) {
+  return {
+    networkIsolationEnforced: capabilities.networkIsolationEnforced === true,
+    filesystemIsolationEnforced: capabilities.filesystemIsolationEnforced === true,
+    memoryLimitEnforced: capabilities.memoryLimitEnforced === true,
+    cpuLimitEnforced: capabilities.cpuLimitEnforced === true,
+    processLimitEnforced: capabilities.processLimitEnforced === true,
+    ephemeralWorkspaceEnforced: capabilities.ephemeralWorkspaceEnforced === true
+  };
+}
+
+function hasProductionIsolation(capabilities) {
+  return Object.values(normalizeIsolationCapabilities(capabilities)).every(Boolean);
+}
+
+function assertProductionIsolation(options = {}) {
+  const environment = options.environment || process.env.NODE_ENV || "development";
+  if (environment !== "production") return;
+
+  if (!hasProductionIsolation(options.sandboxCapabilities)) {
+    throw new TypeError(
+      "Production execution requires enforced network, filesystem, memory, CPU, process, and ephemeral-workspace isolation."
+    );
+  }
+}
+
+function createHealthResponse(options = {}) {
+  const environment = options.environment || process.env.NODE_ENV || "development";
+  const isolation = normalizeIsolationCapabilities(options.sandboxCapabilities);
+  const productionSandboxAvailable = hasProductionIsolation(isolation);
+
   return {
     status: "ok",
     service: SERVICE_NAME,
     version: SERVICE_VERSION,
-    environment: "development",
+    environment,
+    readiness: {
+      ready: true,
+      runtimes: {
+        javascript: "ready",
+        python: "ready",
+        java: "cold-start-capable",
+        sql: "ready"
+      }
+    },
     languages: SUPPORTED_LANGUAGES,
     executionEnabledLanguages: [...EXECUTION_ENABLED_LANGUAGES],
     domains: [TRACE_DOMAINS.PROGRAM, TRACE_DOMAINS.QUERY],
     security: {
-      mode: "local-trusted-development",
+      mode: productionSandboxAvailable ? "isolated-production-sandbox" : "local-trusted-development",
       dedicatedExecutionProcess: true,
       dedicatedJavaScriptChildProcess: true,
       dedicatedPythonChildProcess: true,
       dedicatedJavaChildProcess: true,
       dedicatedSqlChildProcess: true,
       privateSqlDatabase: true,
-      productionSandboxAvailable: false,
-      acceptsUntrustedCode: false,
-      networkIsolationEnforced: false,
-      filesystemIsolationEnforced: false
+      productionSandboxAvailable,
+      acceptsUntrustedCode: environment === "production" && productionSandboxAvailable,
+      ...isolation
     }
   };
 }
@@ -292,7 +330,7 @@ async function handleRequest(request, response, options) {
   const requestUrl = new URL(request.url, "http://127.0.0.1");
 
   if (request.method === "GET" && requestUrl.pathname === "/health") {
-    writeJson(response, 200, createHealthResponse());
+    writeJson(response, 200, createHealthResponse(options));
     return;
   }
 
@@ -331,10 +369,14 @@ function createExecutionServer(options = {}) {
     throw new TypeError("maximumRequestBytes must be a positive integer.");
   }
 
+  assertProductionIsolation(options);
+
   return http.createServer((request, response) => {
     handleRequest(request, response, {
       maximumSourceBytes,
       maximumRequestBytes,
+      environment: options.environment || process.env.NODE_ENV || "development",
+      sandboxCapabilities: options.sandboxCapabilities,
       javascript: options.javascript || {},
       python: options.python || {},
       java: options.java || {},
@@ -381,11 +423,16 @@ function startExecutionServer(options = {}) {
     options.port || process.env.EXECUTION_PORT || DEFAULT_PORT
   );
 
-  const server = createExecutionServer(options);
+  const resolvedOptions = {
+    ...options,
+    environment: options.environment || process.env.NODE_ENV || "development"
+  };
+  const server = createExecutionServer(resolvedOptions);
+  const health = createHealthResponse(resolvedOptions);
 
   server.listen(port, host, () => {
     console.log(`CodeFlow execution service running at http://${host}:${port}`);
-    console.log("Security mode: local trusted development only");
+    console.log(`Security mode: ${health.security.mode}`);
     console.log("Real execution enabled: JavaScript, Python, Java, SQL");
     console.log("SQL database: isolated in-memory SQLite teaching dataset");
   });
@@ -406,6 +453,9 @@ module.exports = {
   ExecutionRequestError,
   createLanguageCapabilities,
   createHealthResponse,
+  normalizeIsolationCapabilities,
+  hasProductionIsolation,
+  assertProductionIsolation,
   createExecutionServer,
   startExecutionServer
 };

@@ -19,7 +19,8 @@ import {
 import {
   getPlaybackDelay,
   getPrimaryActionLabel,
-  getPlaybackSpeedDescription
+  getPlaybackSpeedDescription,
+  shouldAutoPlayFreshTrace
 } from "../src/utils/playback.js";
 
 import {
@@ -44,6 +45,14 @@ import {
   formatPlatformDate,
   normalizeProjectDraft
 } from "../src/utils/user-platform-api.js";
+
+import {
+  DEFAULT_DISPLAY_MODE,
+  DISPLAY_MODE_STORAGE_KEY,
+  normalizeDisplayMode,
+  readDisplayMode,
+  saveDisplayMode
+} from "../src/utils/display-preferences.js";
 
 function createState(step, overrides = {}) {
   return {
@@ -1488,6 +1497,18 @@ async function runTests() {
     new URL("../src/components/InspectorPanel.jsx", import.meta.url),
     "utf8"
   );
+  const accessibleSelect = readFileSync(
+    new URL("../src/components/AccessibleSelect.jsx", import.meta.url),
+    "utf8"
+  );
+  const appHeader = readFileSync(
+    new URL("../src/components/AppHeader.jsx", import.meta.url),
+    "utf8"
+  );
+  const timelineControls = readFileSync(
+    new URL("../src/components/TimelineControls.jsx", import.meta.url),
+    "utf8"
+  );
   assert.match(
     styles,
     /--accent-mint\s*:\s*var\(--accent-green\)/,
@@ -1499,6 +1520,25 @@ async function runTests() {
   assert.match(inspectorPanel, /Full trace/);
   assert.match(inspectorPanel, /Line-by-line explanation/);
   assert.match(inspectorPanel, /Verified trace tutor/);
+  assert.doesNotMatch(appHeader, /<select/);
+  assert.doesNotMatch(timelineControls, /<select/);
+  assert.match(accessibleSelect, /role="combobox"/);
+  assert.match(accessibleSelect, /role="listbox"/);
+  assert.match(accessibleSelect, /aria-selected/);
+  assert.match(styles, /\.app-shell\.display-presentation/);
+  assert.match(styles, /--inspector-tab-size:\s*17px/);
+  assert.equal(DEFAULT_DISPLAY_MODE, "compact");
+
+  const displayStorage = new Map();
+  const storage = {
+    getItem: (key) => displayStorage.get(key) ?? null,
+    setItem: (key, value) => displayStorage.set(key, value)
+  };
+  assert.equal(normalizeDisplayMode("unknown"), DEFAULT_DISPLAY_MODE);
+  assert.equal(saveDisplayMode("presentation", storage), "presentation");
+  assert.equal(displayStorage.get(DISPLAY_MODE_STORAGE_KEY), "presentation");
+  assert.equal(readDisplayMode(storage), "presentation");
+  assert.equal(normalizeDisplayMode("comfortable"), "compact");
 
   const presentation = createExecutionPresentation(createResult());
 
@@ -1750,7 +1790,7 @@ async function runTests() {
       hasLiveExecution: true,
       isAtFirstStep: true
     }),
-    "Play trace"
+    "Resume"
   );
   assert.equal(
     getPrimaryActionLabel({
@@ -1785,6 +1825,9 @@ async function runTests() {
     }),
     "Pause"
   );
+  assert.equal(shouldAutoPlayFreshTrace("completed", 51), true);
+  assert.equal(shouldAutoPlayFreshTrace("failed", 8), false);
+  assert.equal(shouldAutoPlayFreshTrace("completed", 1), false);
 
   const explanationSource = [
     "for (let i = 10; i >= 1; i--) {",
@@ -2188,6 +2231,8 @@ async function runTests() {
   console.log("Numbered full trace and per-line explanations: passed");
   console.log("Verified explanation request boundary: passed");
   console.log("Execution startup readiness and timeout guidance: passed");
+  console.log("Custom language and playback dropdown accessibility: passed");
+  console.log("Compact and Presentation display preference persistence: passed");
   console.log("User-platform project and date presentation: passed");
   console.log("User-platform action color and contrast regression: passed");
   console.log("Java runtime-object filtering and friendly values: passed");
