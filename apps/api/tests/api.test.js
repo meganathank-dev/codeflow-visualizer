@@ -163,7 +163,7 @@ async function runTests() {
   const apiBaseUrl = `http://127.0.0.1:${apiAddress.port}`;
 
   try {
-    assert.equal(DEFAULT_REQUEST_TIMEOUT_MS, 30_000);
+    assert.equal(DEFAULT_REQUEST_TIMEOUT_MS, 50_000);
 
     const health = await requestJson(apiBaseUrl, "/api/health");
 
@@ -178,6 +178,8 @@ async function runTests() {
     assert.equal(health.body.executionService.security.acceptsUntrustedCode, false);
     assert.equal(health.body.userPlatform.connected, true);
     assert.equal(health.body.userPlatform.storage, "memory");
+    assert.equal(health.body.ai.verifiedTraceOnly, true);
+    assert.equal(health.body.ai.provider, "verified-local");
 
     const languages = await requestJson(apiBaseUrl, "/api/languages");
 
@@ -218,6 +220,28 @@ async function runTests() {
     assert.equal(javascriptExecution.body.language, "javascript");
     assert.equal(javascriptExecution.body.trace.events[0].type, "OUTPUT");
     assert.equal(javascriptExecution.body.states[0].console[0].text, "Hello");
+    assert.equal(typeof javascriptExecution.body.verification.id, "string");
+    assert.equal(javascriptExecution.body.reliability.timeoutMs, 50_000);
+
+    const stepExplanation = await requestJson(apiBaseUrl, "/api/ai/explain", {
+      method: "POST",
+      body: JSON.stringify({
+        verificationId: javascriptExecution.body.verification.id,
+        mode: "step",
+        eventIndex: 0
+      })
+    });
+    assert.equal(stepExplanation.status, 200);
+    assert.equal(stepExplanation.body.verified, true);
+    assert.equal(stepExplanation.body.provider, "verified-local");
+    assert.match(stepExplanation.body.explanation, /Event 1 \(OUTPUT\)/);
+
+    const unverifiedExplanation = await requestJson(apiBaseUrl, "/api/ai/explain", {
+      method: "POST",
+      body: JSON.stringify({ verificationId: "not-a-real-trace", mode: "program" })
+    });
+    assert.equal(unverifiedExplanation.status, 410);
+    assert.equal(unverifiedExplanation.body.error.code, "VERIFIED_TRACE_EXPIRED");
 
     const invalidInputs = await requestJson(apiBaseUrl, "/api/execute", {
       method: "POST",
@@ -301,6 +325,8 @@ async function runTests() {
     console.log("All four language boundaries: passed");
     console.log("Request validation: passed");
     console.log("Program-input forwarding and validation: passed");
+    console.log("Verified trace-only explanation boundary: passed");
+    console.log("Execution reliability metadata and timeout budget: passed");
     console.log("Execution boundary separation: passed");
   } finally {
     await close(apiServer);

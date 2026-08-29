@@ -109,6 +109,20 @@ export const userPlatformApi = {
     return result.user;
   },
 
+  async forgotPassword(email) {
+    return request("/api/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email })
+    }, false);
+  },
+
+  async resetPassword(token, password) {
+    return request("/api/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, password })
+    }, false);
+  },
+
   async logout() {
     try {
       await request("/api/auth/logout", { method: "POST", body: "{}" }, false);

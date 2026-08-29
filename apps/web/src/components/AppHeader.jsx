@@ -2,11 +2,11 @@ import {
   Activity,
   ChevronDown,
   Code2,
-  LoaderCircle,
   Pause,
   Play,
   ShieldCheck,
   Sparkles,
+  Square,
   UserRound
 } from "lucide-react";
 
@@ -25,6 +25,7 @@ export default function AppHeader({
   user,
   onAccount,
   onRun,
+  onCancel,
   onPause
 }) {
   const selectedLanguage = LANGUAGE_OPTIONS.find((item) => item.id === language);
@@ -97,18 +98,13 @@ export default function AppHeader({
         </label>
 
         <button
-          className={isPlaying ? "primary-action is-playing" : "primary-action"}
+          className={isExecuting ? "primary-action is-cancelling" : isPlaying ? "primary-action is-playing" : "primary-action"}
           type="button"
-          onClick={isPlaying ? onPause : onRun}
-          disabled={isExecuting}
+          onClick={isExecuting ? onCancel : isPlaying ? onPause : onRun}
           aria-busy={isExecuting}
-          style={isExecuting ? { opacity: 0.8 } : undefined}
         >
           {isExecuting ? (
-            <LoaderCircle
-              size={16}
-              style={{ animation: "spin 760ms linear infinite" }}
-            />
+            <Square size={15} fill="currentColor" />
           ) : isPlaying ? (
             <Pause size={16} />
           ) : (

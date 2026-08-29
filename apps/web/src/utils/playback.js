@@ -46,7 +46,7 @@ export function getPrimaryActionLabel({
   isAtFirstStep = false,
   isAtFinalStep = false
 } = {}) {
-  if (isExecuting) return "Running...";
+  if (isExecuting) return "Cancel run";
   if (isPlaying) return "Pause";
 
   if (!supportsLiveExecution) {

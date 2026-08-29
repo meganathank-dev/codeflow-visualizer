@@ -50,6 +50,26 @@ CodeFlow now includes an optional authenticated MERN workspace:
 
 Guest execution remains available. Sign in only when you want persistence.
 
+## Phase 10 AI and reliability
+
+Phase 10 adds learning assistance without allowing AI to invent program state:
+
+- Separate explanations for every source line, including braces and block endings
+- A complete numbered execution procedure with direct event navigation
+- Verified-trace program, current-step, error, debugging, complexity, and tutor explanations
+- An optional OpenAI Responses API provider with a deterministic verified-trace fallback
+- Service-readiness checks, cached Java helpers, safer timeout budgets, elapsed run status, and run cancellation
+- Forgot-password and one-time password-reset flows
+
+Set `OPENAI_API_KEY` in `apps/api/.env` to enable OpenAI explanations. When it
+is empty, all explanation actions continue to work with the local verified-trace
+engine. AI requests are accepted only for a short-lived trace identifier issued
+after a successful real execution.
+
+In development, the reset token is returned to the account dialog for local
+testing. Production must provide a password-reset delivery adapter and never
+expose the token in an API response.
+
 ### MongoDB setup
 
 Copy the API environment template:

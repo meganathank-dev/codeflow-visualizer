@@ -11,6 +11,7 @@ function createMemoryUserRepository() {
   const sessions = new Map();
   const projects = new Map();
   const history = new Map();
+  const passwordResets = new Map();
 
   return {
     kind: "memory",
@@ -54,6 +55,31 @@ function createMemoryUserRepository() {
 
     async deleteSession(id) {
       sessions.delete(id);
+    },
+
+    async deleteSessionsForUser(userId) {
+      for (const [id, session] of sessions) {
+        if (session.userId === userId) sessions.delete(id);
+      }
+    },
+
+    async savePasswordReset(reset) {
+      passwordResets.set(reset.id, clone(reset));
+      return clone(reset);
+    },
+
+    async findPasswordReset(id) {
+      return clone(passwordResets.get(id) || null);
+    },
+
+    async deletePasswordReset(id) {
+      passwordResets.delete(id);
+    },
+
+    async deletePasswordResetsForUser(userId) {
+      for (const [id, reset] of passwordResets) {
+        if (reset.userId === userId) passwordResets.delete(id);
+      }
     },
 
     async createProject(userId, input) {

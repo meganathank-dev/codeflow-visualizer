@@ -18,7 +18,7 @@ const {
   StateReconstructor
 } = require("@codeflow/visualizer-core");
 
-const DEFAULT_PROCESS_TIMEOUT_MS = 10_000;
+const DEFAULT_PROCESS_TIMEOUT_MS = 20_000;
 
 const DEFAULT_VM_TIMEOUT_MS = 800;
 

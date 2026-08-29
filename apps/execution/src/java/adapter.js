@@ -3,7 +3,7 @@
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 const { spawn } = require("node:child_process");
 
 const {
@@ -16,11 +16,12 @@ const { StateReconstructor } = require("@codeflow/visualizer-core");
 
 const DEFAULT_JAVA_EXECUTABLE = "java";
 const DEFAULT_JAVAC_EXECUTABLE = "javac";
-const DEFAULT_PROCESS_TIMEOUT_MS = 20_000;
+const DEFAULT_PROCESS_TIMEOUT_MS = 40_000;
 const DEFAULT_MAX_TRACE_EVENTS = 1_000;
 const DEFAULT_MAX_RESULT_BYTES = 4 * 1024 * 1024;
 const DEFAULT_MAX_COMPILER_OUTPUT_BYTES = 128 * 1024;
 const ITEM_SEPARATOR = "\u001f";
+let javaRuntimeCachePromise = null;
 
 const ALLOWED_IMPORTS = new Set([
   "java.util.ArrayDeque",
@@ -212,6 +213,81 @@ function runProcess(command, argumentsList, options) {
       });
     });
   });
+}
+
+async function prepareJavaRuntime(sourcePaths, configuration) {
+  if (javaRuntimeCachePromise) return javaRuntimeCachePromise;
+
+  javaRuntimeCachePromise = (async () => {
+    const sourceContents = await Promise.all(
+      sourcePaths.map((sourcePath) => fs.readFile(sourcePath))
+    );
+    const digest = createHash("sha256");
+    digest.update(configuration.javacExecutable);
+    sourceContents.forEach((content) => digest.update(content));
+
+    const runtimeDirectory = path.join(
+      os.tmpdir(),
+      `codeflow-java-runtime-${digest.digest("hex").slice(0, 16)}`
+    );
+    const readyMarker = path.join(runtimeDirectory, ".ready");
+
+    try {
+      await fs.access(readyMarker);
+      return runtimeDirectory;
+    } catch {
+      // The stable helper runtime has not been compiled for this source version.
+    }
+
+    const temporaryDirectory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "codeflow-java-runtime-build-")
+    );
+
+    try {
+      const compilation = await runProcess(
+        configuration.javacExecutable,
+        [
+          "--add-modules",
+          "jdk.jdi",
+          "-encoding",
+          "UTF-8",
+          "-g",
+          "-d",
+          temporaryDirectory,
+          ...sourcePaths
+        ],
+        {
+          cwd: temporaryDirectory,
+          timeoutMs: configuration.processTimeoutMs,
+          maximumOutputBytes: configuration.maximumCompilerOutputBytes,
+          killProcessTree: false
+        }
+      );
+
+      if (compilation.exitCode !== 0) {
+        throw new JavaExecutionError(
+          compilation.stderr.trim() || "CodeFlow's Java helper runtime could not be compiled.",
+          500,
+          "JAVA_RUNTIME_PREPARATION_FAILED"
+        );
+      }
+
+      await fs.writeFile(path.join(temporaryDirectory, ".ready"), "ready\n", "utf8");
+      await fs.rm(runtimeDirectory, { recursive: true, force: true });
+      await fs.rename(temporaryDirectory, runtimeDirectory);
+      return runtimeDirectory;
+    } catch (error) {
+      await fs.rm(temporaryDirectory, { recursive: true, force: true });
+      throw error;
+    }
+  })();
+
+  try {
+    return await javaRuntimeCachePromise;
+  } catch (error) {
+    javaRuntimeCachePromise = null;
+    throw error;
+  }
 }
 
 function stripCommentsAndStrings(source) {
@@ -3104,9 +3180,25 @@ async function executeJava(source, options = {}) {
     __dirname,
     "CodeFlowRecursionAlgorithms.java"
   );
+  const helperSourcePaths = [
+    debuggerSourcePath,
+    graphSourcePath,
+    searchSourcePath,
+    sortSourcePath,
+    dynamicProgrammingSourcePath,
+    recursionAlgorithmsSourcePath
+  ];
 
   try {
     await fs.writeFile(sourcePath, source, "utf8");
+    const runtimeDirectory = await prepareJavaRuntime(
+      helperSourcePaths,
+      configuration
+    );
+    // The JDI launcher intentionally gives the target program only its isolated
+    // per-run workspace. Copy the already-compiled helper classes there so
+    // teaching types such as Graph remain visible without recompiling them.
+    await fs.cp(runtimeDirectory, workspace, { recursive: true });
 
     const compilation = await runProcess(
       configuration.javacExecutable,
@@ -3116,14 +3208,10 @@ async function executeJava(source, options = {}) {
         "-encoding",
         "UTF-8",
         "-g",
+        "-cp",
+        workspace,
         "-d",
         workspace,
-        debuggerSourcePath,
-        graphSourcePath,
-        searchSourcePath,
-        sortSourcePath,
-        dynamicProgrammingSourcePath,
-        recursionAlgorithmsSourcePath,
         sourcePath
       ],
       {

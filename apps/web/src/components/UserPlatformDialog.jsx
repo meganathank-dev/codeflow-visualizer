@@ -29,19 +29,43 @@ const EMPTY_DASHBOARD = {
 
 function AuthPanel({ onAuthenticated }) {
   const [mode, setMode] = useState("login");
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", token: "" });
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+
+  function changeMode(nextMode) {
+    setMode(nextMode);
+    setError("");
+    setNotice("");
+    setForm((current) => ({ ...current, password: "" }));
+  }
 
   async function submit(event) {
     event.preventDefault();
     setBusy(true);
     setError("");
+    setNotice("");
     try {
-      const user = mode === "register"
-        ? await userPlatformApi.register(form)
-        : await userPlatformApi.login({ email: form.email, password: form.password });
-      onAuthenticated(user);
+      if (mode === "forgot") {
+        const result = await userPlatformApi.forgotPassword(form.email);
+        setNotice(result.message);
+        if (result.developmentResetToken) {
+          setForm((current) => ({ ...current, token: result.developmentResetToken, password: "" }));
+          setMode("reset");
+          setNotice("Development reset token received. Enter and confirm your new password.");
+        }
+      } else if (mode === "reset") {
+        const result = await userPlatformApi.resetPassword(form.token, form.password);
+        setMode("login");
+        setForm((current) => ({ ...current, password: "", token: "" }));
+        setNotice(result.message);
+      } else {
+        const user = mode === "register"
+          ? await userPlatformApi.register(form)
+          : await userPlatformApi.login({ email: form.email, password: form.password });
+        onAuthenticated(user);
+      }
     } catch (submissionError) {
       setError(submissionError.message);
     } finally {
@@ -63,10 +87,18 @@ function AuthPanel({ onAuthenticated }) {
       </div>
 
       <form className="platform-auth-form" onSubmit={submit}>
-        <div className="platform-auth-switch" role="tablist" aria-label="Authentication mode">
-          <button type="button" className={mode === "login" ? "is-active" : ""} onClick={() => setMode("login")}>Sign in</button>
-          <button type="button" className={mode === "register" ? "is-active" : ""} onClick={() => setMode("register")}>Create account</button>
-        </div>
+        {(mode === "login" || mode === "register") ? (
+          <div className="platform-auth-switch" role="tablist" aria-label="Authentication mode">
+            <button type="button" className={mode === "login" ? "is-active" : ""} onClick={() => changeMode("login")}>Sign in</button>
+            <button type="button" className={mode === "register" ? "is-active" : ""} onClick={() => changeMode("register")}>Create account</button>
+          </div>
+        ) : (
+          <div className="platform-auth-flow-heading">
+            <span className="platform-eyebrow">ACCOUNT RECOVERY</span>
+            <h3>{mode === "forgot" ? "Forgot your password?" : "Choose a new password"}</h3>
+            <p>{mode === "forgot" ? "Enter the email used for your CodeFlow account." : "Reset tokens expire after 15 minutes and work only once."}</p>
+          </div>
+        )}
 
         {mode === "register" && (
           <label>
@@ -74,17 +106,34 @@ function AuthPanel({ onAuthenticated }) {
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} autoComplete="name" required minLength={2} maxLength={80} />
           </label>
         )}
-        <label>
-          <span>Email</span>
-          <input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} autoComplete="email" required />
-        </label>
-        <label>
-          <span>Password</span>
-          <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} autoComplete={mode === "register" ? "new-password" : "current-password"} required minLength={8} />
-        </label>
-        {mode === "register" && <small>Use uppercase, lowercase, a number, and at least 8 characters.</small>}
+        {mode !== "reset" && (
+          <label>
+            <span>Email</span>
+            <input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} autoComplete="email" required />
+          </label>
+        )}
+        {mode === "reset" && (
+          <label>
+            <span>Reset token</span>
+            <input value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value })} autoComplete="off" required />
+          </label>
+        )}
+        {mode !== "forgot" && (
+          <label>
+            <span>{mode === "reset" ? "New password" : "Password"}</span>
+            <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={8} />
+          </label>
+        )}
+        {(mode === "register" || mode === "reset") && <small>Use uppercase, lowercase, a number, and at least 8 characters.</small>}
         {error && <div className="platform-inline-error" role="alert">{error}</div>}
-        <button className="platform-submit" disabled={busy}>{busy ? "Please wait…" : mode === "register" ? "Create account" : "Sign in"}</button>
+        {notice && <div className="platform-form-message" role="status">{notice}</div>}
+        <button className="platform-submit" disabled={busy}>{busy ? "Please wait…" : mode === "register" ? "Create account" : mode === "forgot" ? "Create reset instruction" : mode === "reset" ? "Reset password" : "Sign in"}</button>
+        <div className="platform-auth-links">
+          {mode === "login" && <button type="button" onClick={() => changeMode("forgot")}>Forgot password?</button>}
+          {mode === "login" && <span>Don&apos;t have an account? <button type="button" onClick={() => changeMode("register")}>Create account</button></span>}
+          {mode === "register" && <span>Already have an account? <button type="button" onClick={() => changeMode("login")}>Sign in</button></span>}
+          {(mode === "forgot" || mode === "reset") && <button type="button" onClick={() => changeMode("login")}>Back to sign in</button>}
+        </div>
       </form>
     </div>
   );

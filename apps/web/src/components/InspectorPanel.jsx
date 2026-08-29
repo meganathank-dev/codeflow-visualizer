@@ -1,11 +1,19 @@
 import {
+  useEffect,
+  useMemo,
   useState
 } from "react";
 
 import {
   Activity,
+  BookOpenText,
   Braces,
+  CircleAlert,
+  Gauge,
   Layers3,
+  ListOrdered,
+  MessageCircleQuestion,
+  Sparkles,
   TerminalSquare
 } from "lucide-react";
 
@@ -13,6 +21,12 @@ import {
   formatRuntimeValue,
   getRuntimeValueType
 } from "../utils/value-presentation";
+import { requestVerifiedExplanation } from "../utils/explanation-api";
+import {
+  createLineExplanations,
+  createNumberedEventTrace,
+  createVerifiedExplanationRequest
+} from "../utils/verified-explanations";
 
 const TABS = [
   {
@@ -37,6 +51,18 @@ const TABS = [
     id: "event",
     label: "Current event",
     icon: Activity
+  },
+
+  {
+    id: "trace",
+    label: "Full trace",
+    icon: ListOrdered
+  },
+
+  {
+    id: "explain",
+    label: "Explain",
+    icon: BookOpenText
   }
 ];
 
@@ -298,10 +324,150 @@ function EventTab({
   );
 }
 
+function TraceTab({ steps, currentStep, onSeek }) {
+  const events = useMemo(() => createNumberedEventTrace(steps), [steps]);
+
+  return (
+    <div className="numbered-trace" aria-label={`Complete execution trace with ${events.length} events`}>
+      {events.map((item) => (
+        <button
+          className={item.index === currentStep ? "numbered-trace-row is-active" : "numbered-trace-row"}
+          key={`${item.number}-${item.event}`}
+          type="button"
+          onClick={() => onSeek(item.index)}
+          aria-current={item.index === currentStep ? "step" : undefined}
+        >
+          <strong>{item.number}</strong>
+          <span>
+            <code>{item.event}</code>
+            <small>{item.title}{item.line ? ` · line ${item.line}` : ""}</small>
+          </span>
+          {item.hasError && <CircleAlert size={15} />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const EXPLANATION_ACTIONS = Object.freeze([
+  { mode: "program", label: "Explain program", icon: Sparkles },
+  { mode: "step", label: "Explain this step", icon: Activity },
+  { mode: "error", label: "Explain error", icon: CircleAlert },
+  { mode: "debug", label: "Debug suggestion", icon: Braces },
+  { mode: "complexity", label: "Complexity", icon: Gauge }
+]);
+
+function ExplainTab({ source, language, steps, currentStep, verificationId, onSeek }) {
+  const lines = useMemo(
+    () => createLineExplanations(source, language, steps),
+    [language, source, steps]
+  );
+  const [question, setQuestion] = useState("");
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+  const [loadingMode, setLoadingMode] = useState("");
+
+  useEffect(() => {
+    setResult(null);
+    setError("");
+  }, [verificationId]);
+
+  async function explain(mode) {
+    if (!verificationId || loadingMode) return;
+    const controller = new AbortController();
+    setLoadingMode(mode);
+    setError("");
+    try {
+      const response = await requestVerifiedExplanation(
+        createVerifiedExplanationRequest({
+          verificationId,
+          mode,
+          eventIndex: currentStep,
+          question
+        }),
+        controller.signal
+      );
+      setResult(response);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoadingMode("");
+    }
+  }
+
+  return (
+    <div className="explanation-workspace">
+      <section className="line-explanations" aria-label="Line-by-line code explanation">
+        <div className="explanation-section-heading">
+          <div><BookOpenText size={16} /><strong>Line-by-line explanation</strong></div>
+          <span>{lines.length} source lines</span>
+        </div>
+        <div className="line-explanation-list">
+          {lines.map((line) => (
+            <button
+              className={line.executed ? "line-explanation-row is-executed" : "line-explanation-row"}
+              key={line.line}
+              type="button"
+              onClick={() => line.eventNumbers.length && onSeek(line.eventNumbers[0] - 1)}
+              disabled={!line.eventNumbers.length}
+            >
+              <span className="line-explanation-number">{line.line}</span>
+              <span className="line-explanation-copy">
+                <code>{line.code || " "}</code>
+                <small>{line.explanation}</small>
+              </span>
+              {line.eventNumbers.length > 0 && (
+                <span className="line-event-badges" aria-label={`Events ${line.eventNumbers.join(", ")}`}>
+                  {line.eventNumbers.slice(0, 5).map((number) => <i key={number}>{number}</i>)}
+                  {line.eventNumbers.length > 5 && <i>+{line.eventNumbers.length - 5}</i>}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="verified-ai-panel" aria-label="Verified trace explanation">
+        <div className="explanation-section-heading">
+          <div><Sparkles size={16} /><strong>Verified trace tutor</strong></div>
+          <span>{verificationId ? "Trace verified" : "Run required"}</span>
+        </div>
+        <p className="verified-ai-note">
+          Answers use only the current real execution trace. Run this source first to enable AI-assisted explanations.
+        </p>
+        <div className="verified-ai-actions">
+          {EXPLANATION_ACTIONS.map(({ mode, label, icon: Icon }) => (
+            <button key={mode} type="button" onClick={() => explain(mode)} disabled={!verificationId || Boolean(loadingMode)}>
+              <Icon size={14} />{loadingMode === mode ? "Explaining…" : label}
+            </button>
+          ))}
+        </div>
+        <form className="tutor-question" onSubmit={(event) => { event.preventDefault(); explain("tutor"); }}>
+          <MessageCircleQuestion size={15} />
+          <input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about this verified step" minLength={2} disabled={!verificationId} />
+          <button type="submit" disabled={!verificationId || question.trim().length < 2 || Boolean(loadingMode)}>Ask tutor</button>
+        </form>
+        {error && <div className="verified-ai-error" role="alert">{error}</div>}
+        {result && (
+          <article className="verified-ai-result">
+            <span><Sparkles size={13} /> Verified · {result.provider === "openai" ? result.model : "local trace engine"}</span>
+            <p>{result.explanation}</p>
+          </article>
+        )}
+      </section>
+    </div>
+  );
+}
+
 export default function InspectorPanel({
   step,
   currentStep = 0,
-  totalSteps = 1
+  totalSteps = 1,
+  steps = [step],
+  source = "",
+  language = "javascript",
+  verificationId = "",
+  onSeek = () => {}
 }) {
   const [
     activeTab,
@@ -394,6 +560,29 @@ export default function InspectorPanel({
               step={step}
               currentStep={currentStep}
               totalSteps={totalSteps}
+            />
+          )
+        }
+
+        {
+          activeTab === "trace" && (
+            <TraceTab
+              steps={steps}
+              currentStep={currentStep}
+              onSeek={onSeek}
+            />
+          )
+        }
+
+        {
+          activeTab === "explain" && (
+            <ExplainTab
+              source={source}
+              language={language}
+              steps={steps}
+              currentStep={currentStep}
+              verificationId={verificationId}
+              onSeek={onSeek}
             />
           )
         }

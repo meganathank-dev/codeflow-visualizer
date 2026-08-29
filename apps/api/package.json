@@ -9,7 +9,7 @@
     "dev": "node --env-file-if-exists=.env src/server.js",
     "dev:watch": "node --env-file-if-exists=.env --watch src/server.js",
     "start": "node --env-file-if-exists=.env src/server.js",
-    "test": "node tests/api.test.js && node tests/user-platform.test.js"
+    "test": "node tests/api.test.js && node tests/user-platform.test.js && node tests/ai-features.test.js"
   },
   "dependencies": {
     "@codeflow/execution-trace": "workspace:*",

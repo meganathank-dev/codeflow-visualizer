@@ -23,6 +23,19 @@ import {
 } from "../src/utils/playback.js";
 
 import {
+  createExecutionFailure,
+  getExecutionStage,
+  waitForBackendReady
+} from "../src/utils/execution-reliability.js";
+
+import {
+  createLineExplanations,
+  createNumberedEventTrace,
+  createVerifiedExplanationRequest,
+  explainSourceLine
+} from "../src/utils/verified-explanations.js";
+
+import {
   formatRuntimeValue,
   selectVisibleRuntimeVariables
 } from "../src/utils/value-presentation.js";
@@ -1467,11 +1480,25 @@ function createRecursionResult(language) {
 
 async function runTests() {
   const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  const userPlatformDialog = readFileSync(
+    new URL("../src/components/UserPlatformDialog.jsx", import.meta.url),
+    "utf8"
+  );
+  const inspectorPanel = readFileSync(
+    new URL("../src/components/InspectorPanel.jsx", import.meta.url),
+    "utf8"
+  );
   assert.match(
     styles,
     /--accent-mint\s*:\s*var\(--accent-green\)/,
     "The Phase 9 primary-action color must resolve to the application theme."
   );
+  assert.match(userPlatformDialog, /Forgot password\?/);
+  assert.match(userPlatformDialog, /Already have an account\?/);
+  assert.match(userPlatformDialog, /Don&apos;t have an account\?/);
+  assert.match(inspectorPanel, /Full trace/);
+  assert.match(inspectorPanel, /Line-by-line explanation/);
+  assert.match(inspectorPanel, /Verified trace tutor/);
 
   const presentation = createExecutionPresentation(createResult());
 
@@ -1748,7 +1775,7 @@ async function runTests() {
       supportsLiveExecution: true,
       hasLiveExecution: true
     }),
-    "Running..."
+    "Cancel run"
   );
   assert.equal(
     getPrimaryActionLabel({
@@ -1757,6 +1784,55 @@ async function runTests() {
       hasLiveExecution: true
     }),
     "Pause"
+  );
+
+  const explanationSource = [
+    "for (let i = 10; i >= 1; i--) {",
+    "  console.log(i);",
+    "}"
+  ].join("\n");
+  const explanationSteps = [
+    { event: "LOOP_CONDITION", line: 1, title: "Check the loop" },
+    { event: "OUTPUT", line: 2, title: "Print the number" },
+    { event: "LOOP_END", line: 3, title: "Close the iteration" }
+  ];
+  const lineExplanations = createLineExplanations(
+    explanationSource,
+    "javascript",
+    explanationSteps
+  );
+  assert.equal(lineExplanations.length, 3);
+  assert.match(lineExplanations[0].explanation, /loop/i);
+  assert.match(lineExplanations[1].explanation, /console/i);
+  assert.match(lineExplanations[2].explanation, /closes/i);
+  assert.deepEqual(lineExplanations[2].eventNumbers, [3]);
+  assert.match(explainSourceLine("}", "java"), /closes/i);
+
+  const numberedTrace = createNumberedEventTrace(explanationSteps);
+  assert.deepEqual(numberedTrace.map((item) => item.number), [1, 2, 3]);
+  assert.deepEqual(
+    createVerifiedExplanationRequest({
+      verificationId: "verified-1",
+      mode: "step",
+      eventIndex: 1
+    }),
+    { verificationId: "verified-1", mode: "step", eventIndex: 1 }
+  );
+
+  let readinessProbes = 0;
+  const readiness = await waitForBackendReady({
+    probe: async () => {
+      readinessProbes += 1;
+      return readinessProbes === 3;
+    },
+    attempts: 4,
+    delayMs: 1
+  });
+  assert.deepEqual(readiness, { ready: true, attempts: 3 });
+  assert.match(getExecutionStage("Java", 2), /compiling Java/i);
+  assert.match(
+    createExecutionFailure({ error: { code: "EXECUTION_SERVICE_TIMEOUT" } }).message,
+    /stopped safely/i
   );
 
   for (const language of ["javascript", "python", "java"]) {
@@ -2109,6 +2185,9 @@ async function runTests() {
   console.log("Sequential interactive input request detection: passed");
   console.log("Readable event-aware playback timing: passed");
   console.log("Primary playback action-state labels: passed");
+  console.log("Numbered full trace and per-line explanations: passed");
+  console.log("Verified explanation request boundary: passed");
+  console.log("Execution startup readiness and timeout guidance: passed");
   console.log("User-platform project and date presentation: passed");
   console.log("User-platform action color and contrast regression: passed");
   console.log("Java runtime-object filtering and friendly values: passed");

@@ -3,6 +3,7 @@
 const express = require("express");
 
 const { SUPPORTED_LANGUAGES } = require("@codeflow/execution-trace");
+const { createVerifiedExplanationService } = require("./ai/verified-explanation-service");
 const { createMemoryUserRepository } = require("./user-platform/memory-repository");
 const { createUserPlatform } = require("./user-platform/platform");
 
@@ -10,7 +11,7 @@ const DEFAULT_EXECUTION_SERVICE_URL = "http://127.0.0.1:4100";
 // Keep the API timeout above the execution-service process timeout. Java must
 // compile and start its JDI debugger before producing a trace, so its cold
 // execution path can legitimately take longer than JavaScript or Python.
-const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 50_000;
 const DEFAULT_MAX_SOURCE_BYTES = 32 * 1024;
 const DEFAULT_MAX_INPUT_ITEMS = 20;
 const DEFAULT_MAX_INPUT_ITEM_BYTES = 512;
@@ -189,6 +190,12 @@ function createApiApp(options = {}) {
     requestTimeoutMs
   });
 
+  const explanationService = options.explanationService || createVerifiedExplanationService({
+    openAiApiKey: options.openAiApiKey,
+    openAiModel: options.openAiModel,
+    fetchImplementation: options.aiFetchImplementation
+  });
+
   const configuredAccessSecret = options.accessTokenSecret || process.env.ACCESS_TOKEN_SECRET;
   const configuredRefreshSecret = options.refreshTokenSecret || process.env.REFRESH_TOKEN_SECRET;
 
@@ -200,7 +207,9 @@ function createApiApp(options = {}) {
     repository: options.userRepository || createMemoryUserRepository(),
     accessTokenSecret: configuredAccessSecret || DEFAULT_ACCESS_TOKEN_SECRET,
     refreshTokenSecret: configuredRefreshSecret || DEFAULT_REFRESH_TOKEN_SECRET,
-    secureCookies: options.secureCookies ?? process.env.NODE_ENV === "production"
+    secureCookies: options.secureCookies ?? process.env.NODE_ENV === "production",
+    passwordResetDelivery: options.passwordResetDelivery,
+    exposePasswordResetToken: options.exposePasswordResetToken ?? process.env.NODE_ENV !== "production"
   });
 
   const app = express();
@@ -233,6 +242,11 @@ function createApiApp(options = {}) {
         userPlatform: {
           connected: true,
           storage: userPlatform.repository.kind
+        },
+        ai: {
+          verifiedTraceOnly: true,
+          configured: explanationService.configured,
+          provider: explanationService.provider
         }
       });
     } catch (error) {
@@ -253,6 +267,11 @@ function createApiApp(options = {}) {
           userPlatform: {
             connected: true,
             storage: userPlatform.repository.kind
+          },
+          ai: {
+            verifiedTraceOnly: true,
+            configured: explanationService.configured,
+            provider: explanationService.provider
           }
         });
 
@@ -274,6 +293,7 @@ function createApiApp(options = {}) {
 
   app.post("/api/execute", userPlatform.optionalAuth, async (request, response, next) => {
     try {
+      const requestStartedAt = Date.now();
       const executionRequest = validateExecutionRequest(
         request.body,
         maximumSourceBytes
@@ -285,6 +305,13 @@ function createApiApp(options = {}) {
       });
 
       if (executionResult.status === 200 && executionResult.body?.status === "ok") {
+        const verification = explanationService.register(executionRequest, executionResult.body);
+        if (verification) executionResult.body.verification = verification;
+        executionResult.body.reliability = {
+          apiDurationMs: Date.now() - requestStartedAt,
+          timeoutMs: requestTimeoutMs,
+          processStoppedSafely: false
+        };
         await userPlatform.recordExecution(
           request.authUser,
           executionRequest,
@@ -292,7 +319,16 @@ function createApiApp(options = {}) {
         );
       }
 
+      response.setHeader("x-codeflow-execution-ms", String(Date.now() - requestStartedAt));
       response.status(executionResult.status).json(executionResult.body);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/ai/explain", userPlatform.optionalAuth, async (request, response, next) => {
+    try {
+      response.json({ status: "ok", ...(await explanationService.explain(request.body)) });
     } catch (error) {
       next(error);
     }

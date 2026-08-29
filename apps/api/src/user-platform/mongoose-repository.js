@@ -37,6 +37,13 @@ function createModels(connection = mongoose) {
     source: { type: String, required: true, maxlength: 32768 }
   }, { timestamps: true });
 
+  const passwordResetSchema = new mongoose.Schema({
+    _id: { type: String },
+    userId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    tokenHash: { type: String, required: true },
+    expiresAt: { type: Date, required: true, expires: 0 }
+  }, { versionKey: false });
+
   const historySchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     language: { type: String, required: true },
@@ -51,12 +58,13 @@ function createModels(connection = mongoose) {
     User: connection.models.CodeFlowUser || connection.model("CodeFlowUser", userSchema),
     Session: connection.models.CodeFlowSession || connection.model("CodeFlowSession", sessionSchema),
     Project: connection.models.CodeFlowProject || connection.model("CodeFlowProject", projectSchema),
+    PasswordReset: connection.models.CodeFlowPasswordReset || connection.model("CodeFlowPasswordReset", passwordResetSchema),
     History: connection.models.CodeFlowHistory || connection.model("CodeFlowHistory", historySchema)
   };
 }
 
 function createMongooseUserRepository(connection = mongoose) {
-  const { User, Session, Project, History } = createModels(connection);
+  const { User, Session, PasswordReset, Project, History } = createModels(connection);
 
   return {
     kind: "mongoose",
@@ -75,6 +83,17 @@ function createMongooseUserRepository(connection = mongoose) {
     },
     async findSession(id) { return toPlain(await Session.findById(id).lean()); },
     async deleteSession(id) { await Session.deleteOne({ _id: id }); },
+    async deleteSessionsForUser(userId) { await Session.deleteMany({ userId }); },
+    async savePasswordReset(reset) {
+      return toPlain(await PasswordReset.findByIdAndUpdate(reset.id, {
+        userId: reset.userId,
+        tokenHash: reset.tokenHash,
+        expiresAt: reset.expiresAt
+      }, { upsert: true, new: true }).lean());
+    },
+    async findPasswordReset(id) { return toPlain(await PasswordReset.findById(id).lean()); },
+    async deletePasswordReset(id) { await PasswordReset.deleteOne({ _id: id }); },
+    async deletePasswordResetsForUser(userId) { await PasswordReset.deleteMany({ userId }); },
     async createProject(userId, input) { return toPlain(await Project.create({ userId, ...input })); },
     async listProjects(userId) {
       return (await Project.find({ userId }).sort({ updatedAt: -1 }).lean()).map(toPlain);

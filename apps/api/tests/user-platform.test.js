@@ -84,7 +84,8 @@ async function runTests() {
     userRepository: repository,
     accessTokenSecret: "test-access-token-secret-value-12345",
     refreshTokenSecret: "test-refresh-token-secret-value-12345",
-    secureCookies: false
+    secureCookies: false,
+    passwordResetDelivery: async () => {}
   });
   const apiServer = http.createServer(app);
   const apiAddress = await listen(apiServer);
@@ -175,6 +176,37 @@ async function runTests() {
     );
     assert.equal(isolated.status, 404);
 
+    const recovery = await request(baseUrl, "/api/auth/forgot-password", json("POST", {
+      email: "second@example.com"
+    }));
+    assert.equal(recovery.status, 202);
+    assert.equal(typeof recovery.body.developmentResetToken, "string");
+
+    const reset = await request(baseUrl, "/api/auth/reset-password", json("POST", {
+      token: recovery.body.developmentResetToken,
+      password: "Second10Updated"
+    }));
+    assert.equal(reset.status, 200);
+
+    const oldPasswordLogin = await request(baseUrl, "/api/auth/login", json("POST", {
+      email: "second@example.com",
+      password: "Second9Secure"
+    }));
+    assert.equal(oldPasswordLogin.status, 401);
+
+    const newPasswordLogin = await request(baseUrl, "/api/auth/login", json("POST", {
+      email: "second@example.com",
+      password: "Second10Updated"
+    }));
+    assert.equal(newPasswordLogin.status, 200);
+
+    const reusedReset = await request(baseUrl, "/api/auth/reset-password", json("POST", {
+      token: recovery.body.developmentResetToken,
+      password: "Another10Secure"
+    }));
+    assert.equal(reusedReset.status, 400);
+    assert.equal(reusedReset.body.error.code, "INVALID_PASSWORD_RESET");
+
     const execution = await request(baseUrl, "/api/execute", json("POST", {
       language: "javascript",
       source: "console.log('Total:', 24);",
@@ -224,6 +256,7 @@ async function runTests() {
     console.log("Profile validation and safe public user data: passed");
     console.log("Owner-scoped project CRUD and duplication: passed");
     console.log("Authenticated execution history and dashboard: passed");
+    console.log("Forgot-password recovery and one-time reset tokens: passed");
   } finally {
     await close(apiServer);
     await close(executionServer);

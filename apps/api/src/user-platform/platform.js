@@ -16,6 +16,7 @@ const {
 const REFRESH_COOKIE = "codeflow_refresh";
 const ACCESS_TOKEN_SECONDS = 15 * 60;
 const REFRESH_TOKEN_SECONDS = 7 * 24 * 60 * 60;
+const PASSWORD_RESET_SECONDS = 15 * 60;
 const LANGUAGES = Object.freeze(["javascript", "python", "java", "sql"]);
 
 class UserPlatformError extends Error {
@@ -142,6 +143,12 @@ function createUserPlatform(options) {
   const accessSecret = options.accessTokenSecret;
   const refreshSecret = options.refreshTokenSecret;
   const secureCookies = options.secureCookies === true;
+  const exposePasswordResetToken = options.exposePasswordResetToken === true;
+  const passwordResetDelivery = options.passwordResetDelivery || (async ({ user, token }) => {
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`CodeFlow development password reset for ${user.email}: ${token}`);
+    }
+  });
 
   if (!repository) throw new TypeError("userRepository is required");
   if (typeof accessSecret !== "string" || accessSecret.length < 24) {
@@ -256,6 +263,62 @@ function createUserPlatform(options) {
       const session = await issueSession(user);
       response.setHeader("set-cookie", createCookie(session.refreshToken, REFRESH_TOKEN_SECONDS, secureCookies));
       response.json({ status: "ok", user: publicUser(user), accessToken: session.accessToken });
+    } catch (error) { next(error); }
+  });
+
+  router.post("/auth/forgot-password", async (request, response, next) => {
+    try {
+      const body = requireObject(request.body);
+      const email = normalizeEmail(body.email);
+      const user = await repository.findUserByEmail(email);
+      let developmentResetToken;
+
+      if (user) {
+        await repository.deletePasswordResetsForUser(user.id);
+        const resetId = createIdentifier();
+        const resetToken = `${resetId}.${createIdentifier().replaceAll("-", "")}`;
+        const expiresAt = new Date(Date.now() + PASSWORD_RESET_SECONDS * 1000).toISOString();
+        await repository.savePasswordReset({
+          id: resetId,
+          userId: user.id,
+          tokenHash: hashToken(resetToken),
+          expiresAt
+        });
+        await passwordResetDelivery({ user: publicUser(user), token: resetToken, expiresAt });
+        if (exposePasswordResetToken) developmentResetToken = resetToken;
+      }
+
+      response.status(202).json({
+        status: "ok",
+        message: "If an account exists for that email, a password-reset instruction has been created.",
+        ...(developmentResetToken ? { developmentResetToken } : {})
+      });
+    } catch (error) { next(error); }
+  });
+
+  router.post("/auth/reset-password", async (request, response, next) => {
+    try {
+      const body = requireObject(request.body);
+      const token = cleanString(body.token, "Reset token", { minimum: 20, maximum: 200 });
+      const password = validatePassword(body.password);
+      const resetId = token.split(".")[0];
+      const reset = await repository.findPasswordReset(resetId);
+
+      if (
+        !reset ||
+        reset.tokenHash !== hashToken(token) ||
+        new Date(reset.expiresAt).getTime() <= Date.now()
+      ) {
+        if (reset) await repository.deletePasswordReset(reset.id);
+        throw new UserPlatformError("Reset link is invalid or expired", 400, "INVALID_PASSWORD_RESET");
+      }
+
+      const user = await repository.updateUser(reset.userId, { passwordHash: await hashPassword(password) });
+      if (!user) throw new UserPlatformError("Account no longer exists", 404, "ACCOUNT_NOT_FOUND");
+      await repository.deletePasswordResetsForUser(user.id);
+      await repository.deleteSessionsForUser(user.id);
+      response.setHeader("set-cookie", createCookie("", 0, secureCookies));
+      response.json({ status: "ok", message: "Password updated. Sign in with the new password." });
     } catch (error) { next(error); }
   });
 
@@ -390,6 +453,7 @@ module.exports = {
   ACCESS_TOKEN_SECONDS,
   REFRESH_COOKIE,
   REFRESH_TOKEN_SECONDS,
+  PASSWORD_RESET_SECONDS,
   UserPlatformError,
   createUserPlatform,
   publicUser

@@ -25,12 +25,18 @@ import { readJsonResponse } from "./utils/http-response";
 import { executeWithInteractiveInputs } from "./utils/interactive-input";
 import { getPlaybackDelay } from "./utils/playback";
 import {
+  createExecutionFailure,
+  getExecutionStage,
+  waitForBackendReady
+} from "./utils/execution-reliability";
+import {
   fetchWithUserSession,
   restoreUserSession
 } from "./utils/user-platform-api";
 
 const INITIAL_LANGUAGE = "javascript";
 const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
+const INITIAL_BACKEND_CHECK_DELAY = 900;
 const LIVE_EXECUTION_LANGUAGES = Object.freeze([
   "javascript",
   "python",
@@ -51,6 +57,7 @@ export default function App() {
   const [currentStep, setCurrentStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [executionElapsedSeconds, setExecutionElapsedSeconds] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [notification, setNotification] = useState("");
   const [backendStatus, setBackendStatus] = useState("checking");
@@ -61,6 +68,7 @@ export default function App() {
 
   const activeRequestRef = useRef(null);
   const inputResolverRef = useRef(null);
+  const sessionRestoreAttemptedRef = useRef(false);
 
   const language = useMemo(
     () => getLanguageOption(selectedLanguage),
@@ -89,12 +97,14 @@ export default function App() {
   const activeStep = steps[boundedCurrentStep];
 
   useEffect(() => {
+    if (backendStatus !== "connected" || sessionRestoreAttemptedRef.current) return undefined;
+    sessionRestoreAttemptedRef.current = true;
     let active = true;
     restoreUserSession().then((restoredUser) => {
       if (active) setUser(restoredUser);
     });
     return () => { active = false; };
-  }, []);
+  }, [backendStatus]);
 
   useEffect(() => {
     let isMounted = true;
@@ -132,18 +142,31 @@ export default function App() {
       }
     }
 
-    checkBackendHealth();
-
-    const intervalId = window.setInterval(
-      checkBackendHealth,
-      BACKEND_STATUS_REFRESH_INTERVAL
-    );
+    let intervalId;
+    const initialCheckId = window.setTimeout(() => {
+      checkBackendHealth();
+      intervalId = window.setInterval(
+        checkBackendHealth,
+        BACKEND_STATUS_REFRESH_INTERVAL
+      );
+    }, INITIAL_BACKEND_CHECK_DELAY);
 
     return () => {
       isMounted = false;
+      window.clearTimeout(initialCheckId);
       window.clearInterval(intervalId);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isExecuting) return undefined;
+    const startedAt = Date.now();
+    setExecutionElapsedSeconds(0);
+    const intervalId = window.setInterval(() => {
+      setExecutionElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000));
+    }, 500);
+    return () => window.clearInterval(intervalId);
+  }, [isExecuting]);
 
   useEffect(() => () => {
     activeRequestRef.current?.abort();
@@ -253,6 +276,24 @@ export default function App() {
     closeInputRequest({ confirmed: false, value: "" });
   }
 
+  function handleCancelExecution() {
+    if (!isExecuting) return;
+    cancelActiveExecution();
+    setIsExecuting(false);
+    setNotification("Execution cancelled safely.");
+  }
+
+  async function probeBackendHealth(signal) {
+    const response = await fetch("/api/health", {
+      headers: { accept: "application/json" },
+      signal
+    });
+    const result = await readJsonResponse(response, "Health service");
+    const ready = response.ok && result.executionService?.connected === true;
+    setBackendStatus(ready ? "connected" : "offline");
+    return ready;
+  }
+
   function requestProgramInput(request) {
     return new Promise((resolve) => {
       inputResolverRef.current = resolve;
@@ -334,14 +375,6 @@ export default function App() {
       return;
     }
 
-    if (backendStatus !== "connected") {
-      setNotification(
-        "Execution services are unavailable. Start the workspace with pnpm dev."
-      );
-
-      return;
-    }
-
     cancelActiveExecution();
 
     const controller = new AbortController();
@@ -352,6 +385,25 @@ export default function App() {
     setNotification("");
 
     try {
+      if (backendStatus !== "connected") {
+        setBackendStatus("checking");
+        const readiness = await waitForBackendReady({
+          probe: () => probeBackendHealth(controller.signal),
+          attempts: 4,
+          delayMs: 650,
+          signal: controller.signal
+        });
+
+        if (!readiness.ready) {
+          setBackendStatus("offline");
+          const unavailable = new Error(
+            "Execution services are still starting. Keep pnpm dev running, wait a moment, and try again."
+          );
+          unavailable.code = "EXECUTION_SERVICE_UNAVAILABLE";
+          throw unavailable;
+        }
+      }
+
       const execution = await executeWithInteractiveInputs({
         execute: async (collectedInputs) => {
           const response = await fetchWithUserSession("/api/execute", {
@@ -371,9 +423,7 @@ export default function App() {
           const result = await readJsonResponse(response, "Execution service");
 
           if (!response.ok || result.status !== "ok") {
-            throw new Error(
-              result.error?.message || `${language.label} execution failed.`
-            );
+            throw createExecutionFailure(result, language.label);
           }
 
           return result;
@@ -394,7 +444,9 @@ export default function App() {
         [selectedLanguage]: {
           source,
           inputs: collectedInputs,
-          presentation
+          presentation,
+          verification: result.verification || null,
+          reliability: result.reliability || null
         }
       }));
 
@@ -433,6 +485,7 @@ export default function App() {
 
   function handlePrimaryAction() {
     if (isExecuting) {
+      handleCancelExecution();
       return;
     }
 
@@ -510,7 +563,7 @@ export default function App() {
         return `${language.label} · Waiting for input #${inputRequest.inputNumber}`;
       }
 
-      return `${language.label} · Generating execution trace`;
+      return `${language.label} · ${getExecutionStage(language.label, executionElapsedSeconds)}`;
     }
 
     if (hasLiveExecution) {
@@ -545,6 +598,7 @@ export default function App() {
           user={user}
           onAccount={() => setIsUserPlatformOpen(true)}
           onRun={handlePrimaryAction}
+          onCancel={handleCancelExecution}
           onPause={handlePause}
         />
 
@@ -608,6 +662,11 @@ export default function App() {
             step={activeStep}
             currentStep={boundedCurrentStep}
             totalSteps={totalSteps}
+            steps={steps}
+            source={source}
+            language={selectedLanguage}
+            verificationId={hasLiveExecution ? liveExecution.verification?.id : ""}
+            onSeek={handleSeek}
           />
         </main>
 

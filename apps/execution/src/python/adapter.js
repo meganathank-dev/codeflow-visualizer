@@ -13,7 +13,7 @@ const {
 const { StateReconstructor } = require("@codeflow/visualizer-core");
 
 const DEFAULT_PYTHON_EXECUTABLE = "python";
-const DEFAULT_PROCESS_TIMEOUT_MS = 10_000;
+const DEFAULT_PROCESS_TIMEOUT_MS = 25_000;
 const DEFAULT_MAX_TRACE_EVENTS = 1_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 16 * 1024;
 const DEFAULT_MAX_RESULT_BYTES = 2 * 1024 * 1024;
