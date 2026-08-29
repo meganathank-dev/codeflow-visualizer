@@ -4,6 +4,7 @@ import { AlertCircle, Radio, X } from "lucide-react";
 
 import AppHeader from "./components/AppHeader";
 import EditorPanel from "./components/EditorPanel";
+import PracticePlatformDialog from "./components/PracticePlatformDialog";
 import ProgramInputDialog from "./components/ProgramInputDialog";
 import UserPlatformDialog from "./components/UserPlatformDialog";
 import VisualizationPanel from "./components/VisualizationPanel";
@@ -73,6 +74,7 @@ export default function App() {
   const [inputValue, setInputValue] = useState("");
   const [user, setUser] = useState(null);
   const [isUserPlatformOpen, setIsUserPlatformOpen] = useState(false);
+  const [isPracticeOpen, setIsPracticeOpen] = useState(false);
 
   const activeRequestRef = useRef(null);
   const inputResolverRef = useRef(null);
@@ -561,6 +563,38 @@ export default function App() {
     setIsUserPlatformOpen(false);
   }
 
+  function handleVisualizePractice(visualization) {
+    if (!visualization?.execution || !visualization.language) return;
+    cancelActiveExecution();
+    const presentation = createExecutionPresentation(visualization.execution);
+    const languageId = visualization.language;
+    const practiceSource = visualization.source || "";
+    setIsExecuting(false);
+    setIsPlaying(false);
+    setSelectedLanguage(languageId);
+    setSources((previousSources) => ({
+      ...previousSources,
+      [languageId]: practiceSource
+    }));
+    setExecutions((previousExecutions) => ({
+      ...previousExecutions,
+      [languageId]: {
+        source: practiceSource,
+        inputs: [],
+        presentation,
+        verification: visualization.execution.verification || null,
+        reliability: visualization.execution.reliability || null
+      }
+    }));
+    setCurrentStep(0);
+    setIsPracticeOpen(false);
+    setNotification("Loaded a verified public practice-test trace.");
+    setIsPlaying(shouldAutoPlayFreshTrace(
+      presentation.executionStatus,
+      presentation.steps.length
+    ));
+  }
+
   function getBackendStatusLabel() {
     if (backendStatus === "checking") {
       return "Checking local services...";
@@ -612,6 +646,7 @@ export default function App() {
           isAtFirstStep={boundedCurrentStep === 0}
           isAtFinalStep={boundedCurrentStep >= totalSteps - 1}
           user={user}
+          onPractice={() => setIsPracticeOpen(true)}
           onAccount={() => setIsUserPlatformOpen(true)}
           onRun={handlePrimaryAction}
           onCancel={handleCancelExecution}
@@ -731,6 +766,17 @@ export default function App() {
         onClose={() => setIsUserPlatformOpen(false)}
         onUserChange={setUser}
         onLoadProject={handleLoadProject}
+      />
+
+      <PracticePlatformDialog
+        open={isPracticeOpen}
+        user={user}
+        onClose={() => setIsPracticeOpen(false)}
+        onOpenAccount={() => {
+          setIsPracticeOpen(false);
+          setIsUserPlatformOpen(true);
+        }}
+        onVisualize={handleVisualizePractice}
       />
     </div>
   );

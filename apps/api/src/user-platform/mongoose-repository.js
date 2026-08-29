@@ -54,20 +54,38 @@ function createModels(connection = mongoose) {
     outputPreview: { type: String, default: "", maxlength: 300 }
   }, { timestamps: true });
 
+  const practiceSubmissionSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    problemSlug: { type: String, required: true, index: true, maxlength: 100 },
+    problemTitle: { type: String, required: true, maxlength: 120 },
+    difficulty: { type: String, required: true, enum: ["easy", "medium", "hard"] },
+    language: { type: String, required: true, enum: ["javascript", "python", "java", "sql"] },
+    source: { type: String, required: true, maxlength: 32768 },
+    verdict: { type: String, required: true, enum: ["accepted", "wrong_answer", "runtime_error"] },
+    passedCount: { type: Number, required: true, min: 0 },
+    totalCount: { type: Number, required: true, min: 1 }
+  }, { timestamps: true });
+
   return {
     User: connection.models.CodeFlowUser || connection.model("CodeFlowUser", userSchema),
     Session: connection.models.CodeFlowSession || connection.model("CodeFlowSession", sessionSchema),
     Project: connection.models.CodeFlowProject || connection.model("CodeFlowProject", projectSchema),
     PasswordReset: connection.models.CodeFlowPasswordReset || connection.model("CodeFlowPasswordReset", passwordResetSchema),
-    History: connection.models.CodeFlowHistory || connection.model("CodeFlowHistory", historySchema)
+    History: connection.models.CodeFlowHistory || connection.model("CodeFlowHistory", historySchema),
+    PracticeSubmission: connection.models.CodeFlowPracticeSubmission ||
+      connection.model("CodeFlowPracticeSubmission", practiceSubmissionSchema)
   };
 }
 
 function createMongooseUserRepository(connection = mongoose) {
-  const { User, Session, PasswordReset, Project, History } = createModels(connection);
+  const { User, Session, PasswordReset, Project, History, PracticeSubmission } = createModels(connection);
 
   return {
     kind: "mongoose",
+    async close() {
+      if (typeof connection.disconnect === "function") await connection.disconnect();
+      else if (typeof connection.close === "function") await connection.close();
+    },
     async createUser(input) { return toPlain(await User.create(input)); },
     async findUserByEmail(email) { return toPlain(await User.findOne({ email }).lean()); },
     async findUserById(id) { return toPlain(await User.findById(id).lean()); },
@@ -114,6 +132,15 @@ function createMongooseUserRepository(connection = mongoose) {
       return (await History.find({ userId }).sort({ createdAt: -1 }).limit(limit).lean()).map(toPlain);
     },
     async clearHistory(userId) { await History.deleteMany({ userId }); },
+    async createPracticeSubmission(userId, input) {
+      return toPlain(await PracticeSubmission.create({ userId, ...input }));
+    },
+    async listPracticeSubmissions(userId, limit = 25) {
+      return (await PracticeSubmission.find({ userId })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean()).map(toPlain);
+    },
     async getDashboard(userId) {
       const [projectCount, executionCount, recentProjects, recentHistory, languageRows] = await Promise.all([
         Project.countDocuments({ userId }),

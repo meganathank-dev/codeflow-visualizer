@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+deploy/production.env
+.git
+.github
+*.zip
+npm-debug.log*
+pnpm-debug.log*

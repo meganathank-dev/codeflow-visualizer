@@ -15,13 +15,15 @@
     "dev:api": "pnpm --filter @codeflow/api dev",
     "dev:execution": "pnpm --filter @codeflow/execution dev",
     "build": "pnpm --filter @codeflow/web build",
-    "test": "pnpm test:trace && pnpm test:core && pnpm test:execution && pnpm test:api && pnpm test:web && pnpm test:pocs",
+    "test": "pnpm test:trace && pnpm test:core && pnpm test:execution && pnpm test:api && pnpm test:web && pnpm test:pocs && pnpm test:release",
     "test:trace": "pnpm --filter @codeflow/execution-trace test",
     "test:core": "pnpm --filter @codeflow/visualizer-core test",
     "test:execution": "pnpm --filter @codeflow/execution test",
     "test:api": "pnpm --filter @codeflow/api test",
     "test:web": "pnpm --filter @codeflow/web test",
     "test:pocs": "node pocs/conformance/multilanguage-conformance.test.js",
+    "test:release": "node scripts/release-readiness.test.js",
+    "release:check": "node scripts/release-readiness.js",
     "test:javascript-poc": "pnpm --filter @codeflow/javascript-poc test:automatic"
   }
 }

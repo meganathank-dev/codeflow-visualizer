@@ -440,8 +440,31 @@ function startExecutionServer(options = {}) {
   return server;
 }
 
+function installShutdownHandlers(server, label = "CodeFlow execution service") {
+  let stopping = false;
+  function stop(signal) {
+    if (stopping) return;
+    stopping = true;
+    console.log(`${label} received ${signal}; finishing active requests.`);
+    const forcedExit = setTimeout(() => {
+      console.error(`${label} shutdown exceeded 10 seconds.`);
+      process.exitCode = 1;
+    }, 10_000);
+    forcedExit.unref();
+    server.close((error) => {
+      clearTimeout(forcedExit);
+      if (error) {
+        console.error(`${label} shutdown failed: ${error.message}`);
+        process.exitCode = 1;
+      }
+    });
+  }
+  process.once("SIGTERM", () => stop("SIGTERM"));
+  process.once("SIGINT", () => stop("SIGINT"));
+}
+
 if (require.main === module) {
-  startExecutionServer();
+  installShutdownHandlers(startExecutionServer());
 }
 
 module.exports = {
@@ -456,6 +479,7 @@ module.exports = {
   normalizeIsolationCapabilities,
   hasProductionIsolation,
   assertProductionIsolation,
+  installShutdownHandlers,
   createExecutionServer,
   startExecutionServer
 };

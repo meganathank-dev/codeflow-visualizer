@@ -1,5 +1,6 @@
 import {
   Activity,
+  BookOpenCheck,
   Code2,
   Pause,
   Play,
@@ -23,6 +24,7 @@ export default function AppHeader({
   isAtFirstStep,
   isAtFinalStep,
   user,
+  onPractice,
   onAccount,
   onRun,
   onCancel,
@@ -69,6 +71,16 @@ export default function AppHeader({
           <ShieldCheck size={15} />
           <span>{supportsLiveExecution ? "Local execution" : "Preview environment"}</span>
         </div>
+
+        <button
+          className="practice-header-action"
+          type="button"
+          onClick={onPractice}
+          aria-label="Open Practice Lab"
+        >
+          <BookOpenCheck size={15} />
+          <span>Practice</span>
+        </button>
 
         <button
           className="account-action"

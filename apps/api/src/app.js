@@ -9,6 +9,8 @@ const {
   createOriginGuard,
   createRateLimiter
 } = require("./security/http-guards");
+const { createPracticePlatform } = require("./practice/platform");
+const { createRequestObservability } = require("./observability/request-observability");
 const { createMemoryUserRepository } = require("./user-platform/memory-repository");
 const { createUserPlatform } = require("./user-platform/platform");
 
@@ -200,6 +202,28 @@ function createApiApp(options = {}) {
     openAiModel: options.openAiModel,
     fetchImplementation: options.aiFetchImplementation
   });
+  const production = (options.environment || process.env.NODE_ENV) === "production";
+
+  async function executeWithIsolationGate(executionRequest) {
+    if (production) {
+      const health = await executionClient.request("/health");
+      if (
+        health.status !== 200 ||
+        health.body?.security?.productionSandboxAvailable !== true ||
+        health.body?.security?.acceptsUntrustedCode !== true
+      ) {
+        throw new ApiRequestError(
+          "Production execution is unavailable until the isolated sandbox is verified",
+          503,
+          "PRODUCTION_SANDBOX_NOT_READY"
+        );
+      }
+    }
+    return executionClient.request("/execute", {
+      method: "POST",
+      body: JSON.stringify(executionRequest)
+    });
+  }
 
   const configuredAccessSecret = options.accessTokenSecret || process.env.ACCESS_TOKEN_SECRET;
   const configuredRefreshSecret = options.refreshTokenSecret || process.env.REFRESH_TOKEN_SECRET;
@@ -217,19 +241,31 @@ function createApiApp(options = {}) {
     exposePasswordResetToken: options.exposePasswordResetToken ?? process.env.NODE_ENV !== "production"
   });
 
+  const practicePlatform = createPracticePlatform({
+    execute: executeWithIsolationGate,
+    repository: userPlatform.repository,
+    optionalAuth: userPlatform.optionalAuth,
+    requireAuth: userPlatform.requireAuth,
+    registerVerification: (executionRequest, executionResult) =>
+      explanationService.register(executionRequest, executionResult)
+  });
+
   const app = express();
 
   app.disable("x-powered-by");
 
   if (options.trustProxy !== undefined) app.set("trust proxy", options.trustProxy);
 
-  const production = (options.environment || process.env.NODE_ENV) === "production";
   const allowedOrigins = options.allowedOrigins || [
     process.env.WEB_ORIGIN,
     "http://127.0.0.1:5173",
     "http://localhost:5173"
   ];
 
+  app.use(createRequestObservability({
+    structuredLogs: options.structuredLogs ?? process.env.CODEFLOW_STRUCTURED_LOGS === "true",
+    logger: options.logger
+  }));
   app.use(createApiSecurityHeaders());
   app.use(createOriginGuard({ allowedOrigins, enforce: production }));
   app.use("/api", createRateLimiter({
@@ -247,6 +283,12 @@ function createApiApp(options = {}) {
     maximumRequests: options.aiRateLimit ?? 30,
     code: "AI_RATE_LIMIT_EXCEEDED",
     message: "Too many explanation requests. Wait briefly before asking again."
+  }));
+  app.use("/api/practice", createRateLimiter({
+    windowMs: 60_000,
+    maximumRequests: options.practiceRateLimit ?? 60,
+    code: "PRACTICE_RATE_LIMIT_EXCEEDED",
+    message: "Too many practice requests. Wait briefly before running more tests."
   }));
   app.use("/api/auth", createRateLimiter({
     windowMs: 15 * 60_000,
@@ -280,6 +322,15 @@ function createApiApp(options = {}) {
           verifiedTraceOnly: true,
           configured: explanationService.configured,
           provider: explanationService.provider
+        },
+        practice: {
+          enabled: true,
+          problemCount: practicePlatform.problemCount,
+          hiddenTestsServerSide: true
+        },
+        observability: {
+          requestIds: true,
+          structuredLogs: options.structuredLogs ?? process.env.CODEFLOW_STRUCTURED_LOGS === "true"
         }
       });
     } catch (error) {
@@ -305,6 +356,15 @@ function createApiApp(options = {}) {
             verifiedTraceOnly: true,
             configured: explanationService.configured,
             provider: explanationService.provider
+          },
+          practice: {
+            enabled: true,
+            problemCount: practicePlatform.problemCount,
+            hiddenTestsServerSide: true
+          },
+          observability: {
+            requestIds: true,
+            structuredLogs: options.structuredLogs ?? process.env.CODEFLOW_STRUCTURED_LOGS === "true"
           }
         });
 
@@ -332,10 +392,7 @@ function createApiApp(options = {}) {
         maximumSourceBytes
       );
 
-      const executionResult = await executionClient.request("/execute", {
-        method: "POST",
-        body: JSON.stringify(executionRequest)
-      });
+      const executionResult = await executeWithIsolationGate(executionRequest);
 
       if (executionResult.status === 200 && executionResult.body?.status === "ok") {
         const verification = explanationService.register(executionRequest, executionResult.body);
@@ -367,6 +424,8 @@ function createApiApp(options = {}) {
     }
   });
 
+  app.use("/api/practice", practicePlatform.router);
+
   app.use("/api", userPlatform.router);
 
   app.use((request, response) => {
@@ -374,7 +433,8 @@ function createApiApp(options = {}) {
       status: "error",
       error: {
         code: "ROUTE_NOT_FOUND",
-        message: "API route was not found"
+        message: "API route was not found",
+        requestId: request.requestId
       }
     });
   });
@@ -449,7 +509,8 @@ function createApiApp(options = {}) {
       status: "error",
       error: {
         code: "INTERNAL_API_ERROR",
-        message: "API could not process the request"
+        message: "API could not process the request",
+        requestId: request.requestId
       }
     });
   });

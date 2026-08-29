@@ -12,9 +12,11 @@ function createMemoryUserRepository() {
   const projects = new Map();
   const history = new Map();
   const passwordResets = new Map();
+  const practiceSubmissions = new Map();
 
   return {
     kind: "memory",
+    async close() {},
 
     async createUser(input) {
       const now = new Date().toISOString();
@@ -142,6 +144,24 @@ function createMemoryUserRepository() {
       for (const [id, item] of history) {
         if (item.userId === userId) history.delete(id);
       }
+    },
+
+    async createPracticeSubmission(userId, input) {
+      const submission = {
+        id: randomUUID(),
+        userId,
+        ...input,
+        createdAt: new Date().toISOString()
+      };
+      practiceSubmissions.set(submission.id, submission);
+      return clone(submission);
+    },
+
+    async listPracticeSubmissions(userId, limit = 25) {
+      return clone([...practiceSubmissions.values()]
+        .filter((item) => item.userId === userId)
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .slice(0, limit));
     },
 
     async getDashboard(userId) {

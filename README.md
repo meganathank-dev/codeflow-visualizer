@@ -81,6 +81,19 @@ operations. The execution service fails closed in production unless the hosting
 environment confirms network, filesystem, CPU, memory, process, and ephemeral
 workspace isolation.
 
+## Final Phase 12 practice and production closure
+
+The integrated **Practice Lab** adds curated JavaScript, Python, Java and SQL
+challenges, public test runs, authenticated submissions, progress tracking and a
+direct handoff from a public test into the verified execution visualizer. Hidden
+test inputs and expected values never leave the API.
+
+Phase 12 also adds request IDs, optional structured JSON logs, an HTTPS
+password-reset delivery contract, CI, control-plane container templates and a
+fail-closed production execution check. The included deployment does not pretend
+that the local runner is a public sandbox: production execution requires a
+separate isolated service whose health attests every required control.
+
 In development, the reset token is returned to the account dialog for local
 testing. Production must provide a password-reset delivery adapter and never
 expose the token in an API response.
@@ -115,6 +128,12 @@ pnpm dev
 
 Open `http://127.0.0.1:5173/` and use the **Sign in** button in the header.
 
+For production preparation, copy `deploy/production.env.example` to
+`deploy/production.env`, replace every
+placeholder, then run `pnpm release:check`. See
+[Production deployment](docs/deployment.md) and the
+[Final release checklist](docs/release-checklist.md).
+
 ## Project Structure
 
 ```text
@@ -147,3 +166,6 @@ pocs/
 - [Phase 9 — MERN user platform](docs/phase-9-summary.md)
 - [Phase 10 — AI, feedback, and reliability](docs/phase-10-summary.md)
 - [Phase 11 — Reliability, educational accessibility, and security](docs/phase-11-summary.md)
+- [Final Phase 12 — Practice platform and production closure](docs/phase-12-summary.md)
+- [Production deployment](docs/deployment.md)
+- [Final release checklist](docs/release-checklist.md)

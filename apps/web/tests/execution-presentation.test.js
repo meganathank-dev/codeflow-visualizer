@@ -54,6 +54,12 @@ import {
   saveDisplayMode
 } from "../src/utils/display-preferences.js";
 
+import {
+  createPracticeDraft,
+  formatPracticeVerdict,
+  normalizePracticeFilters
+} from "../src/utils/practice-api.js";
+
 function createState(step, overrides = {}) {
   return {
     step,
@@ -1509,6 +1515,10 @@ async function runTests() {
     new URL("../src/components/TimelineControls.jsx", import.meta.url),
     "utf8"
   );
+  const practiceDialog = readFileSync(
+    new URL("../src/components/PracticePlatformDialog.jsx", import.meta.url),
+    "utf8"
+  );
   assert.match(
     styles,
     /--accent-mint\s*:\s*var\(--accent-green\)/,
@@ -1539,6 +1549,19 @@ async function runTests() {
   assert.equal(displayStorage.get(DISPLAY_MODE_STORAGE_KEY), "presentation");
   assert.equal(readDisplayMode(storage), "presentation");
   assert.equal(normalizeDisplayMode("comfortable"), "compact");
+  assert.match(appHeader, /Open Practice Lab/);
+  assert.match(practiceDialog, /Hidden values stay server-side/);
+  assert.match(practiceDialog, /Visualize public test trace/);
+  assert.doesNotMatch(practiceDialog, /<select/);
+  assert.deepEqual(
+    normalizePracticeFilters({ difficulty: "medium", language: "python", topic: "  Graph " }),
+    { difficulty: "medium", language: "python", topic: "graph" }
+  );
+  assert.deepEqual(
+    createPracticeDraft({ languages: ["python"], starterCode: { python: "print('ready')" } }),
+    { language: "python", source: "print('ready')" }
+  );
+  assert.equal(formatPracticeVerdict("wrong_answer"), "Wrong answer");
 
   const presentation = createExecutionPresentation(createResult());
 
@@ -2233,6 +2256,7 @@ async function runTests() {
   console.log("Execution startup readiness and timeout guidance: passed");
   console.log("Custom language and playback dropdown accessibility: passed");
   console.log("Compact and Presentation display preference persistence: passed");
+  console.log("Integrated practice catalog, judging, and trace handoff: passed");
   console.log("User-platform project and date presentation: passed");
   console.log("User-platform action color and contrast regression: passed");
   console.log("Java runtime-object filtering and friendly values: passed");

@@ -5,6 +5,7 @@ const {
 } = require("./app");
 const { createMemoryUserRepository } = require("./user-platform/memory-repository");
 const { connectUserDatabase } = require("./user-platform/mongoose-repository");
+const { createPasswordResetWebhookDelivery } = require("./auth/password-reset-delivery");
 
 const DEFAULT_HOST = "127.0.0.1";
 
@@ -43,7 +44,15 @@ async function startApiServer(options = {}) {
   );
 
   const userRepository = await resolveUserRepository(options);
-  const app = createApiApp({ ...options, userRepository });
+  const passwordResetDelivery = options.passwordResetDelivery || createPasswordResetWebhookDelivery({
+    webhookUrl: process.env.PASSWORD_RESET_WEBHOOK_URL,
+    webhookSecret: process.env.PASSWORD_RESET_WEBHOOK_SECRET,
+    resetPageUrl: process.env.PASSWORD_RESET_PAGE_URL
+  });
+  if (process.env.NODE_ENV === "production" && !passwordResetDelivery) {
+    throw new Error("PASSWORD_RESET_WEBHOOK_URL is required in production");
+  }
+  const app = createApiApp({ ...options, userRepository, passwordResetDelivery });
 
   const server = app.listen(
     port,
@@ -63,11 +72,42 @@ async function startApiServer(options = {}) {
     }
   );
 
+  server.codeflowCloseResources = () => userRepository.close?.();
+
   return server;
 }
 
+function installShutdownHandlers(server, label = "CodeFlow API") {
+  let stopping = false;
+  function stop(signal) {
+    if (stopping) return;
+    stopping = true;
+    console.log(`${label} received ${signal}; finishing active requests.`);
+    const forcedExit = setTimeout(() => {
+      console.error(`${label} shutdown exceeded 10 seconds.`);
+      process.exitCode = 1;
+    }, 10_000);
+    forcedExit.unref();
+    server.close(async (error) => {
+      clearTimeout(forcedExit);
+      if (error) {
+        console.error(`${label} shutdown failed: ${error.message}`);
+        process.exitCode = 1;
+      }
+      try {
+        await server.codeflowCloseResources?.();
+      } catch (resourceError) {
+        console.error(`${label} resource shutdown failed: ${resourceError.message}`);
+        process.exitCode = 1;
+      }
+    });
+  }
+  process.once("SIGTERM", () => stop("SIGTERM"));
+  process.once("SIGINT", () => stop("SIGINT"));
+}
+
 if (require.main === module) {
-  startApiServer().catch((error) => {
+  startApiServer().then((server) => installShutdownHandlers(server)).catch((error) => {
     console.error(`CodeFlow API failed to start: ${error.message}`);
     process.exitCode = 1;
   });
@@ -79,6 +119,8 @@ module.exports = {
   DEFAULT_PORT,
 
   resolveUserRepository,
+
+  installShutdownHandlers,
 
   startApiServer
 };

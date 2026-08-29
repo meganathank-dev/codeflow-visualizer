@@ -268,9 +268,32 @@ ephemeral-workspace isolation.
 
 The Express API additionally applies security headers, bounded JSON request
 sizes, configurable production-origin enforcement, and separate rate limits for
-general, authentication, execution, and verified-AI operations.
+general, authentication, execution, practice, and verified-AI operations.
 
-## 10. Architecture Principles
+Before forwarding any production execution—including practice judging—the API
+checks execution-service health for an attested production sandbox. Request IDs
+flow through the reverse proxy and API, while structured logs deliberately omit
+source code, program inputs, credentials, tokens and hidden-test data.
+
+## 10. Practice Platform Architecture
+
+```text
+Problem catalog
+→ Public or authenticated solution request
+→ Production sandbox gate
+→ Existing execution adapter
+→ Standardized trace and reconstructed states
+→ Output judge
+→ Public result or confidential hidden verdict
+→ Optional visualizer handoff
+```
+
+Problem definitions and hidden fixtures live only in the API. Anonymous users
+can browse and run public tests. Authenticated submissions are owner-scoped in
+the same repository boundary as projects and execution history. The frontend
+receives a visualization payload only for a public test.
+
+## 11. Architecture Principles
 
 - Use JavaScript for the MERN application.
 - Keep execution separate from the Express API.

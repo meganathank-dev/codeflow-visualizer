@@ -446,7 +446,7 @@ function createUserPlatform(options) {
     } catch (error) { next(error); }
   });
 
-  return { router, optionalAuth, recordExecution, repository };
+  return { router, optionalAuth, requireAuth, recordExecution, repository };
 }
 
 module.exports = {

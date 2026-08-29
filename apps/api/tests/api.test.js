@@ -184,6 +184,9 @@ async function runTests() {
     assert.equal(health.body.userPlatform.storage, "memory");
     assert.equal(health.body.ai.verifiedTraceOnly, true);
     assert.equal(health.body.ai.provider, "verified-local");
+    assert.equal(health.body.practice.problemCount, 4);
+    assert.equal(health.body.observability.requestIds, true);
+    assert.match(health.headers.get("x-request-id"), /^[a-f\d-]{36}$/i);
     assert.equal(health.headers.get("x-frame-options"), "DENY");
     assert.match(health.headers.get("content-security-policy"), /default-src 'none'/);
 
@@ -331,6 +334,31 @@ async function runTests() {
     const missingRoute = await requestJson(apiBaseUrl, "/api/not-found");
     assert.equal(missingRoute.status, 404);
 
+    const productionApp = createApiApp({
+      environment: "production",
+      executionServiceUrl: `http://127.0.0.1:${executionAddress.port}`,
+      accessTokenSecret: "a".repeat(40),
+      refreshTokenSecret: "b".repeat(40),
+      passwordResetDelivery: async () => {},
+      allowedOrigins: ["https://codeflow.example"]
+    });
+    const productionServer = http.createServer(productionApp);
+    const productionAddress = await listen(productionServer);
+    try {
+      const blockedProductionExecution = await requestJson(
+        `http://127.0.0.1:${productionAddress.port}`,
+        "/api/execute",
+        {
+          method: "POST",
+          body: JSON.stringify({ language: "javascript", source: "console.log('safe gate');" })
+        }
+      );
+      assert.equal(blockedProductionExecution.status, 503);
+      assert.equal(blockedProductionExecution.body.error.code, "PRODUCTION_SANDBOX_NOT_READY");
+    } finally {
+      await close(productionServer);
+    }
+
     console.log("API tests passed.");
     console.log("API health endpoint: passed");
     console.log("Execution service connection: passed");
@@ -347,6 +375,7 @@ async function runTests() {
     console.log("Verified trace-only explanation boundary: passed");
     console.log("Execution reliability metadata and timeout budget: passed");
     console.log("Security headers, origin policy, and request rate limiting: passed");
+    console.log("Production sandbox forwarding gate: passed");
     console.log("Execution boundary separation: passed");
   } finally {
     await close(apiServer);
