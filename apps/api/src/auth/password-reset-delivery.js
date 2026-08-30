@@ -3,6 +3,7 @@
 const crypto = require("node:crypto");
 const tls = require("node:tls");
 
+const MAILJET_SEND_URL = "https://api.mailjet.com/v3.1/send";
 const DEFAULT_SMTP_HOST = "smtp.gmail.com";
 const DEFAULT_SMTP_PORT = 465;
 const SMTP_TIMEOUT_MS = 15_000;
@@ -197,6 +198,68 @@ function buildPasswordResetMessage({ fromAddress, fromName, user, resetUrl, expi
   ].join("\r\n");
 }
 
+function createPasswordResetMailjetDelivery(options = {}) {
+  const apiKey = String(options.apiKey || "").trim();
+  const secretKey = String(options.secretKey || "").trim();
+  if (!apiKey && !secretKey) return null;
+  if (!apiKey || !secretKey) {
+    throw new TypeError("Both PASSWORD_RESET_MAILJET_API_KEY and PASSWORD_RESET_MAILJET_SECRET_KEY are required");
+  }
+
+  const fromAddress = validateEmailAddress(options.fromAddress, "PASSWORD_RESET_FROM_ADDRESS");
+  const fromName = String(options.fromName || "CodeFlow Visualizer").replace(/[\r\n]/g, " ").trim();
+  const fetchImplementation = options.fetchImplementation || fetch;
+
+  return async function deliverPasswordReset({ user, token, expiresAt }) {
+    const toAddress = validateEmailAddress(user.email, "Password-reset recipient");
+    const resetUrl = createResetUrl(options.resetPageUrl, token);
+    const recipientName = String(user.name || "CodeFlow user");
+    const expiry = new Date(expiresAt).toUTCString();
+    const text = [
+      `Hello ${recipientName},`,
+      "",
+      "We received a request to reset your CodeFlow Visualizer password.",
+      `Open this secure link: ${resetUrl}`,
+      "",
+      `This one-time link expires at ${expiry}.`,
+      "If you did not request this change, you can safely ignore this email."
+    ].join("\n");
+    const html = [
+      `<p>Hello ${escapeHtml(recipientName)},</p>`,
+      "<p>We received a request to reset your CodeFlow Visualizer password.</p>",
+      `<p><a href="${escapeHtml(resetUrl)}">Reset your password</a></p>`,
+      `<p>This one-time link expires at ${escapeHtml(expiry)}.</p>`,
+      "<p>If you did not request this change, you can safely ignore this email.</p>"
+    ].join("");
+
+    const response = await fetchImplementation(MAILJET_SEND_URL, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        authorization: `Basic ${Buffer.from(`${apiKey}:${secretKey}`).toString("base64")}`
+      },
+      body: JSON.stringify({
+        Messages: [{
+          From: { Email: fromAddress, Name: fromName },
+          To: [{ Email: toAddress, Name: recipientName }],
+          Subject: "Reset your CodeFlow Visualizer password",
+          TextPart: text,
+          HTMLPart: html
+        }]
+      }),
+      signal: AbortSignal.timeout(15_000)
+    });
+
+    const result = await response.json().catch(() => null);
+    const message = result?.Messages?.[0];
+    if (!response.ok || message?.Status !== "success") {
+      const providerError = message?.Errors?.[0]?.ErrorMessage;
+      throw new Error(providerError || "Mailjet rejected the password-reset email");
+    }
+  };
+}
+
 function createPasswordResetSmtpDelivery(options = {}) {
   const username = String(options.username || "").trim();
   const password = String(options.password || "").replaceAll(" ", "");
@@ -271,6 +334,7 @@ function createPasswordResetWebhookDelivery(options = {}) {
 }
 
 module.exports = {
+  createPasswordResetMailjetDelivery,
   createPasswordResetSmtpDelivery,
   createPasswordResetWebhookDelivery
 };

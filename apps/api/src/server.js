@@ -6,6 +6,7 @@ const {
 const { createMemoryUserRepository } = require("./user-platform/memory-repository");
 const { connectUserDatabase } = require("./user-platform/mongoose-repository");
 const {
+  createPasswordResetMailjetDelivery,
   createPasswordResetSmtpDelivery,
   createPasswordResetWebhookDelivery
 } = require("./auth/password-reset-delivery");
@@ -47,6 +48,13 @@ async function startApiServer(options = {}) {
   );
 
   const userRepository = await resolveUserRepository(options);
+  const mailjetPasswordResetDelivery = createPasswordResetMailjetDelivery({
+    apiKey: process.env.PASSWORD_RESET_MAILJET_API_KEY,
+    secretKey: process.env.PASSWORD_RESET_MAILJET_SECRET_KEY,
+    fromAddress: process.env.PASSWORD_RESET_FROM_ADDRESS,
+    fromName: process.env.PASSWORD_RESET_FROM_NAME,
+    resetPageUrl: process.env.PASSWORD_RESET_PAGE_URL
+  });
   const smtpPasswordResetDelivery = createPasswordResetSmtpDelivery({
     username: process.env.PASSWORD_RESET_SMTP_USER,
     password: process.env.PASSWORD_RESET_SMTP_APP_PASSWORD,
@@ -63,11 +71,12 @@ async function startApiServer(options = {}) {
   });
   const passwordResetDelivery = (
     options.passwordResetDelivery ||
+    mailjetPasswordResetDelivery ||
     smtpPasswordResetDelivery ||
     webhookPasswordResetDelivery
   );
   if (process.env.NODE_ENV === "production" && !passwordResetDelivery) {
-    throw new Error("Password-reset email or webhook delivery must be configured in production");
+    throw new Error("Password-reset API, SMTP, or webhook delivery must be configured in production");
   }
   const app = createApiApp({ ...options, userRepository, passwordResetDelivery });
 
