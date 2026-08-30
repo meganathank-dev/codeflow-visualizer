@@ -55,6 +55,20 @@ import java.util.StringJoiner;
 
 public final class CodeFlowJavaDebugger {
     private static final String ITEM_SEPARATOR = "\u001F";
+    private static final List<String> VERIFIED_RUNTIME_CLASSES = List.of(
+        "Graph",
+        "SearchAlgorithms",
+        "SortingAlgorithms",
+        "RecursionAlgorithms",
+        "DynamicProgramming",
+        "java.util.ArrayDeque",
+        "java.util.HashMap",
+        "java.util.LinkedHashMap",
+        "java.util.LinkedList",
+        "java.util.PriorityQueue",
+        "java.util.Stack",
+        "java.util.TreeSet"
+    );
 
     private CodeFlowJavaDebugger() {
     }
@@ -265,6 +279,17 @@ public final class CodeFlowJavaDebugger {
         );
         methodEntryRequest.enable();
 
+        for (String runtimeClass : VERIFIED_RUNTIME_CLASSES) {
+            MethodEntryRequest runtimeCallRequest =
+                requestManager.createMethodEntryRequest();
+
+            runtimeCallRequest.addClassFilter(runtimeClass);
+            runtimeCallRequest.setSuspendPolicy(
+                EventRequest.SUSPEND_ALL
+            );
+            runtimeCallRequest.enable();
+        }
+
         MethodExitRequest methodExitRequest =
             requestManager.createMethodExitRequest();
 
@@ -353,7 +378,8 @@ public final class CodeFlowJavaDebugger {
                         event instanceof MethodEntryEvent
                     ) {
                         handleMethodEntry(
-                            (MethodEntryEvent) event
+                            (MethodEntryEvent) event,
+                            mainClass
                         );
                     } else if (
                         event instanceof StepEvent
@@ -409,7 +435,8 @@ public final class CodeFlowJavaDebugger {
     }
 
     private static void handleMethodEntry(
-        MethodEntryEvent event
+        MethodEntryEvent event,
+        String mainClass
     ) throws Exception {
         Method method = event.method();
 
@@ -419,6 +446,15 @@ public final class CodeFlowJavaDebugger {
 
         ThreadReference thread = event.thread();
         StackFrame frame = thread.frame(0);
+        String declaringClass = method.declaringType().name();
+
+        if (!mainClass.equals(declaringClass)) {
+            handleVerifiedRuntimeCall(
+                event,
+                mainClass
+            );
+            return;
+        }
 
         String frameId = createFrameId(thread);
         int methodLine = normalizeLine(
@@ -446,6 +482,108 @@ public final class CodeFlowJavaDebugger {
             encode(method.name()),
             encodeLocals(locals)
         );
+    }
+
+    private static void handleVerifiedRuntimeCall(
+        MethodEntryEvent event,
+        String mainClass
+    ) throws Exception {
+        ThreadReference thread = event.thread();
+
+        if (thread.frameCount() < 2) {
+            return;
+        }
+
+        StackFrame runtimeFrame = thread.frame(0);
+        StackFrame callerFrame = thread.frame(1);
+
+        if (!mainClass.equals(
+            callerFrame.location().declaringType().name()
+        )) {
+            return;
+        }
+
+        Method method = event.method();
+        String methodName = method.name();
+        String declaringClass = method.declaringType().name();
+
+        if (
+            declaringClass.startsWith("java.util.") &&
+            !List.of(
+                "push",
+                "add",
+                "addFirst",
+                "addLast",
+                "offer",
+                "pop",
+                "poll",
+                "put",
+                "putIfAbsent",
+                "get",
+                "getFirst",
+                "getLast",
+                "peek",
+                "element",
+                "containsKey",
+                "contains",
+                "remove",
+                "removeFirst",
+                "removeLast",
+                "toArray"
+            ).contains(methodName)
+        ) {
+            return;
+        }
+
+        String receiverName = findCallerVariableName(
+            callerFrame,
+            runtimeFrame.thisObject()
+        );
+
+        emit(
+            "RUNTIME_CALL",
+            Integer.toString(normalizeLine(
+                callerFrame.location().lineNumber()
+            )),
+            encode(declaringClass),
+            encode(methodName),
+            encode(receiverName),
+            encodeValues(runtimeFrame.getArgumentValues()),
+            encodeLocals(captureLocals(callerFrame))
+        );
+    }
+
+    private static String findCallerVariableName(
+        StackFrame callerFrame,
+        ObjectReference receiver
+    ) throws Exception {
+        if (receiver == null) {
+            return "";
+        }
+
+        List<LocalVariable> variables;
+
+        try {
+            variables = callerFrame.visibleVariables();
+        } catch (AbsentInformationException error) {
+            return "";
+        }
+
+        Map<LocalVariable, Value> values =
+            callerFrame.getValues(variables);
+
+        for (LocalVariable variable : variables) {
+            Value value = values.get(variable);
+
+            if (
+                value instanceof ObjectReference &&
+                ((ObjectReference) value).uniqueID() == receiver.uniqueID()
+            ) {
+                return variable.name();
+            }
+        }
+
+        return "";
     }
 
     private static void handleStep(
@@ -710,6 +848,13 @@ public final class CodeFlowJavaDebugger {
             ObjectReference object =
                 (ObjectReference) value;
 
+            SerializedValue boxedValue =
+                serializeBoxedValue(object);
+
+            if (boxedValue != null) {
+                return boxedValue;
+            }
+
             return new SerializedValue(
                 "object",
                 object.referenceType().name()
@@ -720,6 +865,32 @@ public final class CodeFlowJavaDebugger {
             "unknown",
             value.toString()
         );
+    }
+
+    private static SerializedValue serializeBoxedValue(
+        ObjectReference object
+    ) {
+        String typeName = object.referenceType().name();
+
+        if (!List.of(
+            "java.lang.Boolean",
+            "java.lang.Byte",
+            "java.lang.Short",
+            "java.lang.Integer",
+            "java.lang.Long",
+            "java.lang.Float",
+            "java.lang.Double",
+            "java.lang.Character"
+        ).contains(typeName)) {
+            return null;
+        }
+
+        Field valueField = object.referenceType()
+            .fieldByName("value");
+
+        return valueField == null
+            ? null
+            : serializeValue(object.getValue(valueField));
     }
 
     private static SerializedValue serializeArray(
@@ -772,6 +943,24 @@ public final class CodeFlowJavaDebugger {
                 encode(value.type) +
                 "," +
                 encode(value.value)
+            );
+        }
+
+        return encode(joiner.toString());
+    }
+
+    private static String encodeValues(
+        List<Value> values
+    ) {
+        StringJoiner joiner = new StringJoiner(";");
+
+        for (Value value : values) {
+            SerializedValue serialized = serializeValue(value);
+
+            joiner.add(
+                encode(serialized.type) +
+                "," +
+                encode(serialized.value)
             );
         }
 

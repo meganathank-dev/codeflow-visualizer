@@ -2,6 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { assertValidTrace } = require("@codeflow/execution-trace");
+const { buildJavaTrace } = require("../src/java/adapter");
 const {
   assertProductionIsolation,
   createExecutionServer,
@@ -53,6 +54,188 @@ function execute(baseUrl, language, source, inputs = []) {
     method: "POST",
     body: JSON.stringify({ language, source, inputs })
   });
+}
+
+function encodeJavaObservation(value = "") {
+  return Buffer.from(String(value), "utf8").toString("base64");
+}
+
+function encodeJavaRuntimeValues(values) {
+  return encodeJavaObservation(values.map(({ type, value }) => (
+    `${encodeJavaObservation(type)},${encodeJavaObservation(value)}`
+  )).join(";"));
+}
+
+function createJavaRuntimeCall({
+  line,
+  className,
+  method,
+  receiver = "",
+  arguments: argumentsList = []
+}) {
+  return [
+    "RUNTIME_CALL",
+    String(line),
+    encodeJavaObservation(className),
+    encodeJavaObservation(method),
+    encodeJavaObservation(receiver),
+    encodeJavaRuntimeValues(argumentsList),
+    encodeJavaObservation("")
+  ].join("\t");
+}
+
+function testJavaVerifiedRuntimeCallProtocol() {
+  const hanoiSource = [
+    "public class Main {",
+    "    public static void main(String[] args) {",
+    "        int hanoiMoves =",
+    "            RecursionAlgorithms.towerOfHanoi(",
+    "                4",
+    "            );",
+    "    }",
+    "}"
+  ];
+  const hanoiTrace = buildJavaTrace([
+    "START",
+    createJavaRuntimeCall({
+      line: 4,
+      className: "RecursionAlgorithms",
+      method: "towerOfHanoi",
+      arguments: [{ type: "integer", value: "4" }]
+    }),
+    "END\tcompleted"
+  ].join("\n"), {
+    traceId: "java:verified-runtime-hanoi",
+    className: "Main",
+    sourceLines: hanoiSource,
+    maximumTraceEvents: 100,
+    inputs: []
+  });
+  const hanoiEvents = hanoiTrace.events.filter(
+    (event) => event.type.startsWith("HANOI_")
+  );
+
+  assert.equal(hanoiEvents.length, 47);
+  assert.equal(hanoiEvents[0].type, "HANOI_START");
+  assert.equal(hanoiEvents.at(-1).type, "HANOI_END");
+  assert.equal(
+    hanoiEvents.filter((event) => event.type === "HANOI_MOVE").length,
+    15
+  );
+
+  const hashMapSource = [
+    "import java.util.*;",
+    "public class Main {",
+    "    public static void main(String[] args) {",
+    "        Map<String, Integer> scores = new HashMap<>();",
+    '        scores.put("Alice", 90);',
+    '        scores.put("Bob", 80);',
+    '        scores.put("Bob", 85);',
+    '        int selected = scores.get("Bob");',
+    '        int removed = scores.remove("Alice");',
+    "    }",
+    "}"
+  ];
+  const stringValue = (value) => ({ type: "string", value });
+  const integerValue = (value) => ({ type: "integer", value: String(value) });
+  const hashMapTrace = buildJavaTrace([
+    "START",
+    createJavaRuntimeCall({ line: 5, className: "java.util.HashMap", method: "put", receiver: "scores", arguments: [stringValue("Alice"), integerValue(90)] }),
+    createJavaRuntimeCall({ line: 6, className: "java.util.HashMap", method: "put", receiver: "scores", arguments: [stringValue("Bob"), integerValue(80)] }),
+    createJavaRuntimeCall({ line: 7, className: "java.util.HashMap", method: "put", receiver: "scores", arguments: [stringValue("Bob"), integerValue(85)] }),
+    createJavaRuntimeCall({ line: 8, className: "java.util.HashMap", method: "get", receiver: "scores", arguments: [stringValue("Bob")] }),
+    createJavaRuntimeCall({ line: 9, className: "java.util.HashMap", method: "remove", receiver: "scores", arguments: [stringValue("Alice")] }),
+    "END\tcompleted"
+  ].join("\n"), {
+    traceId: "java:verified-runtime-hashmap",
+    className: "Main",
+    sourceLines: hashMapSource,
+    maximumTraceEvents: 100,
+    inputs: []
+  });
+  const hashMapEvents = hashMapTrace.events.filter(
+    (event) => event.type.startsWith("HASHMAP_")
+  );
+
+  assert.deepEqual(hashMapEvents.map((event) => event.type), [
+    "HASHMAP_CREATE",
+    "HASHMAP_SET",
+    "HASHMAP_SET",
+    "HASHMAP_SET",
+    "HASHMAP_GET",
+    "HASHMAP_DELETE"
+  ]);
+  assert.equal(
+    hashMapEvents.find((event) => event.payload.updated)?.payload.previousValue,
+    80
+  );
+  assert.deepEqual(hashMapEvents.at(-1).payload.entries, [
+    { key: "Bob", value: 85 }
+  ]);
+  assert.equal(
+    hashMapEvents.every((event) => event.payload.runtimeVerified === true),
+    true
+  );
+
+  const queueSource = [
+    "import java.util.ArrayDeque;",
+    "import java.util.Queue;",
+    "public class Main {",
+    "    public static void main(String[] args) {",
+    "        Queue<Integer> taskQueue = new ArrayDeque<>();",
+    "        taskQueue.offer(10);",
+    "        taskQueue.offer(20);",
+    "        int front = taskQueue.peek();",
+    "        int removed = taskQueue.poll();",
+    "    }",
+    "}"
+  ];
+  const queueTrace = buildJavaTrace([
+    "START",
+    createJavaRuntimeCall({ line: 6, className: "java.util.ArrayDeque", method: "offer", receiver: "taskQueue", arguments: [integerValue(10)] }),
+    createJavaRuntimeCall({ line: 7, className: "java.util.ArrayDeque", method: "offer", receiver: "taskQueue", arguments: [integerValue(20)] }),
+    createJavaRuntimeCall({ line: 8, className: "java.util.ArrayDeque", method: "peek", receiver: "taskQueue" }),
+    createJavaRuntimeCall({ line: 9, className: "java.util.ArrayDeque", method: "poll", receiver: "taskQueue" }),
+    "END\tcompleted"
+  ].join("\n"), {
+    traceId: "java:verified-runtime-queue",
+    className: "Main",
+    sourceLines: queueSource,
+    maximumTraceEvents: 100,
+    inputs: []
+  });
+  const queueEvents = queueTrace.events.filter(
+    (event) => event.type.startsWith("QUEUE_")
+  );
+
+  assert.deepEqual(queueEvents.map((event) => event.type), [
+    "QUEUE_ENQUEUE",
+    "QUEUE_ENQUEUE",
+    "QUEUE_PEEK",
+    "QUEUE_DEQUEUE"
+  ]);
+  assert.deepEqual(queueEvents.at(-1).payload.values, [20]);
+
+  const falseBranchTrace = buildJavaTrace("START\nEND\tcompleted", {
+    traceId: "java:no-source-replay",
+    className: "Main",
+    sourceLines: [
+      "import java.util.*;",
+      "public class Main {",
+      "    public static void main(String[] args) {",
+      "        Map<String, Integer> scores = new HashMap<>();",
+      '        if (false) scores.put("Never", 1);',
+      "    }",
+      "}"
+    ],
+    maximumTraceEvents: 100,
+    inputs: []
+  });
+
+  assert.equal(
+    falseBranchTrace.events.some((event) => event.type === "HASHMAP_SET"),
+    false
+  );
 }
 
 function createJavaScriptFixture() {
@@ -1608,6 +1791,7 @@ async function testRequestValidation(baseUrl) {
 }
 
 async function runTests() {
+  testJavaVerifiedRuntimeCallProtocol();
   assert.equal(hasProductionIsolation({}), false);
   assert.throws(
     () => assertProductionIsolation({ environment: "production" }),
