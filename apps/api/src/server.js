@@ -5,7 +5,10 @@ const {
 } = require("./app");
 const { createMemoryUserRepository } = require("./user-platform/memory-repository");
 const { connectUserDatabase } = require("./user-platform/mongoose-repository");
-const { createPasswordResetWebhookDelivery } = require("./auth/password-reset-delivery");
+const {
+  createPasswordResetSmtpDelivery,
+  createPasswordResetWebhookDelivery
+} = require("./auth/password-reset-delivery");
 
 const DEFAULT_HOST = "127.0.0.1";
 
@@ -44,13 +47,27 @@ async function startApiServer(options = {}) {
   );
 
   const userRepository = await resolveUserRepository(options);
-  const passwordResetDelivery = options.passwordResetDelivery || createPasswordResetWebhookDelivery({
+  const smtpPasswordResetDelivery = createPasswordResetSmtpDelivery({
+    username: process.env.PASSWORD_RESET_SMTP_USER,
+    password: process.env.PASSWORD_RESET_SMTP_APP_PASSWORD,
+    fromAddress: process.env.PASSWORD_RESET_FROM_ADDRESS,
+    fromName: process.env.PASSWORD_RESET_FROM_NAME,
+    host: process.env.PASSWORD_RESET_SMTP_HOST,
+    port: process.env.PASSWORD_RESET_SMTP_PORT,
+    resetPageUrl: process.env.PASSWORD_RESET_PAGE_URL
+  });
+  const webhookPasswordResetDelivery = createPasswordResetWebhookDelivery({
     webhookUrl: process.env.PASSWORD_RESET_WEBHOOK_URL,
     webhookSecret: process.env.PASSWORD_RESET_WEBHOOK_SECRET,
     resetPageUrl: process.env.PASSWORD_RESET_PAGE_URL
   });
+  const passwordResetDelivery = (
+    options.passwordResetDelivery ||
+    smtpPasswordResetDelivery ||
+    webhookPasswordResetDelivery
+  );
   if (process.env.NODE_ENV === "production" && !passwordResetDelivery) {
-    throw new Error("PASSWORD_RESET_WEBHOOK_URL is required in production");
+    throw new Error("Password-reset email or webhook delivery must be configured in production");
   }
   const app = createApiApp({ ...options, userRepository, passwordResetDelivery });
 

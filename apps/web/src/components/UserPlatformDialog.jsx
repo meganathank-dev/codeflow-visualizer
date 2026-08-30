@@ -27,12 +27,25 @@ const EMPTY_DASHBOARD = {
   recentHistory: []
 };
 
-function AuthPanel({ onAuthenticated }) {
-  const [mode, setMode] = useState("login");
-  const [form, setForm] = useState({ name: "", email: "", password: "", token: "" });
+function AuthPanel({ onAuthenticated, initialResetToken = "", onPasswordResetComplete }) {
+  const [mode, setMode] = useState(initialResetToken ? "reset" : "login");
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    token: initialResetToken
+  });
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!initialResetToken) return;
+    setMode("reset");
+    setForm((current) => ({ ...current, token: initialResetToken, password: "" }));
+    setError("");
+    setNotice("");
+  }, [initialResetToken]);
 
   function changeMode(nextMode) {
     setMode(nextMode);
@@ -60,6 +73,7 @@ function AuthPanel({ onAuthenticated }) {
         setMode("login");
         setForm((current) => ({ ...current, password: "", token: "" }));
         setNotice(result.message);
+        onPasswordResetComplete?.();
       } else {
         const user = mode === "register"
           ? await userPlatformApi.register(form)
@@ -112,7 +126,7 @@ function AuthPanel({ onAuthenticated }) {
             <input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} autoComplete="email" required />
           </label>
         )}
-        {mode === "reset" && (
+        {mode === "reset" && !initialResetToken && (
           <label>
             <span>Reset token</span>
             <input value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value })} autoComplete="off" required />
@@ -273,8 +287,10 @@ export default function UserPlatformDialog({
   user,
   language,
   source,
+  resetToken = "",
   onClose,
   onUserChange,
+  onPasswordResetComplete,
   onLoadProject
 }) {
   const [tab, setTab] = useState("dashboard");
@@ -341,7 +357,13 @@ export default function UserPlatformDialog({
           <button onClick={onClose} aria-label="Close user platform"><X size={18} /></button>
         </header>
 
-        {!user ? <AuthPanel onAuthenticated={onUserChange} /> : (
+        {(!user || resetToken) ? (
+          <AuthPanel
+            onAuthenticated={onUserChange}
+            initialResetToken={resetToken}
+            onPasswordResetComplete={onPasswordResetComplete}
+          />
+        ) : (
           <div className="platform-authenticated-layout">
             <nav className="platform-nav" aria-label="User platform sections">
               {tabs.map(([id, Icon, label]) => <button key={id} className={tab === id ? "is-active" : ""} onClick={() => setTab(id)}><Icon size={16} /><span>{label}</span></button>)}

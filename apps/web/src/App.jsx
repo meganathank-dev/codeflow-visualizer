@@ -46,6 +46,7 @@ const INITIAL_LANGUAGE = "javascript";
 const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
 const INITIAL_BACKEND_CHECK_DELAY = 900;
 const BACKEND_WAKING_MESSAGE = "Backend services are waking up. This may take up to 60 seconds.";
+const PASSWORD_RESET_TOKEN_PARAM = "token";
 const LIVE_EXECUTION_LANGUAGES = Object.freeze([
   "javascript",
   "python",
@@ -57,6 +58,10 @@ function createInitialSources() {
   return Object.fromEntries(
     LANGUAGE_OPTIONS.map(({ id }) => [id, DEMO_EXECUTIONS[id].source])
   );
+}
+
+function readPasswordResetToken() {
+  return new URLSearchParams(window.location.search).get(PASSWORD_RESET_TOKEN_PARAM) || "";
 }
 
 export default function App() {
@@ -76,6 +81,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [isUserPlatformOpen, setIsUserPlatformOpen] = useState(false);
   const [isPracticeOpen, setIsPracticeOpen] = useState(false);
+  const [passwordResetToken, setPasswordResetToken] = useState(readPasswordResetToken);
 
   const activeRequestRef = useRef(null);
   const inputResolverRef = useRef(null);
@@ -90,6 +96,10 @@ export default function App() {
   const source = sources[selectedLanguage];
   const isEdited = source !== demoExecution.source;
   const canExecuteLive = LIVE_EXECUTION_LANGUAGES.includes(selectedLanguage);
+
+  useEffect(() => {
+    if (passwordResetToken) setIsUserPlatformOpen(true);
+  }, [passwordResetToken]);
 
   const liveExecution = executions[selectedLanguage];
   const hasLiveExecution = Boolean(
@@ -337,6 +347,14 @@ export default function App() {
       delete nextExecutions[languageId];
       return nextExecutions;
     });
+  }
+
+  function handlePasswordResetComplete() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete(PASSWORD_RESET_TOKEN_PARAM);
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    setPasswordResetToken("");
+    setUser(null);
   }
 
   function handleLanguageChange(languageId) {
@@ -767,8 +785,10 @@ export default function App() {
         user={user}
         language={selectedLanguage}
         source={source}
+        resetToken={passwordResetToken}
         onClose={() => setIsUserPlatformOpen(false)}
         onUserChange={setUser}
+        onPasswordResetComplete={handlePasswordResetComplete}
         onLoadProject={handleLoadProject}
       />
 
