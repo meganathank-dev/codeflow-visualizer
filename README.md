@@ -1,171 +1,453 @@
 # CodeFlow Visualizer
 
-> Run It. Trace It. See It. Understand It.
+> **Run It. Trace It. See It. Understand It.**
 
-CodeFlow Visualizer is an interactive program-execution visualization platform that helps users understand how code and SQL queries execute step by step.
+[![CodeFlow verification](https://github.com/meganathank-dev/codeflow-visualizer/actions/workflows/ci.yml/badge.svg)](https://github.com/meganathank-dev/codeflow-visualizer/actions/workflows/ci.yml)
 
-## Current Languages
+CodeFlow Visualizer is an interactive multi-language execution visualization and learning platform. It executes real JavaScript, Python, Java, and SQL code, converts runtime behaviour into a standardized trace, and presents each execution step through synchronized visualizations.
+
+The platform is designed for students, teachers, programming learners, and developers who want to understand what happens internally when code runs.
+
+## Application Showcase
+
+| JavaScript Execution | Python Playback |
+|---|---|
+| ![JavaScript execution visualization](docs/screenshots/javascript-execution.jpeg) | ![Python execution playback](docs/screenshots/python-playback.jpeg) |
+
+| Java Visualization | Full Execution Trace |
+|---|---|
+| ![Java loop visualization](docs/screenshots/java-visualization.jpeg) | ![Complete execution trace](docs/screenshots/full-trace-view.jpeg) |
+
+| AI-Assisted Explanation | Practice Lab |
+|---|---|
+| ![AI-assisted verified explanation](docs/screenshots/ai-explanation.jpeg) | ![Interactive coding practice lab](docs/screenshots/practice-lab.png) |
+
+## Supported Languages
 
 - JavaScript
 - Python
 - Java
 - SQL
 
-## Main Technology
+JavaScript, Python, and Java use real program-execution traces. SQL uses an isolated in-memory SQLite teaching dataset and a specialized relational-query trace.
 
-- React
+## Main Features
+
+### Real Multi-Language Execution
+
+- Real JavaScript execution and tracing
+- Real Python execution and tracing
+- Java execution using JDI
+- SQL execution using isolated SQLite
+- Common cross-language execution-trace format
+- Syntax-error and runtime-error visualization
+- Program-input handling
+- Execution timeouts and restricted-source protection
+
+### Interactive Visualization
+
+- Current source-line highlighting
+- Live variables
+- Arrays and stacks
+- Console output
+- Function and call-stack state
+- Loop and condition visualization
+- Numbered full execution trace
+- Current-event inspection
+- First, previous, play, pause, next, last, and reset controls
+- Timeline seeking
+- Adjustable playback speed
+
+### Data-Structure Visualization
+
+- Stack
+- Queue
+- Linked list
+- HashMap
+- Binary search tree
+- Min heap
+- Graph
+- Node, edge, pointer, and reference reconstruction
+
+### Algorithm Visualization
+
+- Linear search
+- Binary search
+- Bubble sort
+- Selection sort
+- Insertion sort
+- Merge sort
+- Quick sort
+- Factorial
+- Fibonacci
+- Recursive array sum
+- Dynamic programming
+- 0/1 Knapsack
+- Tower of Hanoi
+- BFS and DFS traversal
+
+### Verified AI Explanations
+
+AI features are restricted to verified execution data so that generated explanations cannot invent program state.
+
+Available explanation modes include:
+
+- Explain the complete program
+- Explain the current execution step
+- Explain an error
+- Generate debugging guidance
+- Explain time and space complexity
+- Ask questions using the verified trace tutor
+- View deterministic line-by-line explanations
+
+The OpenAI provider is optional. When no API key is configured, the platform continues working through its local verified-trace explanation engine.
+
+### Practice Lab
+
+The integrated Practice Lab provides:
+
+- Curated programming challenges
+- JavaScript, Python, Java, and SQL starter code
+- Difficulty and language filters
+- Public test execution
+- Server-side hidden tests
+- Solution submission
+- Accepted and failed verdicts
+- Authenticated submission history
+- Learner progress tracking
+- Direct handoff from a public test to the execution visualizer
+
+Hidden test inputs and expected results remain on the server.
+
+### User Platform
+
+Guest execution is available without an account. Signed-in users additionally receive:
+
+- Registration and login
+- Secure access and refresh sessions
+- User profile
+- Private saved projects
+- Project load, rename, duplicate, and delete actions
+- Execution history
+- Personal dashboard
+- Language-activity summary
+- Forgot-password and one-time password-reset flows
+- Practice submission history and progress
+
+### Accessibility and Classroom Support
+
+- Compact mode enabled by default
+- Presentation mode for teachers and projectors
+- Larger readable inspector content
+- Keyboard-accessible custom dropdowns
+- Accessible language and playback controls
+- Clear playback action labels
+- Improved colour contrast and focus states
+- Responsive workspace layout
+
+## Technology Stack
+
+### Frontend
+
+- React 19
+- Vite 8
 - JavaScript
-- Vite
-- Node.js
-- Express.js
+- Tailwind CSS
+- Monaco Editor
+- Framer Motion
+- Lucide React
+
+### Backend
+
+- Node.js 22
+- Express.js 5
 - MongoDB
+- Mongoose
+- Token-based authentication
+- OpenAI Responses API integration
+
+### Execution and Tracing
+
+- JavaScript AST instrumentation
+- Python runtime tracing
+- Java Debug Interface
+- SQLite
+- Standardized execution-trace package
+- Reusable visualizer-core package
+
+### Development and Deployment
+
 - pnpm workspace
+- GitHub Actions
+- Docker
+- Nginx
+- Structured request logging
+- Release-readiness validation
 
 ## Core Architecture
 
 ```text
 Source Code
-→ Language Adapter
-→ Execution Runtime
-→ Standardized Trace
-→ State Reconstruction
-→ Visualization
-→ Timeline and Animation
+     │
+     ▼
+Language Adapter
+     │
+     ▼
+Execution Runtime
+     │
+     ▼
+Standardized Trace
+     │
+     ▼
+State Reconstruction
+     │
+     ▼
+Visualization Engine
+     │
+     ▼
+Timeline, Inspector and Animation
 ```
 
-JavaScript, Python and Java use program-execution traces.
+All supported languages produce a compatible trace contract. The frontend reconstructs program state from that trace instead of maintaining a separate visualization engine for every language.
 
-SQL uses a specialized logical-query trace.
+## Project Structure
 
-## Phase 9 User Platform
+```text
+codeflow-visualizer/
+├── apps/
+│   ├── api/                  # Express API and user platform
+│   ├── execution/            # Dedicated execution service
+│   └── web/                  # React and Vite frontend
+├── packages/
+│   ├── execution-trace/      # Shared trace domain and validation
+│   └── visualizer-core/      # State reconstruction and playback
+├── docs/                     # Architecture and phase documentation
+│   └── screenshots/          # README application screenshots
+├── deploy/                   # Production configuration templates
+├── pocs/                     # Cross-language conformance tests
+├── scripts/                  # Development and release utilities
+├── .github/workflows/        # Continuous integration
+├── package.json
+└── pnpm-workspace.yaml
+```
 
-CodeFlow now includes an optional authenticated MERN workspace:
+## Prerequisites
 
-- Registration and sign-in
-- Short-lived access tokens and rotating HTTP-only refresh sessions
-- User profile
-- Private saved projects with load, rename, duplicate, and delete actions
-- Automatic execution history for signed-in users
-- Personal dashboard and language activity summary
+Install the following software before running the project:
 
-Guest execution remains available. Sign in only when you want persistence.
+- Node.js 22 or later
+- pnpm 11 or later
+- Python 3.12 or compatible
+- Temurin JDK 17
+- MongoDB for persistent user accounts and projects
+- Git
 
-## Phase 10 AI and reliability
+Verify the main tools:
 
-Phase 10 adds learning assistance without allowing AI to invent program state:
+```cmd
+node --version
+pnpm --version
+python --version
+java --version
+javac --version
+git --version
+```
 
-- Separate explanations for every source line, including braces and block endings
-- A complete numbered execution procedure with direct event navigation
-- Verified-trace program, current-step, error, debugging, complexity, and tutor explanations
-- An optional OpenAI Responses API provider with a deterministic verified-trace fallback
-- Service-readiness checks, cached Java helpers, safer timeout budgets, elapsed run status, and run cancellation
-- Forgot-password and one-time password-reset flows
+Java 17 is intentionally used for deterministic JDI tracing across local development and GitHub Actions.
 
-Set `OPENAI_API_KEY` in `apps/api/.env` to enable OpenAI explanations. When it
-is empty, all explanation actions continue to work with the local verified-trace
-engine. AI requests are accepted only for a short-lived trace identifier issued
-after a successful real execution.
+## Local Installation
 
-## Phase 11 classroom readiness and security
+### 1. Clone the repository
 
-Phase 11 uses Compact as the default workspace mode and offers Presentation as
-the single larger teaching/projector alternative. Language, playback-speed, and
-display-size controls now use a custom
-keyboard-accessible CodeFlow dropdown instead of the operating system's native
-menu.
+```cmd
+git clone https://github.com/meganathank-dev/codeflow-visualizer.git
+cd codeflow-visualizer
+```
 
-`pnpm dev` starts execution, API, and web services in readiness order to avoid
-the initial API proxy race. The API adds security headers, configurable production
-origin enforcement, and separate request limits for execution, AI, and account
-operations. The execution service fails closed in production unless the hosting
-environment confirms network, filesystem, CPU, memory, process, and ephemeral
-workspace isolation.
+### 2. Install dependencies
 
-## Final Phase 12 practice and production closure
+```cmd
+pnpm install
+```
 
-The integrated **Practice Lab** adds curated JavaScript, Python, Java and SQL
-challenges, public test runs, authenticated submissions, progress tracking and a
-direct handoff from a public test into the verified execution visualizer. Hidden
-test inputs and expected values never leave the API.
-
-Phase 12 also adds request IDs, optional structured JSON logs, an HTTPS
-password-reset delivery contract, CI, control-plane container templates and a
-fail-closed production execution check. The included deployment does not pretend
-that the local runner is a public sandbox: production execution requires a
-separate isolated service whose health attests every required control.
-
-In development, the reset token is returned to the account dialog for local
-testing. Production must provide a password-reset delivery adapter and never
-expose the token in an API response.
-
-### MongoDB setup
-
-Copy the API environment template:
+### 3. Create the API environment file
 
 ```cmd
 copy apps\api\.env.example apps\api\.env
 ```
 
-The default connection is:
+The default local MongoDB connection is:
 
 ```text
 mongodb://127.0.0.1:27017/codeflow_visualizer
 ```
 
-Replace both token secrets in `apps/api/.env` with different long random values.
-When `MONGODB_URI` is absent in local development, CodeFlow uses temporary
-in-memory user storage so the visualizer still starts. Production always
-requires MongoDB.
+Replace the access-token and refresh-token secrets in `apps/api/.env` with two different long random values.
 
-### Start
+If MongoDB is unavailable during local development, CodeFlow can use temporary in-memory user storage. MongoDB is required in production.
+
+### 4. Configure optional AI explanations
+
+Add an OpenAI API key only to `apps/api/.env`:
+
+```env
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5.6
+```
+
+Never commit a real API key. The `.env` file is ignored by Git.
+
+### 5. Start the application
 
 ```cmd
-pnpm install
-pnpm test
-pnpm build
 pnpm dev
 ```
 
-Open `http://127.0.0.1:5173/` and use the **Sign in** button in the header.
+The development starter launches the services in readiness order.
 
-For production preparation, copy `deploy/production.env.example` to
-`deploy/production.env`, replace every
-placeholder, then run `pnpm release:check`. See
-[Production deployment](docs/deployment.md) and the
-[Final release checklist](docs/release-checklist.md).
-
-## Project Structure
+Open:
 
 ```text
-apps/
-├── web/
-├── api/
-└── execution/
-
-packages/
-├── config/
-├── execution-trace/
-└── visualizer-core/
-
-docs/
-pocs/
+http://127.0.0.1:5173/
 ```
+
+Local service addresses:
+
+| Service | Address |
+|---|---|
+| Web application | `http://127.0.0.1:5173` |
+| API service | `http://127.0.0.1:4000` |
+| API health endpoint | `http://127.0.0.1:4000/api/health` |
+| Execution service | `http://127.0.0.1:4100` |
+
+## Available Commands
+
+| Command | Purpose |
+|---|---|
+| `pnpm dev` | Start all development services in readiness order |
+| `pnpm dev:parallel` | Start all services in parallel |
+| `pnpm dev:web` | Start only the frontend |
+| `pnpm dev:api` | Start only the API |
+| `pnpm dev:execution` | Start only the execution service |
+| `pnpm test` | Run the complete verification suite |
+| `pnpm test:execution` | Run execution-service tests |
+| `pnpm test:api` | Run API tests |
+| `pnpm test:web` | Run frontend presentation tests |
+| `pnpm test:release` | Run release-readiness tests |
+| `pnpm build` | Create the production frontend build |
+| `pnpm release:check` | Validate production configuration |
+
+## Testing
+
+Run the complete test suite:
+
+```cmd
+pnpm test
+```
+
+The suite validates:
+
+- Execution-trace integrity
+- State reconstruction
+- JavaScript, Python, Java, and SQL execution
+- Cross-language data structures and algorithms
+- API forwarding and request validation
+- Authentication and user-platform behaviour
+- Verified AI explanation boundaries
+- Practice Lab judging and hidden-test confidentiality
+- Frontend visualization and accessibility
+- Cross-language conformance
+- Production release-readiness contracts
+
+Build the production frontend:
+
+```cmd
+pnpm build
+```
+
+## Security and Execution Isolation
+
+The local execution service is intended for trusted development use.
+
+The platform includes:
+
+- Restricted-source validation
+- Execution timeout protection
+- Request rate limiting
+- Security headers
+- Production origin enforcement
+- Separate limits for execution, AI, and account operations
+- Request IDs and structured logs
+- Hidden practice-test confidentiality
+- Fail-closed production execution checks
+
+The included Docker configuration covers the web and API control plane. It does not treat the local execution process as a public sandbox.
+
+Public deployment of arbitrary code execution requires a separate isolated execution environment with confirmed:
+
+- Network isolation
+- Filesystem isolation
+- CPU limits
+- Memory limits
+- Process limits
+- Ephemeral workspaces
+
+The execution service refuses production execution when these controls are not attested.
+
+## Production Preparation
+
+Create the production environment file:
+
+```cmd
+copy deploy\production.env.example deploy\production.env
+```
+
+Replace every placeholder value and run:
+
+```cmd
+pnpm release:check
+```
+
+Refer to the deployment guide and release checklist before hosting the application.
 
 ## Documentation
 
-- [Technical architecture](docs/architecture.md)
-- [Phase 0 — Technical validation](docs/phase-0-summary.md)
-- [Phase 1 — Architecture foundation](docs/phase-1-summary.md)
-- [Phase 2 — Real JavaScript execution](docs/phase-2-summary.md)
-- [Phase 3 — Real Python execution](docs/phase-3-summary.md)
-- [Phase 4 — Real Java JDI execution](docs/phase-4-summary.md)
-- [Phase 5 — Real SQL and relational visualization](docs/phase-5-summary.md)
-- [Phase 6 — Cross-language data structures](docs/phase-6-summary.md)
-- [Phase 7 — Algorithms and algorithm closure](docs/phase-7-summary.md)
-- [Phase 8 — Core MVP completion](docs/phase-8-summary.md)
-- [Phase 9 — MERN user platform](docs/phase-9-summary.md)
-- [Phase 10 — AI, feedback, and reliability](docs/phase-10-summary.md)
-- [Phase 11 — Reliability, educational accessibility, and security](docs/phase-11-summary.md)
-- [Final Phase 12 — Practice platform and production closure](docs/phase-12-summary.md)
-- [Production deployment](docs/deployment.md)
-- [Final release checklist](docs/release-checklist.md)
+- [Technical Architecture](docs/architecture.md)
+- [Phase 0 — Technical Validation](docs/phase-0-summary.md)
+- [Phase 1 — Architecture Foundation](docs/phase-1-summary.md)
+- [Phase 2 — Real JavaScript Execution](docs/phase-2-summary.md)
+- [Phase 3 — Real Python Execution](docs/phase-3-summary.md)
+- [Phase 4 — Real Java JDI Execution](docs/phase-4-summary.md)
+- [Phase 5 — SQL and Relational Visualization](docs/phase-5-summary.md)
+- [Phase 6 — Cross-Language Data Structures](docs/phase-6-summary.md)
+- [Phase 7 — Algorithms and Algorithm Closure](docs/phase-7-summary.md)
+- [Phase 8 — Core MVP Completion](docs/phase-8-summary.md)
+- [Phase 9 — MERN User Platform](docs/phase-9-summary.md)
+- [Phase 10 — AI, Feedback and Reliability](docs/phase-10-summary.md)
+- [Phase 11 — Accessibility, Reliability and Security](docs/phase-11-summary.md)
+- [Final Phase 12 — Practice and Production Closure](docs/phase-12-summary.md)
+- [Production Deployment](docs/deployment.md)
+- [Final Release Checklist](docs/release-checklist.md)
+
+## Project Status
+
+CodeFlow Visualizer has completed all planned phases from Phase 0 through Final Phase 12.
+
+Current verification status:
+
+- Complete local test suite: Passed
+- Production frontend build: Passed
+- GitHub Actions verification: Passed
+- Java tracing standardized on Temurin JDK 17
+- Working tree and main branch synchronized
+
+## Author
+
+**Meganathan K**
+
+- GitHub: [meganathank-dev](https://github.com/meganathank-dev)
+- Repository: [codeflow-visualizer](https://github.com/meganathank-dev/codeflow-visualizer)
+
+---
+
+**Run It. Trace It. See It. Understand It.**
