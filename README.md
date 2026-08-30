@@ -4,9 +4,24 @@
 
 [![CodeFlow verification](https://github.com/meganathank-dev/codeflow-visualizer/actions/workflows/ci.yml/badge.svg)](https://github.com/meganathank-dev/codeflow-visualizer/actions/workflows/ci.yml)
 
+[![Launch CodeFlow](https://img.shields.io/badge/Live_Demo-Launch_CodeFlow-10b981?style=for-the-badge&logo=vercel&logoColor=white)](https://codeflow-visualizer-zeta.vercel.app/)
+
 CodeFlow Visualizer is an interactive multi-language execution visualization and learning platform. It executes real JavaScript, Python, Java, and SQL code, converts runtime behaviour into a standardized trace, and presents each execution step through synchronized visualizations.
 
 The platform is designed for students, teachers, programming learners, and developers who want to understand what happens internally when code runs.
+
+## Live Deployment
+
+| Component | Platform | Status |
+|---|---|---|
+| Web application | Vercel | [Open CodeFlow Visualizer](https://codeflow-visualizer-zeta.vercel.app/) |
+| API service | Render | [Health endpoint](https://codeflow-api-vfg0.onrender.com/api/health) |
+| Execution service | Render | Authenticated service-to-service runner |
+| User data | MongoDB Atlas | Persistent accounts, projects, history, and progress |
+| Verification | GitHub Actions | [View CI workflow](https://github.com/meganathank-dev/codeflow-visualizer/actions/workflows/ci.yml) |
+
+The Render services currently use free instances. After a period of inactivity,
+the first request can take up to about a minute while the services wake up.
 
 ## Application Showcase
 
@@ -180,6 +195,9 @@ Guest execution is available without an account. Signed-in users additionally re
 - pnpm workspace
 - GitHub Actions
 - Docker
+- Vercel frontend hosting
+- Render API and execution-service hosting
+- MongoDB Atlas
 - Nginx
 - Structured request logging
 - Release-readiness validation
@@ -369,6 +387,11 @@ pnpm build
 
 The local execution service is intended for trusted development use.
 
+The public portfolio deployment runs the API and execution service separately.
+The execution runner requires service-to-service authentication, and its secret
+is never exposed to the browser. The API remains responsible for source-policy
+validation, request rate limiting, timeout budgets, and execution forwarding.
+
 The platform includes:
 
 - Restricted-source validation
@@ -381,7 +404,9 @@ The platform includes:
 - Hidden practice-test confidentiality
 - Fail-closed production execution checks
 
-The included Docker configuration covers the web and API control plane. It does not treat the local execution process as a public sandbox.
+This authenticated restricted-demo mode is designed for a limited portfolio or
+classroom demonstration. It is not a production-grade multi-tenant sandbox for
+high-volume arbitrary untrusted code execution.
 
 Public deployment of arbitrary code execution requires a separate isolated execution environment with confirmed:
 
@@ -392,7 +417,9 @@ Public deployment of arbitrary code execution requires a separate isolated execu
 - Process limits
 - Ephemeral workspaces
 
-The execution service refuses production execution when these controls are not attested.
+The full production path fails closed when these controls are not attested.
+Restricted-demo execution must be enabled explicitly with matching API and
+execution-service credentials.
 
 ## Production Preparation
 
@@ -438,8 +465,11 @@ Current verification status:
 - Complete local test suite: Passed
 - Production frontend build: Passed
 - GitHub Actions verification: Passed
+- Public Vercel deployment: Live
+- Render API and authenticated execution services: Live
+- MongoDB Atlas persistence: Verified
+- JavaScript, Python, Java, and SQL production smoke tests: Passed
 - Java tracing standardized on Temurin JDK 17
-- Working tree and main branch synchronized
 
 ## Author
 
