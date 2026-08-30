@@ -57,6 +57,9 @@ function createExecutionClient(options) {
         ...requestOptions,
         headers: {
           "content-type": "application/json",
+          ...(options.serviceSecret
+            ? { authorization: `Bearer ${options.serviceSecret}` }
+            : {}),
           ...requestOptions.headers
         },
         signal: AbortSignal.timeout(options.requestTimeoutMs)
@@ -183,6 +186,10 @@ function createApiApp(options = {}) {
 
   const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const maximumSourceBytes = options.maximumSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES;
+  const executionServiceSecret = options.executionServiceSecret ||
+    process.env.EXECUTION_SERVICE_SECRET;
+  const allowRestrictedDemoExecution = options.allowRestrictedDemoExecution ??
+    process.env.EXECUTION_ALLOW_RESTRICTED_DEMO === "true";
 
   if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1) {
     throw new TypeError("requestTimeoutMs must be a positive integer");
@@ -192,9 +199,19 @@ function createApiApp(options = {}) {
     throw new TypeError("maximumSourceBytes must be a positive integer");
   }
 
+  if (
+    allowRestrictedDemoExecution &&
+    (typeof executionServiceSecret !== "string" || executionServiceSecret.length < 32)
+  ) {
+    throw new TypeError(
+      "EXECUTION_SERVICE_SECRET must contain at least 32 characters for restricted demo execution"
+    );
+  }
+
   const executionClient = createExecutionClient({
     executionServiceUrl,
-    requestTimeoutMs
+    requestTimeoutMs,
+    serviceSecret: executionServiceSecret
   });
 
   const explanationService = options.explanationService || createVerifiedExplanationService({
@@ -207,11 +224,18 @@ function createApiApp(options = {}) {
   async function executeWithIsolationGate(executionRequest) {
     if (production) {
       const health = await executionClient.request("/health");
-      if (
-        health.status !== 200 ||
-        health.body?.security?.productionSandboxAvailable !== true ||
-        health.body?.security?.acceptsUntrustedCode !== true
-      ) {
+      const productionSandboxReady = (
+        health.status === 200 &&
+        health.body?.security?.productionSandboxAvailable === true &&
+        health.body?.security?.acceptsUntrustedCode === true
+      );
+      const restrictedDemoReady = (
+        allowRestrictedDemoExecution &&
+        health.status === 200 &&
+        health.body?.security?.restrictedDemoAvailable === true &&
+        health.body?.security?.requiresServiceAuthentication === true
+      );
+      if (!productionSandboxReady && !restrictedDemoReady) {
         throw new ApiRequestError(
           "Production execution is unavailable until the isolated sandbox is verified",
           503,

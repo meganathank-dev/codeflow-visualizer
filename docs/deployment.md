@@ -16,6 +16,13 @@ The runner must independently enforce network and filesystem isolation, memory,
 CPU and process limits, and an ephemeral workspace. The local service fails
 closed when started with `NODE_ENV=production` without these capabilities.
 
+For a limited portfolio demonstration, the execution service can instead run
+with `EXECUTION_RESTRICTED_DEMO=true` and a 32+ character
+`EXECUTION_SERVICE_SECRET`. Configure the same secret on the API and set
+`EXECUTION_ALLOW_RESTRICTED_DEMO=true`. This authenticates the runner and keeps
+the public API rate limits in the request path, but it is not a substitute for
+the independently isolated production sandbox described above.
+
 ## Control-plane deployment
 
 1. Copy `deploy/production.env.example` to `deploy/production.env`.

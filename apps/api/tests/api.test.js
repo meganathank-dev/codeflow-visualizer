@@ -142,6 +142,44 @@ function createMockExecutionServer() {
   });
 }
 
+function createRestrictedDemoExecutionServer(secret) {
+  return http.createServer(async (request, response) => {
+    if (request.headers.authorization !== `Bearer ${secret}`) {
+      writeJson(response, 401, {
+        status: "error",
+        error: { code: "EXECUTION_SERVICE_AUTHENTICATION_REQUIRED" }
+      });
+      return;
+    }
+
+    if (request.method === "GET" && request.url === "/health") {
+      writeJson(response, 200, {
+        status: "ok",
+        security: {
+          productionSandboxAvailable: false,
+          acceptsUntrustedCode: false,
+          restrictedDemoAvailable: true,
+          requiresServiceAuthentication: true
+        }
+      });
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/execute") {
+      for await (const chunk of request) void chunk;
+      writeJson(response, 200, {
+        status: "ok",
+        executionStatus: "completed",
+        trace: { events: [{ type: "PROGRAM_END" }] },
+        states: [{}]
+      });
+      return;
+    }
+
+    writeJson(response, 404, { status: "error" });
+  });
+}
+
 async function requestJson(baseUrl, pathname, options = {}) {
   const response = await fetch(`${baseUrl}${pathname}`, {
     ...options,
@@ -355,8 +393,40 @@ async function runTests() {
       );
       assert.equal(blockedProductionExecution.status, 503);
       assert.equal(blockedProductionExecution.body.error.code, "PRODUCTION_SANDBOX_NOT_READY");
+
     } finally {
       await close(productionServer);
+    }
+
+    const restrictedSecret = "restricted-demo-secret-value-123456";
+    const restrictedExecutionServer = createRestrictedDemoExecutionServer(restrictedSecret);
+    const restrictedExecutionAddress = await listen(restrictedExecutionServer);
+    const restrictedApp = createApiApp({
+      environment: "production",
+      executionServiceUrl: `http://127.0.0.1:${restrictedExecutionAddress.port}`,
+      executionServiceSecret: restrictedSecret,
+      allowRestrictedDemoExecution: true,
+      accessTokenSecret: "a".repeat(40),
+      refreshTokenSecret: "b".repeat(40),
+      passwordResetDelivery: async () => {},
+      allowedOrigins: ["https://codeflow.example"]
+    });
+    const restrictedApiServer = http.createServer(restrictedApp);
+    const restrictedApiAddress = await listen(restrictedApiServer);
+    try {
+      const restrictedExecution = await requestJson(
+        `http://127.0.0.1:${restrictedApiAddress.port}`,
+        "/api/execute",
+        {
+          method: "POST",
+          body: JSON.stringify({ language: "javascript", source: "console.log('demo');" })
+        }
+      );
+      assert.equal(restrictedExecution.status, 200);
+      assert.equal(restrictedExecution.body.executionStatus, "completed");
+    } finally {
+      await close(restrictedApiServer);
+      await close(restrictedExecutionServer);
     }
 
     console.log("API tests passed.");
@@ -376,6 +446,7 @@ async function runTests() {
     console.log("Execution reliability metadata and timeout budget: passed");
     console.log("Security headers, origin policy, and request rate limiting: passed");
     console.log("Production sandbox forwarding gate: passed");
+    console.log("Authenticated restricted-demo execution boundary: passed");
     console.log("Execution boundary separation: passed");
   } finally {
     await close(apiServer);

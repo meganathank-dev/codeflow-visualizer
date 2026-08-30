@@ -1,6 +1,7 @@
 "use strict";
 
 const http = require("node:http");
+const { timingSafeEqual } = require("node:crypto");
 
 const {
   LANGUAGES,
@@ -68,6 +69,18 @@ function writeJson(response, statusCode, payload) {
   response.end(body);
 }
 
+function hasValidServiceSecret(request, serviceSecret) {
+  if (!serviceSecret) return true;
+  const authorization = request.headers.authorization || "";
+  const supplied = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length)
+    : "";
+  const expectedBuffer = Buffer.from(serviceSecret);
+  const suppliedBuffer = Buffer.from(supplied);
+  return expectedBuffer.length === suppliedBuffer.length &&
+    timingSafeEqual(expectedBuffer, suppliedBuffer);
+}
+
 function createLanguageCapabilities() {
   return SUPPORTED_LANGUAGES.map((language) => ({
     id: language,
@@ -116,6 +129,9 @@ function createHealthResponse(options = {}) {
   const environment = options.environment || process.env.NODE_ENV || "development";
   const isolation = normalizeIsolationCapabilities(options.sandboxCapabilities);
   const productionSandboxAvailable = hasProductionIsolation(isolation);
+  const restrictedDemoAvailable = options.restrictedDemo === true &&
+    typeof options.serviceSecret === "string" &&
+    options.serviceSecret.length >= 32;
 
   return {
     status: "ok",
@@ -135,7 +151,11 @@ function createHealthResponse(options = {}) {
     executionEnabledLanguages: [...EXECUTION_ENABLED_LANGUAGES],
     domains: [TRACE_DOMAINS.PROGRAM, TRACE_DOMAINS.QUERY],
     security: {
-      mode: productionSandboxAvailable ? "isolated-production-sandbox" : "local-trusted-development",
+      mode: productionSandboxAvailable
+        ? "isolated-production-sandbox"
+        : restrictedDemoAvailable
+          ? "authenticated-restricted-demo"
+          : "local-trusted-development",
       dedicatedExecutionProcess: true,
       dedicatedJavaScriptChildProcess: true,
       dedicatedPythonChildProcess: true,
@@ -144,6 +164,8 @@ function createHealthResponse(options = {}) {
       privateSqlDatabase: true,
       productionSandboxAvailable,
       acceptsUntrustedCode: environment === "production" && productionSandboxAvailable,
+      restrictedDemoAvailable,
+      requiresServiceAuthentication: Boolean(options.serviceSecret),
       ...isolation
     }
   };
@@ -327,6 +349,17 @@ async function handleExecution(request, response, options) {
 }
 
 async function handleRequest(request, response, options) {
+  if (!hasValidServiceSecret(request, options.serviceSecret)) {
+    writeJson(response, 401, {
+      status: "error",
+      error: {
+        code: "EXECUTION_SERVICE_AUTHENTICATION_REQUIRED",
+        message: "Execution service authentication is required."
+      }
+    });
+    return;
+  }
+
   const requestUrl = new URL(request.url, "http://127.0.0.1");
 
   if (request.method === "GET" && requestUrl.pathname === "/health") {
@@ -377,6 +410,8 @@ function createExecutionServer(options = {}) {
       maximumRequestBytes,
       environment: options.environment || process.env.NODE_ENV || "development",
       sandboxCapabilities: options.sandboxCapabilities,
+      serviceSecret: options.serviceSecret,
+      restrictedDemo: options.restrictedDemo,
       javascript: options.javascript || {},
       python: options.python || {},
       java: options.java || {},
@@ -425,8 +460,19 @@ function startExecutionServer(options = {}) {
 
   const resolvedOptions = {
     ...options,
-    environment: options.environment || process.env.NODE_ENV || "development"
+    environment: options.environment || process.env.NODE_ENV || "development",
+    serviceSecret: options.serviceSecret || process.env.EXECUTION_SERVICE_SECRET,
+    restrictedDemo: options.restrictedDemo ??
+      process.env.EXECUTION_RESTRICTED_DEMO === "true"
   };
+  if (
+    resolvedOptions.restrictedDemo &&
+    (typeof resolvedOptions.serviceSecret !== "string" || resolvedOptions.serviceSecret.length < 32)
+  ) {
+    throw new TypeError(
+      "EXECUTION_SERVICE_SECRET must contain at least 32 characters for restricted demo execution."
+    );
+  }
   const server = createExecutionServer(resolvedOptions);
   const health = createHealthResponse(resolvedOptions);
 
