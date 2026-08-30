@@ -45,6 +45,7 @@ import {
 const INITIAL_LANGUAGE = "javascript";
 const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
 const INITIAL_BACKEND_CHECK_DELAY = 900;
+const BACKEND_WAKING_MESSAGE = "Backend services are waking up. This may take up to 60 seconds.";
 const LIVE_EXECUTION_LANGUAGES = Object.freeze([
   "javascript",
   "python",
@@ -411,7 +412,7 @@ export default function App() {
         if (!readiness.ready) {
           setBackendStatus("offline");
           const unavailable = new Error(
-            "Execution services are still starting. Keep pnpm dev running, wait a moment, and try again."
+            BACKEND_WAKING_MESSAGE
           );
           unavailable.code = "EXECUTION_SERVICE_UNAVAILABLE";
           throw unavailable;
@@ -596,12 +597,8 @@ export default function App() {
   }
 
   function getBackendStatusLabel() {
-    if (backendStatus === "checking") {
-      return "Checking local services...";
-    }
-
     if (backendStatus !== "connected") {
-      return "Services offline";
+      return "Services waking";
     }
 
     if (!canExecuteLive) {
@@ -628,6 +625,11 @@ export default function App() {
     : canExecuteLive
       ? "ready"
       : "preview";
+
+  const activeNotification = notification || (
+    backendStatus !== "connected" ? BACKEND_WAKING_MESSAGE : ""
+  );
+  const canDismissNotification = Boolean(notification);
 
   return (
     <div className={`${isPlaying ? "app-shell is-running" : "app-shell"} display-${displayMode}`}>
@@ -675,18 +677,20 @@ export default function App() {
           </div>
         </div>
 
-        {notification && (
+        {activeNotification && (
           <div className="workspace-notification" role="status">
             <AlertCircle size={17} />
-            <span>{notification}</span>
+            <span>{activeNotification}</span>
 
-            <button
-              type="button"
-              onClick={() => setNotification("")}
-              aria-label="Dismiss notification"
-            >
-              <X size={16} />
-            </button>
+            {canDismissNotification && (
+              <button
+                type="button"
+                onClick={() => setNotification("")}
+                aria-label="Dismiss notification"
+              >
+                <X size={16} />
+              </button>
+            )}
           </div>
         )}
 
