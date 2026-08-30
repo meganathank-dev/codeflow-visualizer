@@ -38,6 +38,7 @@ function AuthPanel({ onAuthenticated, initialResetToken = "", onPasswordResetCom
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busySeconds, setBusySeconds] = useState(0);
 
   useEffect(() => {
     if (!initialResetToken) return;
@@ -46,6 +47,21 @@ function AuthPanel({ onAuthenticated, initialResetToken = "", onPasswordResetCom
     setError("");
     setNotice("");
   }, [initialResetToken]);
+
+  useEffect(() => {
+    if (!busy) {
+      setBusySeconds(0);
+      return undefined;
+    }
+
+    const startedAt = Date.now();
+    const updateElapsed = () => {
+      setBusySeconds(Math.floor((Date.now() - startedAt) / 1_000));
+    };
+    updateElapsed();
+    const intervalId = window.setInterval(updateElapsed, 1_000);
+    return () => window.clearInterval(intervalId);
+  }, [busy]);
 
   function changeMode(nextMode) {
     setMode(nextMode);
@@ -56,6 +72,7 @@ function AuthPanel({ onAuthenticated, initialResetToken = "", onPasswordResetCom
 
   async function submit(event) {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -86,6 +103,11 @@ function AuthPanel({ onAuthenticated, initialResetToken = "", onPasswordResetCom
       setBusy(false);
     }
   }
+
+  const backendIsWaking = busy && busySeconds >= 3;
+  const busyLabel = backendIsWaking
+    ? `Waking backend… ${busySeconds}s`
+    : "Connecting…";
 
   return (
     <div className="platform-auth-layout">
@@ -141,7 +163,12 @@ function AuthPanel({ onAuthenticated, initialResetToken = "", onPasswordResetCom
         {(mode === "register" || mode === "reset") && <small>Use uppercase, lowercase, a number, and at least 8 characters.</small>}
         {error && <div className="platform-inline-error" role="alert">{error}</div>}
         {notice && <div className="platform-form-message" role="status">{notice}</div>}
-        <button className="platform-submit" disabled={busy}>{busy ? "Please wait…" : mode === "register" ? "Create account" : mode === "forgot" ? "Create reset instruction" : mode === "reset" ? "Reset password" : "Sign in"}</button>
+        {backendIsWaking && (
+          <div className="platform-form-message" role="status" aria-live="polite">
+            Backend is waking up. This may take up to 60 seconds. Your sign-in will continue automatically.
+          </div>
+        )}
+        <button className="platform-submit" disabled={busy}>{busy ? busyLabel : mode === "register" ? "Create account" : mode === "forgot" ? "Create reset instruction" : mode === "reset" ? "Reset password" : "Sign in"}</button>
         <div className="platform-auth-links">
           {mode === "login" && <button type="button" onClick={() => changeMode("forgot")}>Forgot password?</button>}
           {mode === "login" && <span>Don&apos;t have an account? <button type="button" onClick={() => changeMode("register")}>Create account</button></span>}

@@ -39,12 +39,13 @@ import {
 } from "./utils/display-preferences";
 import {
   fetchWithUserSession,
-  restoreUserSession
+  restoreUserSession,
+  warmUserPlatformApi
 } from "./utils/user-platform-api";
 
 const INITIAL_LANGUAGE = "javascript";
 const BACKEND_STATUS_REFRESH_INTERVAL = 5_000;
-const INITIAL_BACKEND_CHECK_DELAY = 900;
+const INITIAL_BACKEND_CHECK_DELAY = 0;
 const BACKEND_WAKING_MESSAGE = "Backend services are waking up. This may take up to 60 seconds.";
 const PASSWORD_RESET_TOKEN_PARAM = "token";
 const LIVE_EXECUTION_LANGUAGES = Object.freeze([
@@ -143,6 +144,10 @@ export default function App() {
       requestInProgress = true;
 
       try {
+        // Share the first wake-up request with authentication so a sign-in
+        // does not start a second cold request while Render is booting.
+        await warmUserPlatformApi();
+
         const response = await fetch("/api/health", {
           headers: { accept: "application/json" }
         });

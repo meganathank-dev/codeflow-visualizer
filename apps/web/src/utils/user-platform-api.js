@@ -1,6 +1,44 @@
 import { readJsonResponse } from "./http-response.js";
 
 let accessToken = null;
+let apiWarmupPromise = null;
+
+const TRANSIENT_AUTH_STATUSES = new Set([502, 503, 504]);
+
+function wait(delayMs) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+export function isTransientAuthError(error) {
+  return error?.name === "TypeError" || TRANSIENT_AUTH_STATUSES.has(error?.status);
+}
+
+export async function warmUserPlatformApi({ force = false } = {}) {
+  if (apiWarmupPromise && !force) return apiWarmupPromise;
+
+  const request = (async () => {
+    try {
+      // Any HTTP response means the API process has answered. A 502 can still
+      // describe the separate execution service while authentication is ready.
+      await fetch("/api/health", {
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { accept: "application/json" }
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  apiWarmupPromise = request;
+
+  try {
+    return await request;
+  } finally {
+    if (apiWarmupPromise === request) apiWarmupPromise = null;
+  }
+}
 
 function authorizationHeaders() {
   return accessToken ? { authorization: `Bearer ${accessToken}` } : {};
@@ -10,7 +48,10 @@ async function parseResponse(response, label) {
   if (response.status === 204) return null;
   const result = await readJsonResponse(response, label);
   if (!response.ok || result.status !== "ok") {
-    throw new Error(result.error?.message || `${label} failed.`);
+    const error = new Error(result.error?.message || `${label} failed.`);
+    error.status = response.status;
+    error.code = result.error?.code || "REQUEST_FAILED";
+    throw error;
   }
   return result;
 }
@@ -101,10 +142,27 @@ export const userPlatformApi = {
   },
 
   async login(input) {
-    const result = await request("/api/auth/login", {
+    const loginOnce = () => request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify(input)
     }, false);
+
+    // Join the proactive page-load wake-up before submitting credentials.
+    await warmUserPlatformApi();
+
+    let result;
+    try {
+      result = await loginOnce();
+    } catch (error) {
+      if (!isTransientAuthError(error)) throw error;
+
+      // A gateway timeout during a Render cold start is safe to retry once for
+      // login. Credential errors and all non-idempotent auth actions are not retried.
+      await wait(750);
+      await warmUserPlatformApi({ force: true });
+      result = await loginOnce();
+    }
+
     accessToken = result.accessToken;
     return result.user;
   },

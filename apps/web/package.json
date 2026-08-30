@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
-    "test": "node tests/execution-presentation.test.js",
+    "test": "node tests/execution-presentation.test.js && node tests/user-platform-api.test.js",
     "preview": "vite preview --host 127.0.0.1"
   },
   "engines": {
