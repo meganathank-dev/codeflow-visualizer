@@ -31,7 +31,8 @@ import {
 import {
   createExecutionFailure,
   getExecutionStage,
-  waitForBackendReady
+  waitForBackendReady,
+  wakeExecutionService
 } from "./utils/execution-reliability";
 import {
   readDisplayMode,
@@ -144,9 +145,12 @@ export default function App() {
       requestInProgress = true;
 
       try {
-        // Share the first wake-up request with authentication so a sign-in
-        // does not start a second cold request while Render is booting.
-        await warmUserPlatformApi();
+        // Wake both Render services in parallel. The direct opaque request
+        // starts the execution instance without exposing its service secret.
+        await Promise.all([
+          warmUserPlatformApi(),
+          wakeExecutionService()
+        ]);
 
         const response = await fetch("/api/health", {
           headers: { accept: "application/json" }

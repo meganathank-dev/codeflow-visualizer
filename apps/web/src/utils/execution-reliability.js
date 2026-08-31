@@ -1,3 +1,40 @@
+const DEFAULT_PUBLIC_EXECUTION_WAKE_URL =
+  "https://codeflow-visualizer-g2f2.onrender.com/health";
+
+let executionWakeupPromise = null;
+
+export async function wakeExecutionService(
+  wakeUrl = import.meta.env?.VITE_EXECUTION_WAKE_URL || DEFAULT_PUBLIC_EXECUTION_WAKE_URL
+) {
+  if (!wakeUrl) return false;
+  if (executionWakeupPromise) return executionWakeupPromise;
+
+  const request = (async () => {
+    try {
+      // The execution service requires API-to-service authentication. A simple
+      // no-cors GET still reaches Render and starts the sleeping instance, but
+      // its opaque response does not expose protected service information.
+      await fetch(wakeUrl, {
+        method: "GET",
+        mode: "no-cors",
+        cache: "no-store",
+        credentials: "omit"
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  executionWakeupPromise = request;
+
+  try {
+    return await request;
+  } finally {
+    if (executionWakeupPromise === request) executionWakeupPromise = null;
+  }
+}
+
 const FRIENDLY_EXECUTION_ERRORS = Object.freeze({
   EXECUTION_TIMEOUT: "The program exceeded its safe language timeout. Check for an infinite loop, excessive recursion, or unusually large work before trying again.",
   EXECUTION_SERVICE_TIMEOUT: "The execution service did not finish in time. The process was stopped safely; wait for service readiness and try once more.",
